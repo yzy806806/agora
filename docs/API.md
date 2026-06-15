@@ -1475,3 +1475,92 @@ Phase 13 新增端点拆分为独立文档（遵守 80 行约束）：
 | `pipeline_already_running` | 项目已有运行中的 pipeline |
 | `invalid_metric` | 无效的指标名称 |
 | `notification_not_found` | 通知不存在 |
+| `workspace_not_initialized` | Workspace 服务未初始化 (Phase 14) |
+| `workspace_file_locked` | 文件被其他 Agent 锁定 (Phase 14) |
+| `workspace_lock_conflict` | 锁冲突，无法获取 (Phase 14) |
+| `workspace_dir_not_empty` | 目录非空，无法删除 (Phase 14) |
+
+## Phase 14: Workspace API
+
+Phase 14 新增端点拆分为独立文档（遵守 80 行约束）：
+
+| 文档 | 端点 |
+|------|------|
+| [API-phase14-workspace.md](API-phase14-workspace.md) | Workspace API (文件/目录/锁/批量读写) |
+
+### Workspace RBAC 权限
+
+| 权限 | 说明 | 包含 |
+|------|------|------|
+| `workspace:read` | 读取文件/目录/锁状态 | — |
+| `workspace:write` | 写入文件、创建目录、获取锁 | 包含 `workspace:read` |
+| `workspace:admin` | 删除文件/目录、释放锁 | 包含 `write` + `read` |
+
+### Workspace WebSocket 消息
+
+Phase 14 新增 WS 消息类型（服务端→客户端广播）：
+
+#### WORKSPACE_FILE_CHANGED — 文件变更通知
+
+```json
+{
+  "type": "WORKSPACE_FILE_CHANGED",
+  "payload": {
+    "project_id": "p1",
+    "path": "src/main.py",
+    "agent_id": "agent-1",
+    "version": 3
+  }
+}
+```
+
+#### WORKSPACE_LOCK_ACQUIRED — 锁获取通知
+
+```json
+{
+  "type": "WORKSPACE_LOCK_ACQUIRED",
+  "payload": {
+    "project_id": "p1",
+    "path": "src/main.py",
+    "lock_type": "write",
+    "held_by": "agent-1"
+  }
+}
+```
+
+#### WORKSPACE_LOCK_RELEASED — 锁释放通知
+
+```json
+{
+  "type": "WORKSPACE_LOCK_RELEASED",
+  "payload": {
+    "project_id": "p1",
+    "path": "src/main.py",
+    "held_by": "agent-1"
+  }
+}
+```
+
+#### WORKSPACE_LOCK_EXPIRED — 锁过期警告（发给锁持有者）
+
+```json
+{
+  "type": "WORKSPACE_LOCK_EXPIRED",
+  "payload": {
+    "lock_id": "lock-uuid",
+    "path": "src/main.py",
+    "project_id": "p1"
+  }
+}
+```
+
+### 新增 Hook 点（planned — 尚未实现）
+
+| HookPoint | 触发时机 | HookContext 字段 |
+|-----------|---------|-----------------|
+| `workspace.file_written` | 文件写入 | project_id, path, agent_id, version |
+| `workspace.file_deleted` | 文件删除 | project_id, path, agent_id |
+| `workspace.dir_created` | 目录创建 | project_id, path, agent_id |
+| `workspace.dir_removed` | 目录删除 | project_id, path, agent_id |
+| `workspace.lock_acquired` | 锁获取 | project_id, path, lock_type, agent_id |
+| `workspace.lock_released` | 锁释放 | project_id, path, lock_id |

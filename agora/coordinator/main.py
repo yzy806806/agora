@@ -76,6 +76,15 @@ from .notification_router import init_notification_router_deps
 # Phase 13.1e: Pipeline REST API
 from .pipeline_router import router as pipeline_router
 from .pipeline_router import init_pipeline_router_deps
+# Phase 14.3a: Workspace REST API
+from .workspace.workspace_router import router as workspace_router
+from .workspace.workspace_router_read import router_read as workspace_router_read
+from .workspace.workspace_router_dirs import router_dirs as workspace_router_dirs
+from .workspace.workspace_router_locks import router_locks as workspace_router_locks
+from .workspace.workspace_router_bulk import router_bulk as workspace_router_bulk
+from .workspace.workspace_router import init_workspace_router_deps
+from .workspace.backend import get_storage_backend
+from .workspace.manager import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +162,18 @@ async def lifespan(app: FastAPI):
     init_notification_router_deps(storage)
     # Phase 13.1e: Pipeline router deps
     init_pipeline_router_deps(storage)
+    # Phase 14.3a: Workspace manager + router init
+    ws_config = {
+        "backend": getattr(settings, "workspace_backend", "local"),
+        "local": {"root": getattr(settings, "workspace_root", "./data/workspaces")},
+    }
+    ws_backend = get_storage_backend(ws_config)
+    ws_manager = WorkspaceManager(settings.db_path, ws_backend)
+    init_workspace_router_deps(ws_manager)
+    app.state.ws_manager = ws_manager
+    # Phase 14.4a: Wire WS broadcast for workspace events
+    from .workspace.ws_messages import init_ws_messages
+    init_ws_messages(manager.broadcast)
     # Phase 13.3a: Metrics history deps
     init_metrics_history_deps(storage)
     # Phase 10.1: Parallel execution coordinator
@@ -247,6 +268,14 @@ def create_app() -> FastAPI:
     app.include_router(notification_router, prefix="/api/v1")
     app.include_router(pipeline_router, prefix="/api/v1")
     app.include_router(metrics_history_router, prefix="/api/v1")
+    # Phase 14.3a: Workspace REST API
+    app.include_router(workspace_router, prefix="/api/v1")
+    app.include_router(workspace_router_read, prefix="/api/v1")
+    # Phase 14.3b: Workspace dir + lock endpoints
+    app.include_router(workspace_router_dirs, prefix="/api/v1")
+    app.include_router(workspace_router_locks, prefix="/api/v1")
+    # Phase 14.3c: Workspace bulk endpoints (pull/push)
+    app.include_router(workspace_router_bulk, prefix="/api/v1")
     # Phase 13.7b: Health check (no auth, for Docker healthcheck)
     app.include_router(health_router, prefix="/api/v1")
     app.add_api_websocket_route("/ws/{agent_id}", websocket_endpoint)

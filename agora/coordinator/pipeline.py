@@ -40,6 +40,7 @@ class PipelineOrchestrator:
         bootstrap_engine: Any, parallel_coordinator: Any,
         retry_policy: Optional[PipelineRetryPolicy] = None,
         notification_manager: Any = None,
+        workspace_manager: Any = None,
     ) -> None:
         self.storage = storage
         self.hub = hub
@@ -47,6 +48,7 @@ class PipelineOrchestrator:
         self.parallel = parallel_coordinator
         self.retry_policy = retry_policy or PipelineRetryPolicy()
         self.notification_manager = notification_manager
+        self.workspace_manager = workspace_manager
         self.pipelines: dict[str, PipelineRun] = {}
 
     async def run(self, idea: str, project_id: str) -> PipelineRun:

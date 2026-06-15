@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 async def trigger_release(
     hub: Any, graph_result: dict, project_id: str,
-    review_summary: str = "",
+    review_summary: str = "", workspace_paths: list[str] | None = None,
 ) -> str:
     """Phase: RELEASING — trigger the releaser agent.
 
@@ -35,7 +35,9 @@ async def trigger_release(
         releaser_id = await find_release_agent(hub)
         if not releaser_id:
             raise ReleaseFailedError("No release agent online")
-        request = _build_request(graph_result, project_id, review_summary)
+        request = _build_request(
+            graph_result, project_id, review_summary, workspace_paths,
+        )
         sent = await _dispatch_release(hub, releaser_id, request)
         if not sent:
             raise ReleaseFailedError(f"Cannot reach releaser {releaser_id}")
@@ -49,6 +51,7 @@ async def trigger_release(
 
 def _build_request(
     graph_result: dict, project_id: str, review_summary: str,
+    workspace_paths: list[str] | None = None,
 ) -> ReleaseRequest:
     """Build a ReleaseRequest from graph result."""
     return ReleaseRequest(
@@ -57,6 +60,7 @@ def _build_request(
         graph_id=graph_result.get("id", ""),
         changed_files=graph_result.get("changed_files", []),
         review_summary=review_summary,
+        workspace_paths=workspace_paths or [],
     )
 
 

@@ -47,6 +47,7 @@ def test_task_node_defaults():
     assert node.required_capabilities == []
     assert node.depends_on == []
     assert node.artifact_paths == []
+    assert node.workspace_paths == []
     assert node.error_message is None
     assert node.started_at is None
     assert node.completed_at is None

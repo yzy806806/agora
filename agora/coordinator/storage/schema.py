@@ -1,6 +1,6 @@
 """SQL schema definitions for the Agora Coordinator database."""
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 16
 
 SCHEMA_SQL = """\
 PRAGMA foreign_keys = ON;
@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     required_capabilities TEXT,
     depends_on TEXT,
     artifact_paths TEXT,
+    workspace_paths TEXT DEFAULT '[]',
     error_message TEXT,
     created_at TEXT NOT NULL,
     started_at TEXT,
@@ -385,6 +386,44 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
 CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type);
+
+-- Phase 14: Workspace file_nodes + file_locks
+
+CREATE TABLE IF NOT EXISTS file_nodes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    file_type TEXT NOT NULL DEFAULT 'file',
+    parent_path TEXT,
+    size INTEGER NOT NULL DEFAULT 0,
+    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    checksum_sha256 TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(project_id, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_nodes_project ON file_nodes(project_id);
+CREATE INDEX IF NOT EXISTS idx_file_nodes_parent ON file_nodes(project_id, parent_path);
+CREATE INDEX IF NOT EXISTS idx_file_nodes_type ON file_nodes(project_id, file_type);
+
+CREATE TABLE IF NOT EXISTS file_locks (
+    id TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    lock_type TEXT NOT NULL DEFAULT 'write',
+    held_by TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (file_id) REFERENCES file_nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_locks_path ON file_locks(project_id, path);
+CREATE INDEX IF NOT EXISTS idx_file_locks_holder ON file_locks(held_by);
 """
 MIGRATION_6_TO_7 = [
     "ALTER TABLE agents ADD COLUMN agent_type TEXT DEFAULT 'hermes';",
@@ -569,6 +608,52 @@ MIGRATION_12_TO_13 = [
     "CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id);",
     "CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);",
     "CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type);",
+]
+
+# Phase 14: Workspace file_nodes + file_locks tables (schema 14 → 15)
+MIGRATION_14_TO_15 = [
+    """CREATE TABLE IF NOT EXISTS file_nodes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    file_type TEXT NOT NULL DEFAULT 'file',
+    parent_path TEXT,
+    size INTEGER NOT NULL DEFAULT 0,
+    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    checksum_sha256 TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(project_id, path)
+);""",
+    "CREATE INDEX IF NOT EXISTS idx_file_nodes_project "
+    "ON file_nodes(project_id);",
+    "CREATE INDEX IF NOT EXISTS idx_file_nodes_parent "
+    "ON file_nodes(project_id, parent_path);",
+    "CREATE INDEX IF NOT EXISTS idx_file_nodes_type "
+    "ON file_nodes(project_id, file_type);",
+    """CREATE TABLE IF NOT EXISTS file_locks (
+    id TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    lock_type TEXT NOT NULL DEFAULT 'write',
+    held_by TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (file_id) REFERENCES file_nodes(id) ON DELETE CASCADE
+);""",
+    "CREATE INDEX IF NOT EXISTS idx_file_locks_path "
+    "ON file_locks(project_id, path);",
+    "CREATE INDEX IF NOT EXISTS idx_file_locks_holder "
+    "ON file_locks(held_by);",
+]
+
+# Phase 14.5b: Add workspace_paths column to tasks (schema 15 → 16)
+MIGRATION_15_TO_16 = [
+    "ALTER TABLE tasks ADD COLUMN workspace_paths TEXT DEFAULT '[]';",
 ]
 
 # Default RBAC roles to seed on fresh DB

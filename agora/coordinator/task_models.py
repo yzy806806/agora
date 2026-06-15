@@ -40,6 +40,7 @@ class TaskNode(BaseModel):
     required_capabilities: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
     artifact_paths: list[str] = Field(default_factory=list)
+    workspace_paths: list[str] = Field(default_factory=list)
     error_message: Optional[str] = None
     retry_count: int = 0  # Phase 10.1e: how many times retried
     created_at: datetime = Field(

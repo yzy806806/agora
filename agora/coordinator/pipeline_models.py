@@ -38,6 +38,7 @@ class PipelineRun(BaseModel):
     review_outcome: Optional[str] = None  # "approved" | "changes_requested"
     release_version: Optional[str] = None
     error: Optional[str] = None
+    workspace_paths: list[str] = Field(default_factory=list)
 
 
 class PipelineStartRequest(BaseModel):

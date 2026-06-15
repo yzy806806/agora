@@ -18,7 +18,7 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 2. ✅ 并行任务执行 + RBAC + 插件 (Phase 10) — v0.10.0
 3. ✅ Web Dashboard (Phase 11) — v0.11.0
 4. ✅ Multi-platform Agent Integration (Phase 12) — v0.12.0
-5. ✅ Full-auto Dev Loop + Dashboard Enhancement (Phase 13) — 全部审查通过，待发布 v0.13.0
+5. ✅ Full-auto Dev Loop + Dashboard Enhancement (Phase 13) — v0.13.0 已发布
 6. 🔴 Shared Workspace — 多 Agent 分布式协作工作区 (Phase 14 最高优先级)
 7. 🔮 Horizontal Scaling + Postgres (Phase 14+)
 8. 🔮 Kubernetes / 分布式部署 (Phase 15+)
@@ -30,7 +30,7 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - Phase 11: Web Dashboard (v0.11.0, 923/926 tests)
 - Phase 12: Python/Node SDK + Hermes/CLI Bridge + Session 持久化 (v0.12.0, 935 tests)
 
-## Phase 13: ✅ Full-auto Dev Loop + Dashboard Enhancement（全部审查通过，待发布 v0.13.0）
+## Phase 13: ✅ Full-auto Dev Loop + Dashboard Enhancement（v0.13.0 已发布）
 ### 目标
 
 1. **全自动化开发闭环 E2E** — 用户设想 → 讨论 → 任务分解 → 并行开发 → 代码审查 → 发布
@@ -57,7 +57,7 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - Go/Rust SDK 是薄封装，Docker Bridge 已支持任何语言
 - Docker Compose 生产部署，适合 ~50 agents 规模
 
-## Phase 14: 🔴 Shared Workspace（最高优先级）
+## Phase 14: 🟡 Shared Workspace（代码+审查全部完成，v0.14.0 发布中）
 
 ### 目标
 让多 agent 不管在哪台机器上，都能读写同一套项目文件。这是分布式 agent 协作的前提条件。

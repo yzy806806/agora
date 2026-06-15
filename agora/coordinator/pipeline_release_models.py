@@ -17,6 +17,7 @@ class ReleaseRequest(BaseModel):
     graph_id: str
     changed_files: list[str] = Field(default_factory=list)
     review_summary: str = ""
+    workspace_paths: list[str] = Field(default_factory=list)
 
 
 class ReleaseResult(BaseModel):

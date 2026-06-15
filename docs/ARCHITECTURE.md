@@ -1,6 +1,6 @@
 # Agora 架构文档
 
-> 版本: v0.13.0 | 最后更新: 2026-06-12
+> 版本: v0.13.0 | 最后更新: 2026-06-15
 
 ## 整体架构
 
@@ -49,6 +49,10 @@
                     │  ┌───────────┐ ┌───────────────┐  │
                     │  │ Pipeline  │ │ Notification   │  │
                     │  │ Orchestr. │ │ Manager        │  │
+                    │  └───────────┘ └───────────────┘  │
+                    │  ┌───────────┐ ┌───────────────┐  │
+                    │  │ Workspace │ │ Workspace     │  │
+                    │  │ Manager   │ │ REST/WS API   │  │
                     │  └───────────┘ └───────────────┘  │
                     │  ┌───────────────────────────┐    │
                     │  │ Storage (SQLite)          │    │
@@ -211,6 +215,26 @@ agora/
 │   │   ├── pipeline_router.py # Pipeline REST API (Phase 13)
 │   │   ├── pipeline_review.py # Code review phase (Phase 13)
 │   │   ├── notifications.py # NotificationManager (Phase 13)
+│   │   ├── workspace/       # 共享工作区 (Phase 14)
+│   │   │   ├── __init__.py  # Workspace 入口
+│   │   │   ├── models.py    # FileNode + FileLock 模型
+│   │   │   ├── backend.py   # StorageBackend ABC
+│   │   │   ├── local_backend.py # LocalFileBackend
+│   │   │   ├── s3_backend.py    # S3Backend (MinIO/AWS)
+│   │   │   ├── manager_base.py  # DB helpers (shared)
+│   │   │   ├── manager.py       # WorkspaceManager (write)
+│   │   │   ├── manager_ops.py   # WorkspaceManagerDirOps
+│   │   │   ├── manager_dirs.py  # mkdir/rmdir
+│   │   │   ├── manager_bulk.py  # pull_files/push_files
+│   │   │   ├── manager_helpers.py # ReadOps mixin
+│   │   │   ├── lock_manager.py   # LockManager
+│   │   │   ├── ws_messages.py    # WS event emitters
+│   │   │   ├── workspace_router.py # REST API (write)
+│   │   │   ├── workspace_router_read.py # REST (read/stat)
+│   │   │   ├── workspace_router_dirs.py # REST (dirs)
+│   │   │   ├── workspace_router_locks.py # REST (locks)
+│   │   │   ├── workspace_router_bulk.py  # REST (pull/push)
+│   │   │   └── workspace_router_helpers.py # Shared deps
 │   │   ├── notification_models.py # Notification model (Phase 13)
 │   │   ├── notification_router.py # Notification REST API (Phase 13)
 │   │   ├── health.py        # Health check endpoint (Phase 13)
@@ -227,7 +251,7 @@ agora/
 │       ├── config.py        # 客户端配置
 │       ├── rate_limit.py    # 客户端速率限制 (Phase 9.4)
 │       └── ws_pool.py       # WS 连接池 + 自动重连
-├── tests/                   # 测试（70+ 文件，62+ 测试全部通过）
+├── tests/                   # 测试（183 文件，1319 测试全部通过）
 └── docs/                    # 设计文档
 ```
 
@@ -251,6 +275,7 @@ agora/
 || 10.3 | 插件生态 | plugin, plugin_manager, plugin_discovery, plugin_sandbox, plugin_extensions | Hook 系统 + 入口点发现 + 沙箱隔离 ||
 || 12 | 多平台 Agent 集成 | packages/agora-agent-sdk, packages/hermes-bridge, packages/cli-bridge, packages/agora-agent-sdk-js | Agent SDK + Hermes/CLI Bridge + Node.js SDK + Session 持久化 ||
 || 13 | 全自动开发循环 + Dashboard 增强 | pipeline*, notifications*, dashboard_ws, health, charts.js, ws_client.js, docker-compose.prod.yaml | Pipeline Orchestrator + WS Push + Charts + Notifications + Go/Rust SDK + 生产部署 ||
+|| 14 | 共享工作区 | workspace/* | 虚拟文件系统 + 可插拔存储后端 + 文件锁 + 批量操作 + Pipeline 集成 ||
 
 ## 模块关系图
 
@@ -363,6 +388,11 @@ draft ──(start)──→ discussing ──(start_voting)──→ voting ─
 25. **Docker Compose 用于生产部署**：单实例 + 健康检查 + 资源限制，~50 agents 足够；K8s 此阶段过度
 26. **Notification 存储在 SQLite**：同库同备份策略，此规模无需独立消息队列
 27. **Feedback Loop 复用 Session 持久化**：Pipeline 完成后 session record + artifacts 使下次迭代可学习，无需独立学习引擎
+28. **元数据在 SQLite，内容在后端**：Workspace 将文件元数据（路径/大小/校验和/版本）存于 SQLite，文件字节存于可插拔 StorageBackend（LocalFileBackend 或 S3Backend），兼顾查询性能与存储扩展性
+29. **路径优先 API**：Agent 思考方式是文件路径（"src/main.py"），Workspace API 直接使用路径而非 UUID，project_id 作为命名空间隔离
+30. **读写锁语义**：读锁共享（多读者），写锁排他（单写者无读者）。写锁在 write_file/delete_file 时强制检查，读锁为建议性。锁 TTL 自动过期防死锁
+31. **本地后端为默认**：零配置单机部署；S3 后端用于多主机分布式场景
+32. **Bulk pull/push 优化任务流程**：最常见的模式是"任务开始拉取文件，任务结束推送变更"，批量端点优化此模式
 
 ## Phase 9.1: 平台独立化
 
@@ -705,3 +735,161 @@ User Idea → DISCUSSING → DECOMPOSING → EXECUTING → REVIEWING → RELEASI
 ### 生产部署
 
 `docker-compose.prod.yaml` 提供单实例部署模板：coordinator + 可选 hermes-bridge，含健康检查、资源限制、RBAC 强制。详见 [ARCHITECTURE-phase13-deploy.md](ARCHITECTURE-phase13-deploy.md)。
+
+## Phase 14: 共享工作区
+
+详细设计见 [DESIGN-phase14-workspace.md](DESIGN-phase14-workspace.md)。
+
+### 架构概览
+
+```
+┌──────────────────────────────────────────────────┐
+│                  Agora Coordinator                │
+│  ┌─────────────┐  ┌──────────────┐               │
+│  │ Workspace   │  │ Workspace    │               │
+│  │ REST API    │  │ WS Messages  │               │
+│  └──────┬──────┘  └──────┬───────┘               │
+│  ┌──────▼────────────────▼───────┐               │
+│  │     WorkspaceManager          │               │
+│  │  - file CRUD + metadata       │               │
+│  │  - directory tree             │               │
+│  │  - file locking               │               │
+│  │  - bulk pull/push             │               │
+│  └──────────────┬────────────────┘               │
+│  ┌──────────────▼────────────────┐               │
+│  │     StorageBackend (ABC)      │               │
+│  │  - LocalFileBackend           │               │
+│  │  - S3Backend (MinIO/AWS)      │               │
+│  └──────────────┬────────────────┘               │
+│  ┌──────────────▼────────────────┐               │
+│  │     SQLite (metadata only)    │               │
+│  │  - file_nodes table           │               │
+│  │  - file_locks table           │               │
+│  └───────────────────────────────┘               │
+└──────────────────────────────────────────────────┘
+```
+
+核心原则：**元数据在 SQLite，内容在后端**。数据库存路径/大小/校验和/版本/锁状态，文件字节存于 StorageBackend。
+
+### 数据模型
+
+- **FileNode**: id, project_id, path, name, file_type(file|directory), parent_path, size, content_type, checksum_sha256, created_by, created_at, updated_at, version
+- **FileLock**: id, file_id, project_id, path, lock_type(read|write), held_by, acquired_at, expires_at
+- SQLite 表: `file_nodes` (UNIQUE project_id+path), `file_locks` (FK→file_nodes, CASCADE)
+
+### StorageBackend ABC
+
+```python
+class StorageBackend(ABC):
+    async def put(project_id, path, content, content_type) -> str  # → sha256
+    async def get(project_id, path) -> bytes | None
+    async def delete(project_id, path) -> bool
+    async def exists(project_id, path) -> bool
+    async def get_range(project_id, path, offset, length) -> bytes
+```
+
+- **LocalFileBackend**: 本地文件系统，root=`./data/workspaces`，路径沙箱防遍历
+- **S3Backend**: MinIO/AWS S3，key=`{project_id}/{path}`，支持 Range 读取
+
+### WorkspaceManager
+
+MRO: Base → DirOps → ReadOps → BulkOps → WorkspaceManager
+
+| 操作 | 方法 | 说明 |
+|------|------|------|
+| 写文件 | write_file() | 创建/覆盖，需写锁 |
+| 读文件 | read_file() | 元数据+内容 |
+| 范围读 | read_file_range() | Range header 支持 |
+| 删除 | delete_file() | 需写锁 |
+| 元数据 | stat() | 不读内容 |
+| 列目录 | list_dir() | 递归可选 |
+| 创建目录 | mkdir() | 幂等 |
+| 删除目录 | rmdir() | 仅空目录 |
+| 获取锁 | acquire_lock() | read(共享)/write(排他) |
+| 释放锁 | release_lock() | |
+| 检查锁 | check_lock() | |
+| 批量拉 | pull_files() | 跳过不存在 |
+| 批量推 | push_files() | 原子：预检锁+回滚 |
+
+### 锁语义
+
+```
+         | READ lock  | WRITE lock | No lock
+---------|------------|------------|---------
+READ     | ✅ shared  | ❌ blocked | ✅
+WRITE    | ❌ blocked | ❌ blocked | ✅
+No lock  | ✅         | ✅         | ✅
+```
+
+锁 TTL 默认 5 分钟，自动过期防死锁。write_file/delete_file 强制检查写锁。
+
+### REST API
+
+```
+# 文件操作
+POST   /api/v1/workspaces/{project_id}/files/{path}  → write
+GET    /api/v1/workspaces/{project_id}/files/{path}  → read (Range header)
+DELETE /api/v1/workspaces/{project_id}/files/{path}  → delete
+HEAD   /api/v1/workspaces/{project_id}/files/{path}  → stat
+
+# 目录操作
+GET    /api/v1/workspaces/{project_id}/tree           → list_dir
+POST   /api/v1/workspaces/{project_id}/dirs/{path}   → mkdir
+DELETE /api/v1/workspaces/{project_id}/dirs/{path}   → rmdir
+
+# 锁操作
+POST   /api/v1/workspaces/{project_id}/locks          → acquire
+DELETE /api/v1/workspaces/{project_id}/locks/{id}     → release
+GET    /api/v1/workspaces/{project_id}/locks?path=    → check
+
+# 批量操作
+POST   /api/v1/workspaces/{project_id}/pull           → bulk read
+POST   /api/v1/workspaces/{project_id}/push           → bulk write
+```
+
+### WS 消息
+
+| 消息类型 | 方向 | 说明 |
+|----------|------|------|
+| WORKSPACE_FILE_CHANGED | server→agents | 文件写入/删除通知 |
+| WORKSPACE_LOCK_ACQUIRED | server→agents | 锁获取通知 |
+| WORKSPACE_LOCK_RELEASED | server→agents | 锁释放通知 |
+| WORKSPACE_LOCK_EXPIRED | server→holder | 锁过期警告 |
+
+### RBAC 权限
+
+| 权限 | 说明 | 角色 |
+|------|------|------|
+| workspace:read | 读文件/目录/锁 | ADMIN, AGENT, OBSERVER |
+| workspace:write | 写文件/获取锁/批量操作 | ADMIN, AGENT |
+| workspace:admin | 删除文件/释放他人锁 | ADMIN |
+
+端点通过 `@requires(Permission.WORKSPACE_*)` 装饰器保护。权限层级: admin ⊃ write ⊃ read。
+
+### Pipeline 集成
+
+```
+1. DECOMPOSING → WorkspaceManager.mkdir() 创建项目根
+2. EXECUTING → TASK_ASSIGNED 含 workspace_paths 提示
+3. Agent: pull → acquire_lock → edit → push → release_lock
+4. REVIEWING → reviewer 从 Workspace 拉取变更文件
+5. RELEASING → releaser 拉取文件，commit + tag
+```
+
+TaskNode 新增 `workspace_paths: list[str]` 字段，由 DECOMPOSING 阶段设置。
+
+### 配置
+
+```yaml
+workspace:
+  backend: local              # local | s3
+  local:
+    root: ./data/workspaces
+  s3:
+    endpoint: http://minio:9000
+    bucket: agora-workspaces
+    access_key: ${MINIO_ACCESS_KEY}
+    secret_key: ${MINIO_SECRET_KEY}
+```
+
+默认 `local`，零配置单机部署。`s3` 用于多主机共享存储。

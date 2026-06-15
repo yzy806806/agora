@@ -18,6 +18,12 @@ from agora.coordinator.pipeline_phase_review import (
 )
 from agora.coordinator.pipeline_phase_release import trigger_release
 from agora.coordinator.pipeline_phase_record import record_pipeline_session
+from agora.coordinator.pipeline_workspace import (
+    ensure_project_root, augment_graph_with_paths,
+)
+from agora.coordinator.pipeline_workspace_review import (
+    collect_workspace_changed_files,
+)
 
 if TYPE_CHECKING:
     from agora.coordinator.pipeline import PipelineOrchestrator
@@ -25,6 +31,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_REVIEW_ROUNDS = 3
+
+
+def _set_workspace_paths(graph: dict) -> None:
+    """Set workspace_paths on each task from graph-level mapping.
+
+    augment_graph_with_paths stores workspace_paths as a dict
+    mapping task_id → list[str] on the graph.  This function
+    propagates those paths into each TaskNode.workspace_paths
+    so they travel with the task through assignment + execution.
+    """
+    ws_map = graph.get("workspace_paths", {})
+    tasks = graph.get("tasks", [])
+    for task in tasks:
+        paths = ws_map.get(task.id, [])
+        if paths:
+            task.workspace_paths = paths
 
 
 async def execute_phases(
@@ -43,6 +65,13 @@ async def execute_phases(
     graph = await generate_task_graph(orch.bootstrap, motion_id)
     run.graph_id = graph.get("id")
     run.tasks_total = len(graph.get("task_ids", []))
+    # Workspace: ensure project root + augment graph with paths
+    if orch.workspace_manager:
+        await ensure_project_root(orch.workspace_manager, run.project_id)
+        graph = augment_graph_with_paths(graph)
+        run.workspace_paths = list(
+            graph.get("workspace_paths", {}).keys()
+        )
 
     # Phase 3: Execute (parallel where possible)
     run.phase = PipelinePhase.EXECUTING
@@ -54,6 +83,12 @@ async def execute_phases(
 
     # Phase 4: Review (with fix-retry loop)
     run.phase = PipelinePhase.REVIEWING
+    # Workspace: collect changed files from workspace for reviewer
+    if orch.workspace_manager:
+        ws_files = await collect_workspace_changed_files(
+            orch.workspace_manager, run.project_id, graph,
+        )
+        graph["changed_files"] = ws_files
     max_rounds = getattr(orch.retry_policy, "max_retries", DEFAULT_MAX_REVIEW_ROUNDS)
     review = await _review_loop(orch, run, graph, max_rounds)
     run.review_outcome = review.outcome
@@ -66,6 +101,7 @@ async def execute_phases(
     release_id = await _retryable(
         lambda: trigger_release(
             orch.hub, graph, run.project_id, review_summary,
+            run.workspace_paths or None,
         ), run, orch,
     )
     run.release_version = release_id

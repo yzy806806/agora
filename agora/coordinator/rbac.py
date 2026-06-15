@@ -39,6 +39,9 @@ class Permission(str, Enum):
     CONFIG_READ = "config:read"
     CONFIG_WRITE = "config:write"
     ADMIN_FULL = "admin:full"
+    WORKSPACE_READ = "workspace:read"
+    WORKSPACE_WRITE = "workspace:write"
+    WORKSPACE_ADMIN = "workspace:admin"
 
 
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
@@ -48,10 +51,12 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.TASK_CREATE, Permission.TASK_EXECUTE,
         Permission.TASK_REVIEW, Permission.AGENT_REGISTER,
         Permission.CONFIG_READ,
+        Permission.WORKSPACE_READ, Permission.WORKSPACE_WRITE,
     },
     Role.OBSERVER: {
         Permission.DISCUSSION_CREATE, Permission.DISCUSSION_VOTE,
         Permission.CONFIG_READ,
+        Permission.WORKSPACE_READ,
     },
 }
 
@@ -61,9 +66,27 @@ def rbac_enforced() -> bool:
     return os.getenv("AGORA_RBAC_ENFORCE", "").lower() in ("true", "1")
 
 
+# Permission hierarchy: higher implies lower.
+_IMPLIED: dict[Permission, set[Permission]] = {
+    Permission.WORKSPACE_ADMIN: {
+        Permission.WORKSPACE_WRITE, Permission.WORKSPACE_READ,
+    },
+    Permission.WORKSPACE_WRITE: {Permission.WORKSPACE_READ},
+}
+
+
+def _effective_permissions(granted: set[Permission]) -> set[Permission]:
+    """Expand granted permissions with their implied subordinates."""
+    expanded = set(granted)
+    for perm in granted:
+        expanded |= _IMPLIED.get(perm, set())
+    return expanded
+
+
 def check_permission(role: Role, permission: Permission) -> bool:
-    """Return True if role grants the given permission."""
-    return permission in ROLE_PERMISSIONS.get(role, set())
+    """Return True if role grants the given permission (with hierarchy)."""
+    effective = _effective_permissions(ROLE_PERMISSIONS.get(role, set()))
+    return permission in effective
 
 
 def get_current_role(request: Request) -> Role | None:

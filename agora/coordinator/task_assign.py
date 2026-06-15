@@ -76,6 +76,7 @@ async def _send_task_assignment(
         "description": task.description,
         "required_capabilities": task.required_capabilities,
         "depends_on": task.depends_on,
+        "workspace_paths": task.workspace_paths,
     }
     return await hub.send(agent_id, msg)
 
@@ -181,6 +182,7 @@ async def reassign_task(
         description=task.get("description", ""),
         required_capabilities=task.get("required_capabilities", []),
         depends_on=task.get("depends_on", []),
+        workspace_paths=task.get("workspace_paths", []),
     )
     await _send_task_assignment(node, picked, hub)
     logger.info("Reassigned task %s from %s to %s", task_id, old_agent, picked)

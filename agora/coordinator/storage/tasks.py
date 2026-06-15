@@ -87,14 +87,15 @@ async def create_task(db: aiosqlite.Connection, task: TaskNode) -> dict:
         """INSERT INTO tasks
         (id, graph_id, motion_id, title, description, status,
          assigned_to, required_capabilities, depends_on,
-         artifact_paths, error_message, created_at,
+         artifact_paths, workspace_paths, error_message, created_at,
          started_at, completed_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [task.id, task.graph_id, task.motion_id, task.title,
          task.description, task.status.value, task.assigned_to,
          json.dumps(task.required_capabilities),
          json.dumps(task.depends_on),
-         json.dumps(task.artifact_paths), task.error_message,
+         json.dumps(task.artifact_paths),
+         json.dumps(task.workspace_paths), task.error_message,
          task.created_at.isoformat(),
          task.started_at.isoformat() if task.started_at else None,
          task.completed_at.isoformat() if task.completed_at else None],
@@ -179,7 +180,8 @@ async def get_agent_task_count(
 def _decode_task(row: aiosqlite.Row) -> dict:
     """Decode a DB row into a dict, parsing JSON fields."""
     d = dict(row)
-    for key in ("required_capabilities", "depends_on", "artifact_paths"):
+    for key in ("required_capabilities", "depends_on",
+                "artifact_paths", "workspace_paths"):
         val = d.get(key)
         if isinstance(val, str):
             d[key] = json.loads(val)

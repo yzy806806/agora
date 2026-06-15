@@ -32,7 +32,7 @@ from . import notifications as _notifications
 from . import rbac as _rbac
 from . import tokens as _tokens
 from . import sessions as _sessions
-from .schema import SCHEMA_SQL, SCHEMA_VERSION, MIGRATION_6_TO_7, MIGRATION_7_TO_8, MIGRATION_8_TO_9, MIGRATION_9_TO_10, MIGRATION_10_TO_11, MIGRATION_11_TO_12, MIGRATION_12_TO_13, MIGRATION_12_TO_13_PIPELINES
+from .schema import SCHEMA_SQL, SCHEMA_VERSION, MIGRATION_6_TO_7, MIGRATION_7_TO_8, MIGRATION_8_TO_9, MIGRATION_9_TO_10, MIGRATION_10_TO_11, MIGRATION_11_TO_12, MIGRATION_12_TO_13, MIGRATION_12_TO_13_PIPELINES, MIGRATION_14_TO_15, MIGRATION_15_TO_16
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,18 @@ class Storage:
                     await db.execute(stmt)
                 logger.info(
                     "Applied migration 13→14 (Phase 13b failed_phase)")
+
+            if current_ver < 15:
+                for stmt in MIGRATION_14_TO_15:
+                    await db.execute(stmt)
+                logger.info(
+                    "Applied migration 14→15 (Phase 14 workspace tables)")
+
+            if current_ver < 16:
+                for stmt in MIGRATION_15_TO_16:
+                    await db.execute(stmt)
+                logger.info(
+                    "Applied migration 15→16 (Phase 14.5b workspace_paths)")
 
             await db.execute(
                 "INSERT OR IGNORE INTO schema_version VALUES (?, ?)",

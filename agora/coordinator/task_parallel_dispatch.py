@@ -57,5 +57,6 @@ async def _run_task(task: TaskNode, agent_id: str, hub: Any) -> str:
     """Send task assignment to agent via WebSocket."""
     await hub.send(agent_id, {
         "type": "TASK_ASSIGNED", "task_id": task.id,
-        "graph_id": task.graph_id, "title": task.title})
+        "graph_id": task.graph_id, "title": task.title,
+        "workspace_paths": task.workspace_paths})
     return task.id
