@@ -19,8 +19,8 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 3. ✅ Web Dashboard (Phase 11) — v0.11.0
 4. ✅ Multi-platform Agent Integration (Phase 12) — v0.12.0
 5. ✅ Full-auto Dev Loop + Dashboard Enhancement (Phase 13) — v0.13.0 已发布
-6. 🔴 Shared Workspace — 多 Agent 分布式协作工作区 (Phase 14 最高优先级)
-7. 🔮 Horizontal Scaling + Postgres (Phase 14+)
+6. ✅ Shared Workspace — 多 Agent 分布式协作工作区 (Phase 14) — v0.14.0 已发布
+7. 🔴 Horizontal Scaling + Postgres (Phase 14+ — 最高优先级，设计已完成 2026-06-16)
 8. 🔮 Kubernetes / 分布式部署 (Phase 15+)
 
 ## Phase 9-12: ✅ 已完成
@@ -57,7 +57,7 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - Go/Rust SDK 是薄封装，Docker Bridge 已支持任何语言
 - Docker Compose 生产部署，适合 ~50 agents 规模
 
-## Phase 14: 🟡 Shared Workspace（代码+审查全部完成，v0.14.0 发布中）
+## Phase 14: ✅ Shared Workspace（v0.14.0 已发布）
 
 ### 目标
 让多 agent 不管在哪台机器上，都能读写同一套项目文件。这是分布式 agent 协作的前提条件。
@@ -75,13 +75,17 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - 文件锁粒度：文件级，agent 编辑前必须 acquire lock
 - 支持大文件流式上传/下载
 
-## Phase 14+: 🔮 Horizontal Scaling + Postgres
+## Phase 14+: 🔴 Horizontal Scaling + Postgres（设计完成 2026-06-16）
 
-- SQLite → Postgres 迁移（支持多实例 Coordinator）
-- 消息队列（Redis Streams / NATS）解耦 WS 广播
-- Kubernetes Helm Chart（替代 Docker Compose）
-- Webhook 触发器（外部事件 → Pipeline 启动）
-- Agent Protocol v2（基于多平台实践经验修订）
+> 设计文档：[docs/DESIGN-phase14plus.md](DESIGN-phase14plus.md)
+
+- SQLite → Postgres 迁移（StorageBackend ABC + asyncpg）
+- 消息队列（Redis Pub/Sub）解耦 WS 广播 — LocalBus + RedisBus
+- Kubernetes Helm Chart（Deployment + HPA + Ingress with sticky sessions）
+- Webhook 触发器（HMAC-SHA256 签名 → Pipeline 启动 + 速率限制）
+- Agent Protocol v2（协议协商、结构化能力声明、错误码、Token Scopes）
+
+### 已纳入开发计划（由 planner 于 2026-06-16 确认）
 
 ### Phase 15+: 生态扩展
 
