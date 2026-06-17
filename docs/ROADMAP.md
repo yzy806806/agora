@@ -148,3 +148,18 @@ Agora 不替代 agent 的 skill/memory 机制。只提供：
 3. 不重新发明轮子 — Hermes agent 自带 skill/memory，Agora 只提供 session API
 
 不自己开发 Agent Runtime。Agora 只做 Coordinator（讨论 + 调度），agent 全部用现成的。
+
+## Phase 15: 安全加固 + Dogfooding 稳定化
+
+### 目标
+Agora 已具备完整功能，但安全基础薄弱——Dashboard 和 API 暴露在公网无认证保护。Phase 15 聚焦安全加固，然后通过真实 dogfooding 验证系统稳定性。
+
+### 核心需求
+1. **Dashboard 认证** — 登录保护（用户名密码 + JWT），未认证不可访问任何页面
+2. **API 认证加固** — Coordinator REST API 强制 auth token，除了 /health 外所有端点需认证
+3. **Dogfooding** — 团队通过 Agora WS 协议真正使用 Agora 工作（不是直接操作 kanban）
+
+### 优先级
+1. 🔴 Dashboard 认证 — 最高优先，当前公网暴露无保护
+2. 🔴 API 认证加固 — 同上，REST API 也裸露
+3. 🟡 Dogfooding 稳定化 — 安全加固后再进行
