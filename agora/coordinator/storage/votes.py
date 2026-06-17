@@ -1,29 +1,23 @@
-"""Vote CRUD operations and statistics for the Agora Coordinator storage layer."""
-
+"""Vote CRUD operations and statistics — backend-agnostic."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
-import aiosqlite
+from .dialect import Dialect
 
 logger = logging.getLogger(__name__)
 
 
 async def add_vote(
-    db: aiosqlite.Connection,
-    motion_id: str,
-    agent_id: str,
-    vote: str,
-    confidence: float = 1.0,
-    reason: Optional[str] = None,
-    vote_type: str = "binary",
-    vote_data: Optional[str] = None,
+    db: Any, dialect: Dialect,
+    motion_id: str, agent_id: str, vote: str,
+    confidence: float = 1.0, reason: Optional[str] = None,
+    vote_type: str = "binary", vote_data: Optional[str] = None,
 ) -> int:
-    """Add a vote. Returns the auto-generated vote id."""
     now = datetime.now(timezone.utc).isoformat()
-    await db.execute(
+    sql, params = dialect.render(
         """INSERT INTO votes
            (motion_id, agent_id, vote, vote_type, vote_data,
             confidence, reason, timestamp)
@@ -31,51 +25,45 @@ async def add_vote(
         [motion_id, agent_id, vote, vote_type, vote_data,
          confidence, reason, now],
     )
+    await db.execute(sql, params)
     await db.commit()
-    async with db.execute("SELECT last_insert_rowid()") as cursor:
+    id_sql, id_params = dialect.render(dialect.last_insert_id_sql())
+    async with db.execute(id_sql, id_params) as cursor:
         row = await cursor.fetchone()
-        return row[0] if row else 0
+    return row[0] if row else 0
 
 
-async def get_votes(
-    db: aiosqlite.Connection, motion_id: str
-) -> list[dict]:
-    """Get all votes for a motion, ordered by timestamp."""
-    async with db.execute(
+async def get_votes(db: Any, dialect: Dialect,
+                    motion_id: str) -> list[dict]:
+    sql, params = dialect.render(
         "SELECT * FROM votes WHERE motion_id = ? ORDER BY timestamp",
-        [motion_id],
-    ) as cursor:
+        [motion_id])
+    async with db.execute(sql, params) as cursor:
         return [dict(row) async for row in cursor]
 
 
-async def has_voted(
-    db: aiosqlite.Connection, motion_id: str, agent_id: str
-) -> bool:
-    """Check whether an agent has already voted on a motion."""
-    async with db.execute(
+async def has_voted(db: Any, dialect: Dialect,
+                    motion_id: str, agent_id: str) -> bool:
+    sql, params = dialect.render(
         "SELECT 1 FROM votes WHERE motion_id = ? AND agent_id = ?",
-        [motion_id, agent_id],
-    ) as cursor:
+        [motion_id, agent_id])
+    async with db.execute(sql, params) as cursor:
         return await cursor.fetchone() is not None
 
 
-async def count_votes(
-    db: aiosqlite.Connection, motion_id: str
-) -> dict[str, int]:
-    """Count votes by choice for a motion. Returns {vote: count}."""
-    async with db.execute(
-        "SELECT vote, COUNT(*) as count FROM votes WHERE motion_id = ? GROUP BY vote",
-        [motion_id],
-    ) as cursor:
+async def count_votes(db: Any, dialect: Dialect,
+                      motion_id: str) -> dict[str, int]:
+    sql, params = dialect.render(
+        "SELECT vote, COUNT(*) as count FROM votes "
+        "WHERE motion_id = ? GROUP BY vote", [motion_id])
+    async with db.execute(sql, params) as cursor:
         rows = await cursor.fetchall()
-        return {row[0]: row[1] for row in rows}
+    return {row[0]: row[1] for row in rows}
 
 
-async def get_vote_summary(
-    db: aiosqlite.Connection, motion_id: str
-) -> dict:
-    """Get vote summary with counts per choice."""
-    votes = await get_votes(db, motion_id)
+async def get_vote_summary(db: Any, dialect: Dialect,
+                           motion_id: str) -> dict:
+    votes = await get_votes(db, dialect, motion_id)
     summary: dict = {"yes": 0, "no": 0, "abstain": 0, "total": len(votes)}
     for v in votes:
         choice = v["vote"]
@@ -84,23 +72,18 @@ async def get_vote_summary(
     return summary
 
 
-async def get_active_motion_count(
-    db: aiosqlite.Connection,
-) -> int:
-    """Count motions in draft/discussing/voting status."""
-    async with db.execute(
-        "SELECT COUNT(*) FROM motions WHERE status IN ('draft','discussing','voting')"
-    ) as cursor:
+async def get_active_motion_count(db: Any, dialect: Dialect) -> int:
+    sql, params = dialect.render(
+        "SELECT COUNT(*) FROM motions "
+        "WHERE status IN ('draft','discussing','voting')", [])
+    async with db.execute(sql, params) as cursor:
         row = await cursor.fetchone()
-        return row[0] if row else 0
+    return row[0] if row else 0
 
 
-async def get_participant_count(
-    db: aiosqlite.Connection,
-) -> int:
-    """Count online agents."""
-    async with db.execute(
-        "SELECT COUNT(*) FROM agents WHERE is_online = 1"
-    ) as cursor:
+async def get_participant_count(db: Any, dialect: Dialect) -> int:
+    sql, params = dialect.render(
+        "SELECT COUNT(*) FROM agents WHERE is_online = 1", [])
+    async with db.execute(sql, params) as cursor:
         row = await cursor.fetchone()
-        return row[0] if row else 0
+    return row[0] if row else 0

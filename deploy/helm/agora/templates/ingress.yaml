@@ -1,0 +1,33 @@
+{{/* Ingress - NGINX with WebSocket support and sticky sessions */}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "agora.fullname" . }}
+  labels:
+    {{- include "agora.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+  annotations:
+    {{- range $key, $value := .Values.ingress.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "agora.coordinator.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

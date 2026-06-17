@@ -16,6 +16,7 @@ from fastapi import WebSocket
 from .input_validation import InputValidator
 from .models import MessageType
 from .observability.trace import set_trace_id
+from .protocol import build_welcome, negotiate_version, parse_version
 from .rbac import Permission, Role, check_permission, rbac_enforced
 from .rate_limiter import RateLimiter
 from .token_rate_limiter import TokenRateLimiter
@@ -91,7 +92,7 @@ async def websocket_endpoint(
     if not await hub.connect(agent_id, websocket):
         return
     try:
-        # WELCOME with AgentConfig payload (Phase 9.3)
+        # Phase 14+.E.2: WELCOME with protocol negotiation
         max_concurrent = 2
         if agent:
             max_concurrent = agent.get("max_concurrent_tasks", 2)
@@ -102,20 +103,29 @@ async def websocket_endpoint(
             tpm_limit = agent.get("tpm_limit", 10000)
             tpm_burst = agent.get("tpm_burst_factor", 1.5)
         _token_limiter.configure(agent_id, tpm_limit, tpm_burst)
-        await hub.send(agent_id, {
-            "type": MessageType.WELCOME,
-            "agent_id": agent_id,
-            "tenant_id": tenant_id,
-            "payload": {
-                "config": {
-                    "heartbeat_interval_seconds": 30,
-                    "heartbeat_timeout_seconds": 120,
-                    "tpm_limit": tpm_limit,
-                    "tpm_burst_factor": tpm_burst,
-                    "max_concurrent_tasks": max_concurrent,
-                },
+
+        # Build WELCOME with protocol version + session info
+        from .config import settings as _settings
+        welcome = build_welcome(
+            agent_id=agent_id,
+            tenant_id=tenant_id,
+            max_protocol_version=_settings.protocol_version,
+        )
+        welcome["payload"] = {
+            "config": {
+                "heartbeat_interval_seconds": 30,
+                "heartbeat_timeout_seconds": 120,
+                "tpm_limit": tpm_limit,
+                "tpm_burst_factor": tpm_burst,
+                "max_concurrent_tasks": max_concurrent,
             },
-        })
+        }
+        # v1 compat: agent_id/tenant_id also at top level
+        welcome["agent_id"] = agent_id
+        welcome["tenant_id"] = tenant_id
+        # Store initial version (v1 until agent sends CAPABILITIES)
+        hub.set_protocol_version(agent_id, 1.0)
+        await hub.send(agent_id, welcome)
         while True:
             data = await websocket.receive_text()
             await _route_message(agent_id, data, hub)
@@ -207,8 +217,17 @@ async def _route_message(agent_id: str, raw: str, hub) -> None:
     elif msg_type == MessageType.TASK_PROGRESS:
         from .task_exec import handle_task_progress
         await handle_task_progress(agent_id, payload, storage, hub)
+    elif msg_type == MessageType.TASK_RESULT:
+        from .task_exec import handle_task_result
+        parallel_coord = getattr(hub, "_app_state", None)
+        if parallel_coord:
+            parallel_coord = getattr(parallel_coord, "parallel_coord", None)
+        await handle_task_result(
+            agent_id, payload, storage, hub, parallel_coord)
     elif msg_type == MessageType.HEARTBEAT:
         await handle_heartbeat(agent_id, payload, storage, hub)
+    elif msg_type == MessageType.CAPABILITIES:
+        await _handle_capabilities(agent_id, payload, storage, hub)
     elif msg_type == MessageType.NEW_MOTION:
         # NEW_MOTION is coordinator→agent broadcast only (sent via
         # router.py start_motion); agents never send this type.
@@ -220,6 +239,49 @@ async def _route_message(agent_id: str, raw: str, hub) -> None:
         await check_and_warn(agent_id, hub, _token_limiter)
     else:
         logger.warning("Unknown type from %s: %s", agent_id, msg_type)
+
+
+async def _handle_capabilities(
+    agent_id: str, payload: dict, storage, hub,
+) -> None:
+    """Process CAPABILITIES: negotiate protocol version + store info.
+
+    Phase 14+.E.2: v2 agents send this after receiving WELCOME
+    to declare their preferred version and structured capabilities.
+    v1 agents never send this, so they stay on version 1.0.
+    """
+    from .config import settings as _settings
+    raw_ver = payload.get("protocol_version", 1.0)
+    client_ver = parse_version(raw_ver)
+    effective = negotiate_version(client_ver, _settings.protocol_version)
+    hub.set_protocol_version(agent_id, effective)
+
+    name = payload.get("name", agent_id)
+    model = payload.get("model", "unknown")
+    caps = payload.get("capabilities", {})
+    metadata = payload.get("metadata", {})
+
+    # Update stored agent info if storage available
+    if storage is not None:
+        await storage.update_agent_capabilities(
+            agent_id, caps if isinstance(caps, list) else [caps],
+        )
+        if model != "unknown":
+            await storage.update_agent_model(agent_id, model)
+
+    await hub.send(agent_id, {
+        "type": MessageType.WELCOME,
+        "agent_id": agent_id,
+        "payload": {
+            "message": "Capabilities acknowledged",
+            "protocol_version": effective,
+            "config": {},
+        },
+    })
+    logger.info(
+        "Agent %s negotiated protocol v%.1f (requested %.1f)",
+        agent_id, effective, client_ver,
+    )
 
 
 async def _handle_devils_advocate_response(

@@ -1,7 +1,6 @@
 """Tests for storage/agent_heartbeat.py (Phase 9.3c)."""
 import json
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock
 
 import aiosqlite
 import pytest
@@ -12,6 +11,7 @@ from agora.coordinator.storage.agent_heartbeat import (
     update_agent_model,
     list_stale_agents,
 )
+from agora.coordinator.storage.dialect import Dialect
 
 
 @pytest.fixture
@@ -35,6 +35,11 @@ async def db(tmp_path):
     """)
     yield conn
     await conn.close()
+
+
+@pytest.fixture
+def dialect() -> Dialect:
+    return Dialect("sqlite")
 
 
 async def _insert_agent(db, agent_id, **overrides):
@@ -64,9 +69,9 @@ async def _insert_agent(db, agent_id, **overrides):
 
 class TestUpdateAgentHeartbeat:
     @pytest.mark.asyncio
-    async def test_updates_load_and_tasks(self, db):
+    async def test_updates_load_and_tasks(self, db, dialect):
         await _insert_agent(db, "a1")
-        await update_agent_heartbeat(db, "a1", load=0.7,
+        await update_agent_heartbeat(db, dialect, "a1", load=0.7,
                                      active_tasks=["t1", "t2"])
         async with db.execute(
             "SELECT load, active_tasks, is_online FROM agents "
@@ -80,9 +85,9 @@ class TestUpdateAgentHeartbeat:
 
 class TestUpdateAgentCapabilities:
     @pytest.mark.asyncio
-    async def test_updates_capabilities(self, db):
+    async def test_updates_capabilities(self, db, dialect):
         await _insert_agent(db, "a1")
-        await update_agent_capabilities(db, "a1", ["code", "test"])
+        await update_agent_capabilities(db, dialect, "a1", ["code", "test"])
         async with db.execute(
             "SELECT capabilities FROM agents WHERE agent_id = ?", ["a1"]
         ) as cur:
@@ -92,9 +97,9 @@ class TestUpdateAgentCapabilities:
 
 class TestUpdateAgentModel:
     @pytest.mark.asyncio
-    async def test_updates_model(self, db):
+    async def test_updates_model(self, db, dialect):
         await _insert_agent(db, "a1")
-        await update_agent_model(db, "a1", "claude-sonnet-4")
+        await update_agent_model(db, dialect, "a1", "claude-sonnet-4")
         async with db.execute(
             "SELECT model FROM agents WHERE agent_id = ?", ["a1"]
         ) as cur:
@@ -104,27 +109,27 @@ class TestUpdateAgentModel:
 
 class TestListStaleAgents:
     @pytest.mark.asyncio
-    async def test_finds_stale_agent(self, db):
+    async def test_finds_stale_agent(self, db, dialect):
         old_time = (
             datetime.now(timezone.utc) - timedelta(seconds=200)
         ).isoformat()
         await _insert_agent(db, "stale", last_seen_at=old_time)
-        stale = await list_stale_agents(db, timeout_seconds=120)
+        stale = await list_stale_agents(db, dialect, timeout_seconds=120)
         assert len(stale) == 1
         assert stale[0]["agent_id"] == "stale"
 
     @pytest.mark.asyncio
-    async def test_skips_recent_agent(self, db):
+    async def test_skips_recent_agent(self, db, dialect):
         await _insert_agent(db, "fresh")
-        stale = await list_stale_agents(db, timeout_seconds=120)
+        stale = await list_stale_agents(db, dialect, timeout_seconds=120)
         assert len(stale) == 0
 
     @pytest.mark.asyncio
-    async def test_skips_offline_agent(self, db):
+    async def test_skips_offline_agent(self, db, dialect):
         old_time = (
             datetime.now(timezone.utc) - timedelta(seconds=200)
         ).isoformat()
         await _insert_agent(db, "offline", last_seen_at=old_time,
                             is_online=0)
-        stale = await list_stale_agents(db, timeout_seconds=120)
+        stale = await list_stale_agents(db, dialect, timeout_seconds=120)
         assert len(stale) == 0

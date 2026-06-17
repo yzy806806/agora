@@ -38,6 +38,7 @@ from .dashboard_models import (
     TaskGraphListResponse,
     TaskItem,
     TaskListResponse,
+    TaskResultResponse,
 )
 from .rbac import Permission, Role, get_current_role, requires
 from .state import InvalidTransitionError, StateMachine
@@ -478,6 +479,24 @@ async def get_task_detail(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return TaskDetailResponse(**task)
+
+
+@router.get("/tasks/{task_id}/result", response_model=TaskResultResponse)
+@requires(Permission.CONFIG_READ)
+async def get_task_result_api(
+    task_id: str,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> TaskResultResponse:
+    """Get structured task result (Protocol v2)."""
+    storage = _get_storage()
+    task = await storage.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    result = await storage.get_task_result(task_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail="No structured result for this task")
+    return TaskResultResponse(**result)
 
 
 @router.get("/task-graphs", response_model=TaskGraphListResponse)

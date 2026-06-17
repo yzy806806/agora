@@ -1,6 +1,6 @@
 """SQL schema definitions for the Agora Coordinator database."""
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 18
 
 SCHEMA_SQL = """\
 PRAGMA foreign_keys = ON;
@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     artifact_paths TEXT,
     workspace_paths TEXT DEFAULT '[]',
     error_message TEXT,
+    task_result TEXT,
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
@@ -386,6 +387,40 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
 CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type);
+
+-- Phase 14+: Webhook configurations
+
+CREATE TABLE IF NOT EXISTS webhooks (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    secret_hash TEXT NOT NULL,
+    pipeline_template TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '["push"]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    allowed_ips TEXT NOT NULL DEFAULT '[]',
+    max_triggers_per_hour INTEGER NOT NULL DEFAULT 60,
+    created_at TEXT NOT NULL,
+    last_triggered_at TEXT,
+    trigger_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhooks_project ON webhooks(project_id);
+
+CREATE TABLE IF NOT EXISTS webhook_trigger_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    event TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    pipeline_id TEXT,
+    error TEXT,
+    source_ip TEXT,
+    triggered_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_history_webhook ON webhook_trigger_history(webhook_id);
 
 -- Phase 14: Workspace file_nodes + file_locks
 
@@ -654,6 +689,44 @@ MIGRATION_14_TO_15 = [
 # Phase 14.5b: Add workspace_paths column to tasks (schema 15 → 16)
 MIGRATION_15_TO_16 = [
     "ALTER TABLE tasks ADD COLUMN workspace_paths TEXT DEFAULT '[]';",
+]
+
+# Phase 14+ Part D: Webhook tables (schema 16 → 17)
+MIGRATION_16_TO_17 = [
+    """CREATE TABLE IF NOT EXISTS webhooks (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    secret_hash TEXT NOT NULL,
+    pipeline_template TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '["push"]',
+    enabled INTEGER DEFAULT 1,
+    allowed_ips TEXT DEFAULT '[]',
+    max_triggers_per_hour INTEGER DEFAULT 60,
+    created_at TEXT NOT NULL,
+    last_triggered_at TEXT,
+    trigger_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0
+);""",
+    "CREATE INDEX IF NOT EXISTS idx_webhooks_project ON webhooks(project_id);",
+    """CREATE TABLE IF NOT EXISTS webhook_trigger_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    event TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    pipeline_id TEXT,
+    error TEXT,
+    source_ip TEXT,
+    triggered_at TEXT NOT NULL
+);""",
+    "CREATE INDEX IF NOT EXISTS idx_webhook_history_webhook ON webhook_trigger_history(webhook_id);",
+]
+
+# Phase 14+.E.3: Add task_result column for structured task results (17 → 18)
+# NOTE: The migration runner checks for column existence before executing.
+MIGRATION_17_TO_18 = [
+    "ALTER TABLE tasks ADD COLUMN task_result TEXT;",
 ]
 
 # Default RBAC roles to seed on fresh DB

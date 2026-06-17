@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agora.fullname" . }}-coordinator
+  labels:
+    {{- include "agora.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  type: {{ .Values.service.type }}
+  sessionAffinity: {{ .Values.service.sessionAffinity | default "None" }}
+  {{- if .Values.service.sessionAffinityConfig }}
+  sessionAffinityConfig:
+    {{- toYaml .Values.service.sessionAffinityConfig | nindent 4 }}
+  {{- end }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "agora.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator

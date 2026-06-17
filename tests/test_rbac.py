@@ -10,7 +10,7 @@ from agora.coordinator.rbac import (
     Permission, Role, ROLE_PERMISSIONS,
     check_permission, rbac_enforced, requires,
 )
-from agora.coordinator.rbac_middleware import RBACMiddleware, _resolve_role
+from agora.coordinator.rbac_middleware import RBACMiddleware, _resolve_role_and_scopes
 
 
 class TestRoleEnum:

@@ -126,3 +126,14 @@ class AuditQueryResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# --- Task result response model (Phase 14+.E.3) ---
+
+class TaskResultResponse(BaseModel):
+    """Structured task result from Protocol v2."""
+    task_id: str
+    status: str
+    output: dict[str, Any] = Field(default_factory=dict)
+    error: Optional[dict[str, Any]] = None
+    metrics: Optional[dict[str, Any]] = None

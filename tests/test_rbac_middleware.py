@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agora.coordinator.rbac import Permission, Role, requires, rbac_enforced
-from agora.coordinator.rbac_middleware import RBACMiddleware, _resolve_role
+from agora.coordinator.rbac_middleware import RBACMiddleware, _resolve_role_and_scopes
 
 
 class TestRbacEnforced:
@@ -94,7 +94,9 @@ class TestResolveRole:
         with patch("agora.coordinator.rbac_middleware.settings") as mock_s:
             mock_s.admin_token = "myadmin"
             req = Request(scope)
-            assert _resolve_role(req) == Role.ADMIN
+            role, scopes = _resolve_role_and_scopes(req)
+            assert role == Role.ADMIN
+            assert scopes is None  # admin → all scopes
 
     def test_agent_token_gets_agent(self):
         from starlette.requests import Request
@@ -107,7 +109,8 @@ class TestResolveRole:
         with patch("agora.coordinator.rbac_middleware.settings") as mock_s:
             mock_s.admin_token = "other"
             req = Request(scope)
-            assert _resolve_role(req) == Role.AGENT
+            role, scopes = _resolve_role_and_scopes(req)
+            assert role == Role.AGENT
 
     def test_no_token_gets_observer(self):
         from starlette.requests import Request
@@ -118,4 +121,5 @@ class TestResolveRole:
             "query_string": b"", "server": ("test", 80),
         }
         req = Request(scope)
-        assert _resolve_role(req) == Role.OBSERVER
+        role, scopes = _resolve_role_and_scopes(req)
+        assert role == Role.OBSERVER

@@ -1,0 +1,117 @@
+{{- $coordinator := .Values.coordinator | default dict }}
+{{- $resources := $coordinator.resources | default .Values.resources }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agora.fullname" . }}-coordinator
+  labels:
+    {{- include "agora.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "agora.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: coordinator
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "agora.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: coordinator
+      annotations:
+        checksum/config: {{ toJson .Values.config | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "agora.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["agora", "migrate", "--check"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "agora.fullname" . }}-config
+                optional: true
+          env:
+            - name: AGORA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agora.fullname" . }}-secrets
+                  key: databaseUrl
+                  optional: true
+      containers:
+        - name: coordinator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "agora.fullname" . }}-config
+                optional: true
+          env:
+            - name: AGORA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agora.fullname" . }}-secrets
+                  key: databaseUrl
+                  optional: true
+            - name: AGORA_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agora.fullname" . }}-secrets
+                  key: redisUrl
+                  optional: true
+            - name: AGORA_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agora.fullname" . }}-secrets
+                  key: jwtSecret
+                  optional: true
+          {{- with $resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: workspace
+              mountPath: /data
+      affinity:
+        {{- if $coordinator.affinity }}
+        {{- toYaml $coordinator.affinity | nindent 8 }}
+        {{- else }}
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "agora.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: coordinator
+                topologyKey: kubernetes.io/hostname
+        {{- end }}
+      volumes:
+        - name: workspace
+        {{- if .Values.workspace.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "agora.fullname" . }}-workspace
+        {{- else }}
+          emptyDir: {}
+        {{- end }}

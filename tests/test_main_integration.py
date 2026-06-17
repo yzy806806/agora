@@ -57,6 +57,9 @@ class TestLifespanIntegration:
         app_mock.state = MagicMock()
 
         with patch("agora.coordinator.main.Storage") as StorageMock, \
+             patch("agora.coordinator.main.StorageManager") as SMMock, \
+             patch("agora.coordinator.main.TenantManager"), \
+             patch("agora.coordinator.main.init_tenant_deps"), \
              patch("agora.coordinator.main.StateMachine"), \
              patch("agora.coordinator.main.init_deps"), \
              patch("agora.coordinator.main.BootstrapEngine") as BEMock, \
@@ -64,6 +67,8 @@ class TestLifespanIntegration:
              patch("agora.coordinator.main.TimeoutManager") as TMMok:
             StorageMock.return_value = AsyncMock()
             StorageMock.return_value.init_db = AsyncMock()
+            SMMock.return_value = AsyncMock()
+            SMMock.return_value.init = AsyncMock()
             BEMock.return_value.init_routes = MagicMock()
             HBMok.return_value.start_heartbeat = AsyncMock()
             HBMok.return_value.stop = AsyncMock()

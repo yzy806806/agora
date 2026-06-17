@@ -73,6 +73,9 @@ class MessageType(str, Enum):
     WORKSPACE_LOCK_ACQUIRED = "WORKSPACE_LOCK_ACQUIRED"
     WORKSPACE_LOCK_RELEASED = "WORKSPACE_LOCK_RELEASED"
     WORKSPACE_LOCK_EXPIRED = "WORKSPACE_LOCK_EXPIRED"
+    # Phase 14+.E: Protocol v2 messages
+    CAPABILITIES = "CAPABILITIES"          # agent→coordinator: v2 structured capabilities
+    TASK_RESULT = "TASK_RESULT"            # agent→coordinator: v2 structured task result
 
 
 class MotionStatus(str, Enum):

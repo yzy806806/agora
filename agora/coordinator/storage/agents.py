@@ -1,48 +1,55 @@
-"""Agent CRUD operations for the Agora Coordinator storage layer."""
+"""Agent CRUD operations — backend-agnostic.
 
+All functions take a connection object and a Dialect instance
+instead of an aiosqlite.Connection directly.
+"""
 from __future__ import annotations
 
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
-import aiosqlite
+from .dialect import Dialect
 
 logger = logging.getLogger(__name__)
 
 
+def _normalize_agent(d: dict) -> dict:
+    """Normalize agent dict from DB row."""
+    if "is_approved" in d and isinstance(d["is_approved"], int):
+        d["is_approved"] = bool(d["is_approved"])
+    for key in ("capabilities", "active_tasks", "allowed_discussion_roles"):
+        if key in d and isinstance(d[key], str):
+            d[key] = json.loads(d[key])
+    return d
+
+
 async def register_agent(
-    db: aiosqlite.Connection,
-    agent_id: str,
-    name: str,
-    model: str = "unknown",
+    db: Any, dialect: Dialect,
+    agent_id: str, name: str, model: str = "unknown",
     capabilities: list[str] | None = None,
-    role: str = "participant",
-    agent_type: str = "hermes",
-    max_concurrent_tasks: int = 2,
-    agent_token: str = "",
-    is_approved: bool = False,
-    approval_status: str = "pending",
-    tpm_limit: int = 10000,
-    tpm_burst_factor: float = 1.5,
+    role: str = "participant", agent_type: str = "hermes",
+    max_concurrent_tasks: int = 2, agent_token: str = "",
+    is_approved: bool = False, approval_status: str = "pending",
+    tpm_limit: int = 10000, tpm_burst_factor: float = 1.5,
 ) -> dict:
-    """Register a new agent with Phase 9.3 fields. Returns dict."""
     caps_json = json.dumps(capabilities or [])
     active_tasks_json = json.dumps([])
     now = datetime.now(timezone.utc).isoformat()
-    await db.execute(
+    sql, params = dialect.render(
         """INSERT INTO agents
            (agent_id, name, model, capabilities, role,
             agent_type, max_concurrent_tasks, agent_token,
             is_approved, approval_status, load, active_tasks,
             registered_at, is_online, tpm_limit, tpm_burst_factor)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [agent_id, name, model, caps_json, role,
          agent_type, max_concurrent_tasks, agent_token,
          1 if is_approved else 0, approval_status, 0.0,
-         active_tasks_json, now, tpm_limit, tpm_burst_factor],
+         active_tasks_json, now, 1, tpm_limit, tpm_burst_factor],
     )
+    await db.execute(sql, params)
     await db.commit()
     return {
         "agent_id": agent_id, "name": name, "model": model,
@@ -60,174 +67,114 @@ async def register_agent(
     }
 
 
-async def get_agent(
-    db: aiosqlite.Connection, agent_id: str
-) -> Optional[dict]:
-    """Get agent info by ID, or None if not found."""
-    async with db.execute(
-        "SELECT * FROM agents WHERE agent_id = ?", [agent_id]
-    ) as cursor:
+async def get_agent(db: Any, dialect: Dialect, agent_id: str
+                    ) -> Optional[dict]:
+    sql, params = dialect.render(
+        "SELECT * FROM agents WHERE agent_id = ?", [agent_id])
+    async with db.execute(sql, params) as cursor:
         row = await cursor.fetchone()
-        if not row:
-            return None
-        d = dict(row)
-        # Normalize is_approved from DB int (0/1) to Python bool
-        if "is_approved" in d and isinstance(d["is_approved"], int):
-            d["is_approved"] = bool(d["is_approved"])
-        # Deserialize JSON fields (capabilities, active_tasks)
-        if "capabilities" in d and isinstance(d["capabilities"], str):
-            d["capabilities"] = json.loads(d["capabilities"])
-        if "active_tasks" in d and isinstance(d["active_tasks"], str):
-            d["active_tasks"] = json.loads(d["active_tasks"])
-        if "allowed_discussion_roles" in d and isinstance(d["allowed_discussion_roles"], str):
-            d["allowed_discussion_roles"] = json.loads(d["allowed_discussion_roles"])
-        return d
+    if not row:
+        return None
+    return _normalize_agent(dict(row))
 
 
-async def get_agent_by_token(
-    db: aiosqlite.Connection, token: str
-) -> Optional[dict]:
-    """Look up agent by their agent_token (for WS auth)."""
-    async with db.execute(
-        "SELECT * FROM agents WHERE agent_token = ?", [token]
-    ) as cursor:
+async def get_agent_by_token(db: Any, dialect: Dialect, token: str
+                             ) -> Optional[dict]:
+    sql, params = dialect.render(
+        "SELECT * FROM agents WHERE agent_token = ?", [token])
+    async with db.execute(sql, params) as cursor:
         row = await cursor.fetchone()
-        if not row:
-            return None
-        d = dict(row)
-        if "is_approved" in d and isinstance(d["is_approved"], int):
-            d["is_approved"] = bool(d["is_approved"])
-        if "capabilities" in d and isinstance(d["capabilities"], str):
-            d["capabilities"] = json.loads(d["capabilities"])
-        if "active_tasks" in d and isinstance(d["active_tasks"], str):
-            d["active_tasks"] = json.loads(d["active_tasks"])
-        if "allowed_discussion_roles" in d and isinstance(d["allowed_discussion_roles"], str):
-            d["allowed_discussion_roles"] = json.loads(d["allowed_discussion_roles"])
-        return d
+    if not row:
+        return None
+    return _normalize_agent(dict(row))
 
 
-async def list_agents(
-    db: aiosqlite.Connection, online_only: bool = False
-) -> list[dict]:
-    """List agents, optionally filtered to online only."""
+async def list_agents(db: Any, dialect: Dialect,
+                      online_only: bool = False) -> list[dict]:
     query = "SELECT * FROM agents"
     params: list = []
     if online_only:
         query += " WHERE is_online = 1"
-    async with db.execute(query, params) as cursor:
+    sql, params = dialect.render(query, params)
+    async with db.execute(sql, params) as cursor:
         rows = [dict(row) async for row in cursor]
-    for d in rows:
-        if "is_approved" in d and isinstance(d["is_approved"], int):
-            d["is_approved"] = bool(d["is_approved"])
-        if "capabilities" in d and isinstance(d["capabilities"], str):
-            d["capabilities"] = json.loads(d["capabilities"])
-        if "active_tasks" in d and isinstance(d["active_tasks"], str):
-            d["active_tasks"] = json.loads(d["active_tasks"])
-        if "allowed_discussion_roles" in d and isinstance(d["allowed_discussion_roles"], str):
-            d["allowed_discussion_roles"] = json.loads(d["allowed_discussion_roles"])
-    return rows
+    return [_normalize_agent(d) for d in rows]
 
 
-async def set_agent_online(
-    db: aiosqlite.Connection, agent_id: str, online: bool
-) -> None:
-    """Set agent online status and update last_seen_at."""
+async def set_agent_online(db: Any, dialect: Dialect,
+                           agent_id: str, online: bool) -> None:
     now = datetime.now(timezone.utc).isoformat()
-    await db.execute(
+    sql, params = dialect.render(
         "UPDATE agents SET is_online = ?, last_seen_at = ? WHERE agent_id = ?",
-        [1 if online else 0, now, agent_id],
-    )
+        [1 if online else 0, now, agent_id])
+    await db.execute(sql, params)
     await db.commit()
 
 
-async def deregister_agent(
-    db: aiosqlite.Connection, agent_id: str
-) -> None:
-    """Remove an agent from the system.
-
-    Cleans up dependent rate_limit_usage rows before deleting
-    to avoid FOREIGN KEY constraint failures.
-    """
-    await db.execute(
-        "DELETE FROM rate_limit_usage WHERE agent_id = ?",
-        [agent_id],
-    )
-    await db.execute(
-        "DELETE FROM agents WHERE agent_id = ?", [agent_id]
-    )
+async def deregister_agent(db: Any, dialect: Dialect,
+                           agent_id: str) -> None:
+    sql1, p1 = dialect.render(
+        "DELETE FROM rate_limit_usage WHERE agent_id = ?", [agent_id])
+    sql2, p2 = dialect.render(
+        "DELETE FROM agents WHERE agent_id = ?", [agent_id])
+    await db.execute(sql1, p1)
+    await db.execute(sql2, p2)
     await db.commit()
 
 
-async def set_agent_approval(
-    db: aiosqlite.Connection,
-    agent_id: str,
-    is_approved: bool,
-    approval_status: str,
-) -> None:
-    """Update agent approval status (Phase 9.3 admin endpoints)."""
-    await db.execute(
+async def set_agent_approval(db: Any, dialect: Dialect,
+                             agent_id: str, is_approved: bool,
+                             approval_status: str) -> None:
+    sql, params = dialect.render(
         "UPDATE agents SET is_approved = ?, approval_status = ? WHERE agent_id = ?",
-        [1 if is_approved else 0, approval_status, agent_id],
-    )
+        [1 if is_approved else 0, approval_status, agent_id])
+    await db.execute(sql, params)
     await db.commit()
 
 
 async def update_agent_tpm_config(
-    db: aiosqlite.Connection,
-    agent_id: str,
+    db: Any, dialect: Dialect, agent_id: str,
     tpm_limit: int | None = None,
     tpm_burst_factor: float | None = None,
 ) -> None:
-    """Update agent TPM config. Only updates provided fields."""
     parts, params = [], []
     if tpm_limit is not None:
-        parts.append("tpm_limit = ?")
-        params.append(tpm_limit)
+        parts.append("tpm_limit = ?"); params.append(tpm_limit)
     if tpm_burst_factor is not None:
-        parts.append("tpm_burst_factor = ?")
-        params.append(tpm_burst_factor)
+        parts.append("tpm_burst_factor = ?"); params.append(tpm_burst_factor)
     if not parts:
         return
     params.append(agent_id)
-    await db.execute(
-        f"UPDATE agents SET {', '.join(parts)} WHERE agent_id = ?",
-        params,
-    )
+    sql, params = dialect.render(
+        f"UPDATE agents SET {', '.join(parts)} WHERE agent_id = ?", params)
+    await db.execute(sql, params)
     await db.commit()
 
 
 async def update_agent_config(
-    db: aiosqlite.Connection,
-    agent_id: str,
-    *,
+    db: Any, dialect: Dialect, agent_id: str, *,
     tpm_limit: int | None = None,
     tpm_burst_factor: float | None = None,
     max_concurrent_tasks: int | None = None,
     role: str | None = None,
     allowed_discussion_roles: list[str] | None = None,
 ) -> None:
-    """Update agent config fields. Only updates provided fields."""
     parts, params = [], []
     if tpm_limit is not None:
-        parts.append("tpm_limit = ?")
-        params.append(tpm_limit)
+        parts.append("tpm_limit = ?"); params.append(tpm_limit)
     if tpm_burst_factor is not None:
-        parts.append("tpm_burst_factor = ?")
-        params.append(tpm_burst_factor)
+        parts.append("tpm_burst_factor = ?"); params.append(tpm_burst_factor)
     if max_concurrent_tasks is not None:
-        parts.append("max_concurrent_tasks = ?")
-        params.append(max_concurrent_tasks)
+        parts.append("max_concurrent_tasks = ?"); params.append(max_concurrent_tasks)
     if role is not None:
-        parts.append("role = ?")
-        params.append(role)
+        parts.append("role = ?"); params.append(role)
     if allowed_discussion_roles is not None:
         parts.append("allowed_discussion_roles = ?")
         params.append(json.dumps(allowed_discussion_roles))
     if not parts:
         return
     params.append(agent_id)
-    await db.execute(
-        f"UPDATE agents SET {', '.join(parts)} WHERE agent_id = ?",
-        params,
-    )
+    sql, params = dialect.render(
+        f"UPDATE agents SET {', '.join(parts)} WHERE agent_id = ?", params)
+    await db.execute(sql, params)
     await db.commit()

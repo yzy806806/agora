@@ -1,0 +1,23 @@
+{{- if .Values.coordinator.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "agora.fullname" . }}-coordinator
+  labels:
+    {{- include "agora.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "agora.fullname" . }}-coordinator
+  minReplicas: {{ .Values.coordinator.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.coordinator.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.coordinator.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

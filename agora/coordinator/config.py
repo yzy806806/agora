@@ -5,8 +5,9 @@ Supports ~/.agora/config.yaml for persistent configuration.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
@@ -18,6 +19,38 @@ from .config_loader import (
     load_yaml_config,
     merge_configs,
 )
+
+
+class DatabaseConfig(BaseSettings):
+    """Database backend configuration (Phase 14+ Part A).
+
+    AGORA_DATABASE_URL env var overrides everything: when set,
+    backend is forced to 'postgres' and the URL is used directly
+    (12-factor for K8s).
+    """
+
+    backend: str = "sqlite"
+    db_path: str = str(Path.home() / ".agora" / "data" / "agora.db")
+    database_url: str = ""
+    pool_min_size: int = 2
+    pool_max_size: int = 20
+    pool_acquire_timeout: int = 30
+
+    model_config = SettingsConfigDict(env_prefix="AGORA_DATABASE_")
+
+    def resolved_backend(self) -> str:
+        """Return effective backend (AGORA_DATABASE_URL forces postgres)."""
+        env_url = os.environ.get("AGORA_DATABASE_URL", "")
+        if env_url:
+            return "postgres"
+        return self.backend
+
+    def resolved_url(self) -> str:
+        """Return effective connection URL."""
+        env_url = os.environ.get("AGORA_DATABASE_URL", "")
+        if env_url:
+            return env_url
+        return self.database_url
 
 
 class YamlConfigSource(PydanticBaseSettingsSource):
@@ -49,8 +82,11 @@ class Settings(BaseSettings):
     port: int = 8765
     debug: bool = False
 
-    # Database
-    db_path: str = str(Path.home() / ".agora" / "data" / "agora.db")
+    # Database (Phase 14+ Part A: multi-backend support)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+
+    # Legacy db_path kept for backward compat; delegates to database section
+    db_path: str = ""
 
     # Logging
     log_level: str = "INFO"
@@ -110,6 +146,13 @@ class Settings(BaseSettings):
     plugins_enabled: list[str] = Field(default_factory=list)   # whitelist
     plugins_disabled: list[str] = Field(default_factory=list)  # blacklist
 
+    # Phase 14+.B: Broadcast bus configuration
+    redis_url: str = ""                # env: AGORA_REDIS_URL
+    broadcast_backend: Literal["local", "redis"] = "local"
+
+    # Phase 14+.E.2: Protocol version negotiation
+    protocol_version: float = 2.0      # env: AGORA_PROTOCOL_VERSION
+
     # Phase 10.1: Parallel execution
     parallel_mode: str = "auto"           # auto | sequential | parallel
 
@@ -131,6 +174,16 @@ class Settings(BaseSettings):
     discussion_timeout_seconds: int = 1800
 
     model_config = SettingsConfigDict(env_prefix="AGORA_")
+
+    def get_db_path(self) -> str:
+        """Return effective db_path (backward compat).
+
+        If db_path was set explicitly (CLI/env), use it.
+        Otherwise delegate to database.db_path.
+        """
+        if self.db_path:
+            return self.db_path
+        return self.database.db_path
 
     @classmethod
     def settings_customise_sources(
@@ -156,6 +209,10 @@ def _get_yaml_data() -> dict[str, Any]:
     for key in ("db_path",):
         if key in defaults and isinstance(defaults[key], str):
             defaults[key] = expand_path(defaults[key])
+    # Expand database.db_path if present
+    db_section = defaults.get("database", {})
+    if isinstance(db_section, dict) and "db_path" in db_section:
+        db_section["db_path"] = expand_path(db_section["db_path"])
     return defaults
 
 

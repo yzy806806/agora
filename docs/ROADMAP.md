@@ -20,7 +20,7 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 4. ✅ Multi-platform Agent Integration (Phase 12) — v0.12.0
 5. ✅ Full-auto Dev Loop + Dashboard Enhancement (Phase 13) — v0.13.0 已发布
 6. ✅ Shared Workspace — 多 Agent 分布式协作工作区 (Phase 14) — v0.14.0 已发布
-7. 🔴 Horizontal Scaling + Postgres (Phase 14+ — 最高优先级，设计已完成 2026-06-16)
+7. ✅ Horizontal Scaling + Postgres (Phase 14+) — v0.15.0 发布中
 8. 🔮 Kubernetes / 分布式部署 (Phase 15+)
 
 ## Phase 9-12: ✅ 已完成
@@ -75,9 +75,11 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - 文件锁粒度：文件级，agent 编辑前必须 acquire lock
 - 支持大文件流式上传/下载
 
-## Phase 14+: 🔴 Horizontal Scaling + Postgres（设计完成 2026-06-16）
+## Phase 14+: ✅ Horizontal Scaling + Postgres（开发+审查全部完成，v0.15.0 发布中）
 
 > 设计文档：[docs/DESIGN-phase14plus.md](DESIGN-phase14plus.md)
+>
+> 🎉 Phase 14+ 全部 5 个 Part（A-E）开发 + Fix + Review 均已通过。v0.15.0 发布任务已创建 (t_d2444d2c)。
 
 - SQLite → Postgres 迁移（StorageBackend ABC + asyncpg）
 - 消息队列（Redis Pub/Sub）解耦 WS 广播 — LocalBus + RedisBus
@@ -85,7 +87,51 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - Webhook 触发器（HMAC-SHA256 签名 → Pipeline 启动 + 速率限制）
 - Agent Protocol v2（协议协商、结构化能力声明、错误码、Token Scopes）
 
-### 已纳入开发计划（由 planner 于 2026-06-16 确认）
+### 开发进度
+
+**Phase 14+.1: Part A (Postgres) + Part B (Redis) — ✅ Review 复审通过**
+- A.1: StorageBackend ABC + SqliteBackend refactor ✅
+- A.2: PostgresBackend with asyncpg connection pool ✅
+- A.3: Postgres schema DDL + migration tool ✅
+- A.4: SQL dialect abstraction + config database section ✅
+- A.5: Update all storage CRUD modules for backend-agnostic queries ✅
+- A.6: Integration tests with Postgres (testcontainers) ✅
+- B.1: BroadcastBus ABC + LocalBus ✅
+- B.2: RedisBus implementation (Redis Pub/Sub) ✅
+- B.3: Wire BroadcastBus into ConnectionHub + main.py lifespan ✅
+- B.4: Integration tests with Redis fixture ✅
+- Fix A: main.py Postgres backend selection + storage.py update_agent_token ✅ (t_3e35f6e2 done)
+- Fix B: LocalBus exclude double delivery ✅ (t_e863a58b done)
+- Review A: ✅ 通过 (t_e6117703 done)
+- Review B: ✅ 通过 (t_fbd4a645 done)
+
+**Phase 14+.2: Part C (Helm Chart) — ✅ Review 复审通过**
+- C.1: Chart skeleton + values.yaml ✅
+- C.2: Coordinator Deployment + HPA + Service ✅
+- C.3: Redis + Postgres + Ingress templates ✅
+- C.4: Documentation README.md ✅
+- Fix C: anti-affinity label + missing Secret templates + missing files ✅ (t_87071ae8 done)
+- Fix C-2: ingress 端口修复 ✅ (t_950c9259 done — maintainer 直接修复)
+- Review C: ✅ 通过 (t_15904cfb done)
+
+**Phase 14+.3: Part D (Webhooks) — ✅ Review 复审通过**
+- D.1: Webhook models + DB schema ✅
+- D.2: Webhook CRUD API ✅
+- D.3: Trigger endpoint + signature verification ✅
+- D.4: Template rendering → Pipeline creation ✅
+- D.5: Rate limiting + IP allowlisting + tests ✅
+- Fix D: Postgres-incompatible UPDATE + dead code ✅ (t_5a5a2610 done)
+- Review D: ✅ 通过 (t_35453a66 done)
+
+**Phase 14+.4: Part E (Protocol v2) — ✅ Review 复审通过**
+- E.1: v2 message models ✅
+- E.2: WELCOME message + protocol negotiation ✅
+- E.3: Structured task result handling ✅
+- E.4: CapabilityMatcher v2 ✅
+- E.5: Discovery endpoint ✅
+- E.6: Token scopes + enhanced auth ✅
+- Fix E: SQLite migration duplicate column + dual definitions + Discovery deviation ✅ (t_893fbaf0 done)
+- Review E: ✅ 通过 (t_58ef4202 done)
 
 ### Phase 15+: 生态扩展
 

@@ -136,6 +136,72 @@ async def handle_task_progress(
     logger.info("Task %s progress: %s%% — %s", task_id, progress_pct, message)
 
 
+async def handle_task_result(
+    agent_id: str, payload: dict, storage: Any, hub: Any,
+    parallel_coord: Any | None = None,
+) -> None:
+    """Process TASK_RESULT (Protocol v2): structured task result.
+
+    Validates the payload, stores structured result, and triggers
+    the normal task completion flow (status update + verification).
+    """
+    from .capability_v2_messages import (
+        StructuredError, TaskOutput, TaskResult, TaskResultStatus,
+    )
+    task_id = payload.get("task_id")
+    if not task_id:
+        await _send_error(hub, agent_id, "missing_task_id", "Missing task_id")
+        return
+    task = await storage.get_task(task_id)
+    if not task:
+        await _send_error(hub, agent_id, "task_not_found",
+                          f"Task {task_id} not found")
+        return
+    # Parse and validate the structured result
+    result_status = payload.get("status", "success")
+    try:
+        # Build output sub-object
+        out_data = payload.get("output", {})
+        if isinstance(out_data, dict):
+            output = TaskOutput(**out_data)
+        else:
+            output = TaskOutput()
+        # Build optional error
+        err_data = payload.get("error")
+        error = StructuredError(**err_data) if err_data else None
+        tr = TaskResult(
+            task_id=task_id,
+            status=TaskResultStatus(result_status),
+            output=output,
+            error=error,
+            metrics=payload.get("metrics"),
+        )
+    except Exception as exc:
+        await _send_error(hub, agent_id, "invalid_result",
+                          f"Invalid TaskResult: {exc}")
+        return
+    # Store structured result as JSON
+    await storage.save_task_result(task_id, tr.model_dump_json())
+    # Map v2 status to v1 task status for state machine
+    if result_status == "success":
+        v1_status = "done"
+    elif result_status == "partial":
+        v1_status = "done"
+    else:
+        v1_status = "failed"
+    # Delegate to existing status handler (validates transition)
+    await handle_task_status(
+        agent_id,
+        {
+            "task_id": task_id,
+            "status": v1_status,
+            "error": (tr.error.message if tr.error else None),
+            "artifact_paths": tr.output.artifacts,
+        },
+        storage, hub, parallel_coord,
+    )
+
+
 async def _parallel_on_done(
     task_id: str, task: dict, coord: Any, storage: Any, hub: Any,
 ) -> None:

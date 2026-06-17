@@ -55,6 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp_agent = sub.add_parser("agent", help="Run an agent")
     sp_agent.set_defaults(func=_cmd_agent)
 
+    # migrate
+    from agora.cli_migrate import add_migrate_parser
+    add_migrate_parser(sub)
+
     return parser
 
 

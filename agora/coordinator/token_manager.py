@@ -3,6 +3,7 @@
 Provides TokenManager for creating, validating, rotating, and revoking
 JWT tokens. Blocklist is in-memory with periodic cleanup.
 Backward compat: AGORA_ADMIN_TOKEN still works as fallback.
+Phase 14+.E.6: Added scope claim support for Protocol v2.
 """
 from __future__ import annotations
 
@@ -11,8 +12,11 @@ import os
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Sequence
 
 import jwt
+
+from .token_scopes import TokenScope, scopes_for_role
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +27,16 @@ BLOCKLIST_CLEANUP_INTERVAL = 300  # 5 minutes
 class TokenPayload:
     """Decoded JWT payload data."""
 
-    __slots__ = ("agent_id", "role", "tenant_id", "exp", "iat", "jti")
+    __slots__ = (
+        "agent_id", "role", "tenant_id",
+        "exp", "iat", "jti", "scopes",
+    )
 
     def __init__(
         self, agent_id: str, role: str,
         tenant_id: str | None = None,
         exp: int = 0, iat: int = 0, jti: str = "",
+        scopes: list[str] | None = None,
     ):
         self.agent_id = agent_id
         self.role = role
@@ -36,6 +44,7 @@ class TokenPayload:
         self.exp = exp
         self.iat = iat
         self.jti = jti
+        self.scopes = scopes
 
 
 class TokenManager:
@@ -58,12 +67,26 @@ class TokenManager:
         self, agent_id: str, role: str,
         tenant_id: str | None = None,
         expires_delta: int | None = None,
+        scopes: Sequence[str | TokenScope] | None = None,
     ) -> str:
-        """Create a signed JWT with agent_id, role, tenant_id claims."""
+        """Create a signed JWT with agent_id, role, tenant_id, scope claims.
+
+        If *scopes* is None, defaults to role-based scopes.
+        If *scopes* is an empty list, no scope claim is emitted
+        (backward compat: token gets all scopes at validation).
+        """
         now = datetime.now(timezone.utc)
         expiry = now + timedelta(
             seconds=expires_delta or DEFAULT_EXPIRY_SECONDS
         )
+        scope_list: list[str] | None
+        if scopes is None:
+            scope_list = [s.value for s in scopes_for_role(role)]
+        else:
+            scope_list = [
+                s.value if isinstance(s, TokenScope) else s
+                for s in scopes
+            ]
         payload = {
             "agent_id": agent_id,
             "role": role,
@@ -71,6 +94,7 @@ class TokenManager:
             "exp": expiry,
             "iat": now,
             "jti": secrets.token_hex(8),
+            "scope": scope_list,
         }
         return jwt.encode(payload, self._secret, algorithm="HS256")
 
@@ -98,6 +122,7 @@ class TokenManager:
             exp=data.get("exp", 0),
             iat=data.get("iat", 0),
             jti=jti,
+            scopes=data.get("scope"),
         )
 
     def revoke_token(self, token: str) -> None:
@@ -132,6 +157,7 @@ class TokenManager:
             agent_id=data["agent_id"],
             role=data["role"],
             tenant_id=data.get("tenant_id"),
+            scopes=data.get("scope"),
         )
 
     def _maybe_cleanup(self) -> None:

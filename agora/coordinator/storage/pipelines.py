@@ -1,25 +1,21 @@
-"""PipelineRun CRUD for Phase 13 full-auto dev loop."""
+"""PipelineRun CRUD — backend-agnostic."""
 from __future__ import annotations
 
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
-import aiosqlite
+from .dialect import Dialect
 
 logger = logging.getLogger(__name__)
 
 
 async def create_pipeline_run(
-    db: aiosqlite.Connection,
-    project_id: str,
-    idea: str,
-    phase: str = "discussing",
-    motion_id: str | None = None,
-    graph_id: str | None = None,
+    db: Any, dialect: Dialect,
+    project_id: str, idea: str, phase: str = "discussing",
+    motion_id: str | None = None, graph_id: str | None = None,
 ) -> dict:
-    """Insert a new pipeline run. Returns the full record dict."""
     run_id = uuid.uuid4().hex[:16]
     now = datetime.now(timezone.utc).isoformat()
     row = {
@@ -33,57 +29,48 @@ async def create_pipeline_run(
     }
     cols = ", ".join(row.keys())
     placeholders = ", ".join(["?"] * len(row))
-    await db.execute(
-        f"INSERT INTO pipeline_runs ({cols}) VALUES ({placeholders})",
-        list(row.values()),
-    )
+    sql, params = dialect.render(
+        f"INSERT INTO pipeline_runs ({cols}) "
+        f"VALUES ({placeholders})", list(row.values()))
+    await db.execute(sql, params)
     await db.commit()
     return dict(row)
 
 
 async def get_pipeline_run(
-    db: aiosqlite.Connection, run_id: str,
+    db: Any, dialect: Dialect, run_id: str,
 ) -> Optional[dict]:
-    """Get a pipeline run by ID, or None."""
-    async with db.execute(
-        "SELECT * FROM pipeline_runs WHERE id = ?", [run_id],
-    ) as cur:
+    sql, params = dialect.render(
+        "SELECT * FROM pipeline_runs WHERE id = ?", [run_id])
+    async with db.execute(sql, params) as cur:
         row = await cur.fetchone()
     return dict(row) if row else None
 
 
 async def list_pipeline_runs(
-    db: aiosqlite.Connection,
-    project_id: str | None = None,
-    phase: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    db: Any, dialect: Dialect,
+    project_id: str | None = None, phase: str | None = None,
+    limit: int = 100, offset: int = 0,
 ) -> list[dict]:
-    """List pipeline runs with optional filters."""
     clauses, params = [], []
     if project_id is not None:
-        clauses.append("project_id = ?")
-        params.append(project_id)
+        clauses.append("project_id = ?"); params.append(project_id)
     if phase is not None:
-        clauses.append("phase = ?")
-        params.append(phase)
+        clauses.append("phase = ?"); params.append(phase)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.extend([limit, offset])
-    async with db.execute(
+    sql, params = dialect.render(
         f"SELECT * FROM pipeline_runs {where} "
-        f"ORDER BY started_at DESC LIMIT ? OFFSET ?",
-        params,
-    ) as cur:
+        "ORDER BY started_at DESC LIMIT ? OFFSET ?", params)
+    async with db.execute(sql, params) as cur:
         rows = [dict(r) async for r in cur]
     return rows
 
 
 async def update_pipeline_run(
-    db: aiosqlite.Connection,
-    run_id: str,
-    updates: dict,
+    db: Any, dialect: Dialect,
+    run_id: str, updates: dict,
 ) -> Optional[dict]:
-    """Update fields on a pipeline run. Returns updated record."""
     allowed = {
         "phase", "motion_id", "graph_id", "completed_at",
         "tasks_total", "tasks_completed", "tasks_failed",
@@ -94,46 +81,40 @@ async def update_pipeline_run(
     for k, v in updates.items():
         if k not in allowed:
             continue
-        sets.append(f"{k} = ?")
-        params.append(v)
+        sets.append(f"{k} = ?"); params.append(v)
     if not sets:
-        return await get_pipeline_run(db, run_id)
+        return await get_pipeline_run(db, dialect, run_id)
     params.append(run_id)
-    await db.execute(
-        f"UPDATE pipeline_runs SET {', '.join(sets)} WHERE id = ?",
-        params,
-    )
+    sql, params = dialect.render(
+        f"UPDATE pipeline_runs SET {', '.join(sets)} "
+        "WHERE id = ?", params)
+    await db.execute(sql, params)
     await db.commit()
-    return await get_pipeline_run(db, run_id)
+    return await get_pipeline_run(db, dialect, run_id)
 
 
 async def delete_pipeline_run(
-    db: aiosqlite.Connection, run_id: str,
+    db: Any, dialect: Dialect, run_id: str,
 ) -> bool:
-    """Delete a pipeline run. Returns True if deleted."""
-    cursor = await db.execute(
-        "DELETE FROM pipeline_runs WHERE id = ?", [run_id],
-    )
+    sql, params = dialect.render(
+        "DELETE FROM pipeline_runs WHERE id = ?", [run_id])
+    cursor = await db.execute(sql, params)
     await db.commit()
     return cursor.rowcount > 0
 
 
 async def count_pipeline_runs(
-    db: aiosqlite.Connection,
-    project_id: str | None = None,
-    phase: str | None = None,
+    db: Any, dialect: Dialect,
+    project_id: str | None = None, phase: str | None = None,
 ) -> int:
-    """Count total pipeline runs matching filters (for pagination)."""
     clauses, params = [], []
     if project_id is not None:
-        clauses.append("project_id = ?")
-        params.append(project_id)
+        clauses.append("project_id = ?"); params.append(project_id)
     if phase is not None:
-        clauses.append("phase = ?")
-        params.append(phase)
+        clauses.append("phase = ?"); params.append(phase)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    async with db.execute(
-        f"SELECT COUNT(*) FROM pipeline_runs {where}", params,
-    ) as cur:
+    sql, params = dialect.render(
+        f"SELECT COUNT(*) FROM pipeline_runs {where}", params)
+    async with db.execute(sql, params) as cur:
         row = await cur.fetchone()
     return row[0] if row else 0

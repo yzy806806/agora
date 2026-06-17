@@ -2,6 +2,7 @@
 
 Phase 10.2a: Role/Permission enums, role-permission mapping,
 and @requires(permission) decorator for FastAPI endpoints.
+Phase 14+.E.6: Added @requires_scope() for scope-based access control.
 
 AGORA_RBAC_ENFORCE env var controls enforcement:
 - "true" / "1" → enforce RBAC checks
@@ -13,9 +14,11 @@ import functools
 import logging
 import os
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from fastapi import Depends, HTTPException, Request
+
+from .token_scopes import TokenScope, has_scope
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +123,52 @@ def requires(permission: Permission) -> Callable:
             if not check_permission(role, permission):
                 raise HTTPException(
                     status_code=403, detail="Forbidden")
+            return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+# --- Phase 14+.E.6: Scope-based access control ---
+
+def get_current_scopes(request: Request) -> list[str] | None:
+    """FastAPI Depends: read scopes from request state set by middleware.
+
+    Returns None if no scopes were set (backward compat: all scopes).
+    """
+    return getattr(request.state, "_rbac_scopes", None)
+
+
+def requires_scope(
+    *required: TokenScope | str,
+) -> Callable:
+    """Decorator that checks the caller's token has the required scope(s).
+
+    All *required* scopes must be present (with hierarchy expansion).
+    When AGORA_RBAC_ENFORCE is off, this is a no-op.
+    Tokens without a scope claim get all scopes (backward compat).
+
+    Endpoints MUST accept ``_rbac_scopes`` with
+    ``Depends(get_current_scopes)``.
+    """
+    req_scopes = [
+        TokenScope(s) if isinstance(s, str) else s for s in required
+    ]
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not rbac_enforced():
+                return await func(*args, **kwargs)
+            token_scopes: list[str] | None = kwargs.get("_rbac_scopes")
+            # No scope claim → backward compat: all scopes granted
+            if token_scopes is None:
+                return await func(*args, **kwargs)
+            for req in req_scopes:
+                if not has_scope(token_scopes, req):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Missing scope: {req.value}",
+                    )
             return await func(*args, **kwargs)
         return wrapper
     return decorator

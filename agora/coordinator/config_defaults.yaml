@@ -10,6 +10,15 @@ debug: false
 # Database
 db_path: "~/.agora/data/agora.db"
 
+# Database backend configuration (Phase 14+ Part A)
+database:
+  backend: "sqlite"
+  db_path: "~/.agora/data/agora.db"
+  database_url: ""
+  pool_min_size: 2
+  pool_max_size: 20
+  pool_acquire_timeout: 30
+
 # Logging
 log_level: "INFO"
 
@@ -57,6 +66,9 @@ api_key_header: "X-Agora-Key"
 heartbeat_interval_seconds: 30
 heartbeat_timeout_seconds: 120
 heartbeat_max_missed: 3
+
+# Protocol version (Phase 14+.E.2)
+protocol_version: 2.0
 
 # Timeouts
 round_timeout_seconds: 300

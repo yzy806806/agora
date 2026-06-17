@@ -26,6 +26,7 @@ from .config import settings
 from .router import init_deps, router
 from .state import StateMachine
 from .storage import Storage
+from .storage.backend_postgres import PostgresBackend
 from .ws_endpoint import websocket_endpoint
 from .ws import manager
 from .heartbeat import HeartbeatManager
@@ -76,6 +77,16 @@ from .notification_router import init_notification_router_deps
 # Phase 13.1e: Pipeline REST API
 from .pipeline_router import router as pipeline_router
 from .pipeline_router import init_pipeline_router_deps
+# Phase 14+ D.2: Webhook CRUD API
+from .webhook_router import router as webhook_router
+from .webhook_router import init_webhook_router_deps
+# Phase 14+.D.5: Webhook triggers (with rate limiting + IP filtering)
+from .webhook_trigger import router as webhook_trigger_router
+from .webhook_trigger import init_webhook_trigger_deps
+from .webhook_rate_limiter import WebhookRateLimiter
+# Phase 14+.E.5: Discovery endpoint
+from .discovery_router import router as discovery_router
+from .discovery_router import init_discovery_deps
 # Phase 14.3a: Workspace REST API
 from .workspace.workspace_router import router as workspace_router
 from .workspace.workspace_router_read import router_read as workspace_router_read
@@ -92,28 +103,59 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: init DB on startup, cleanup on shutdown."""
-    db_dir = os.path.dirname(settings.db_path)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
+    # Phase 14+ Part A: Select storage backend by config
+    db_backend = settings.database.resolved_backend()
+    if db_backend == "postgres":
+        pg_url = settings.database.resolved_url()
+        if not pg_url:
+            raise RuntimeError(
+                "Postgres backend selected but no database_url configured"
+            )
+        storage = Storage(PostgresBackend(
+            database_url=pg_url,
+            pool_min_size=settings.database.pool_min_size,
+            pool_max_size=settings.database.pool_max_size,
+            pool_acquire_timeout=settings.database.pool_acquire_timeout,
+        ))
+    else:
+        db_dir = os.path.dirname(settings.get_db_path())
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+        storage = Storage(settings.get_db_path())
+    await storage.init_db()
     # Phase 8.2: Multi-tenant StorageManager init
-    data_dir = Path(os.path.dirname(settings.db_path) or "data")
+    data_dir = Path(os.path.dirname(settings.get_db_path()) or "data")
     storage_mgr = StorageManager(data_dir)
     await storage_mgr.init()
     tenant_mgr = TenantManager(storage_mgr)
     init_tenant_deps(tenant_mgr)
     app.state.storage_mgr = storage_mgr
     app.state.tenant_mgr = tenant_mgr
-    storage = Storage(settings.db_path)
-    await storage.init_db()
     state_machine = StateMachine(storage)
     init_deps(storage, state_machine)
+    # Phase 14+.E.5: Discovery endpoint deps
+    init_discovery_deps(storage)
+    # Phase 14+.B.3: Create broadcast bus
+    from .broadcast_bus import LocalBus
+    from .broadcast_bus_redis import RedisBus
+    bus = None
+    if settings.redis_url and settings.broadcast_backend == "redis":
+        bus = RedisBus(settings.redis_url)
+        await bus.connect()
+        logger.info("Broadcast bus: RedisBus (%s)", settings.redis_url)
+    else:
+        bus = LocalBus()
+        logger.info("Broadcast bus: LocalBus (in-process)")
+    manager.set_bus(bus)
+    await bus.subscribe("default", manager._on_remote_broadcast)
+    app.state.bus = bus
     # Observability init
     init_metrics()
     metrics.agents_connected.set(0)
     # Dashboard deps init
     init_dashboard_deps(storage)
     # Bootstrap engine init
-    bootstrap_cfg = BootstrapConfig(db_path=settings.db_path)
+    bootstrap_cfg = BootstrapConfig(db_path=settings.get_db_path())
     bootstrap_engine = BootstrapEngine(bootstrap_cfg)
     bootstrap_engine.init_routes()
     # Phase 9.4: Token rate limiter init
@@ -147,7 +189,7 @@ async def lifespan(app: FastAPI):
     )
     # Phase 10.2: RBAC — TokenManager + AuditLogger
     token_mgr = TokenManager(secret=settings.jwt_secret or None)
-    audit_logger = AuditLogger(settings.db_path)
+    audit_logger = AuditLogger(settings.get_db_path())
     app.state.token_mgr = token_mgr
     app.state.audit_logger = audit_logger
     init_audit_deps(audit_logger)
@@ -162,13 +204,18 @@ async def lifespan(app: FastAPI):
     init_notification_router_deps(storage)
     # Phase 13.1e: Pipeline router deps
     init_pipeline_router_deps(storage)
+    # Phase 14+ Part D: Webhook router deps (with rate limiter)
+    webhook_limiter = WebhookRateLimiter()
+    init_webhook_router_deps(storage)
+    init_webhook_trigger_deps(storage, webhook_limiter)
+    app.state.webhook_limiter = webhook_limiter
     # Phase 14.3a: Workspace manager + router init
     ws_config = {
         "backend": getattr(settings, "workspace_backend", "local"),
         "local": {"root": getattr(settings, "workspace_root", "./data/workspaces")},
     }
     ws_backend = get_storage_backend(ws_config)
-    ws_manager = WorkspaceManager(settings.db_path, ws_backend)
+    ws_manager = WorkspaceManager(settings.get_db_path(), ws_backend)
     init_workspace_router_deps(ws_manager)
     app.state.ws_manager = ws_manager
     # Phase 14.4a: Wire WS broadcast for workspace events
@@ -202,9 +249,13 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Plugins loaded: %d/%d", len(plugin_coord.list_plugins()), len(discovered),
     )
-    logger.info("Coordinator started (db=%s)", settings.db_path)
+    logger.info("Coordinator started (backend=%s)", db_backend)
     yield
     # Cleanup
+    # Phase 14+.B.3: Close broadcast bus
+    bus = getattr(app.state, "bus", None)
+    if bus:
+        await bus.close()
     if rl_flush_task is not None:
         rl_flush_task.cancel()
         try:
@@ -278,6 +329,11 @@ def create_app() -> FastAPI:
     app.include_router(workspace_router_bulk, prefix="/api/v1")
     # Phase 13.7b: Health check (no auth, for Docker healthcheck)
     app.include_router(health_router, prefix="/api/v1")
+    # Phase 14+.E.5: Discovery endpoint
+    app.include_router(discovery_router, prefix="/api/v1")
+    # Phase 14+.D.5: Webhook triggers
+    app.include_router(webhook_router, prefix="/api/v1")
+    app.include_router(webhook_trigger_router, prefix="/api/v1")
     app.add_api_websocket_route("/ws/{agent_id}", websocket_endpoint)
     # Phase 11.2b: Dashboard WebSocket endpoint
     app.add_api_websocket_route("/ws/dashboard", dashboard_ws_endpoint)

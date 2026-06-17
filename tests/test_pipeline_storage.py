@@ -8,6 +8,7 @@ from agora.coordinator.storage.pipelines import (
     create_pipeline_run, get_pipeline_run, list_pipeline_runs,
     update_pipeline_run, delete_pipeline_run,
 )
+from agora.coordinator.storage.dialect import Dialect
 
 
 @pytest_asyncio.fixture
@@ -28,43 +29,48 @@ async def db(tmp_path):
     await conn.close()
 
 
+@pytest.fixture
+def dialect() -> Dialect:
+    return Dialect("sqlite")
+
+
 @pytest.mark.asyncio
-async def test_create_and_get(db):
-    row = await create_pipeline_run(db, "proj-1", "build feature")
+async def test_create_and_get(db, dialect):
+    row = await create_pipeline_run(db, dialect, "proj-1", "build feature")
     assert row["project_id"] == "proj-1"
     assert row["idea"] == "build feature"
     assert row["phase"] == "discussing"
-    fetched = await get_pipeline_run(db, row["id"])
+    fetched = await get_pipeline_run(db, dialect, row["id"])
     assert fetched is not None
     assert fetched["id"] == row["id"]
 
 
 @pytest.mark.asyncio
-async def test_get_not_found(db):
-    assert await get_pipeline_run(db, "nonexistent") is None
+async def test_get_not_found(db, dialect):
+    assert await get_pipeline_run(db, dialect, "nonexistent") is None
 
 
 @pytest.mark.asyncio
-async def test_list_runs(db):
-    await create_pipeline_run(db, "p1", "idea1")
-    await create_pipeline_run(db, "p1", "idea2")
-    await create_pipeline_run(db, "p2", "idea3")
-    runs = await list_pipeline_runs(db, project_id="p1")
+async def test_list_runs(db, dialect):
+    await create_pipeline_run(db, dialect, "p1", "idea1")
+    await create_pipeline_run(db, dialect, "p1", "idea2")
+    await create_pipeline_run(db, dialect, "p2", "idea3")
+    runs = await list_pipeline_runs(db, dialect, project_id="p1")
     assert len(runs) == 2
 
 
 @pytest.mark.asyncio
-async def test_list_by_phase(db):
-    row = await create_pipeline_run(db, "p1", "idea")
-    await update_pipeline_run(db, row["id"], {"phase": "completed"})
-    runs = await list_pipeline_runs(db, phase="completed")
+async def test_list_by_phase(db, dialect):
+    row = await create_pipeline_run(db, dialect, "p1", "idea")
+    await update_pipeline_run(db, dialect, row["id"], {"phase": "completed"})
+    runs = await list_pipeline_runs(db, dialect, phase="completed")
     assert len(runs) == 1
 
 
 @pytest.mark.asyncio
-async def test_update_run(db):
-    row = await create_pipeline_run(db, "p1", "idea")
-    updated = await update_pipeline_run(db, row["id"], {
+async def test_update_run(db, dialect):
+    row = await create_pipeline_run(db, dialect, "p1", "idea")
+    updated = await update_pipeline_run(db, dialect, row["id"], {
         "phase": "executing", "tasks_total": 5,
     })
     assert updated is not None
@@ -73,20 +79,20 @@ async def test_update_run(db):
 
 
 @pytest.mark.asyncio
-async def test_update_ignores_disallowed(db):
-    row = await create_pipeline_run(db, "p1", "idea")
-    updated = await update_pipeline_run(db, row["id"], {"id": "hacked"})
+async def test_update_ignores_disallowed(db, dialect):
+    row = await create_pipeline_run(db, dialect, "p1", "idea")
+    updated = await update_pipeline_run(db, dialect, row["id"], {"id": "hacked"})
     assert updated is not None
     assert updated["id"] == row["id"]
 
 
 @pytest.mark.asyncio
-async def test_delete_run(db):
-    row = await create_pipeline_run(db, "p1", "idea")
-    assert await delete_pipeline_run(db, row["id"]) is True
-    assert await get_pipeline_run(db, row["id"]) is None
+async def test_delete_run(db, dialect):
+    row = await create_pipeline_run(db, dialect, "p1", "idea")
+    assert await delete_pipeline_run(db, dialect, row["id"]) is True
+    assert await get_pipeline_run(db, dialect, row["id"]) is None
 
 
 @pytest.mark.asyncio
-async def test_delete_nonexistent(db):
-    assert await delete_pipeline_run(db, "nope") is False
+async def test_delete_nonexistent(db, dialect):
+    assert await delete_pipeline_run(db, dialect, "nope") is False

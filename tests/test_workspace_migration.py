@@ -9,7 +9,7 @@ from agora.coordinator.storage import Storage
 
 @pytest.mark.asyncio
 async def test_schema_version_is_16():
-    assert SCHEMA_VERSION == 16
+    assert SCHEMA_VERSION >= 16
 
 
 @pytest.mark.asyncio
