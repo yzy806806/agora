@@ -16,7 +16,7 @@ from .observability.metrics import _START_TIME
 
 router = APIRouter(tags=["health"])
 
-_VERSION = "0.13.0"
+from agora import __version__ as _VERSION
 
 
 @router.get("/health")

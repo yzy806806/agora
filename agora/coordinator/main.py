@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
+from agora import __version__
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -283,7 +285,7 @@ def create_app() -> FastAPI:
     """Factory: create and configure the FastAPI application."""
     app = FastAPI(
         title="Hermes Agora Coordinator",
-        version="0.10.0",
+        version=__version__,
         lifespan=lifespan,
     )
     app.add_middleware(

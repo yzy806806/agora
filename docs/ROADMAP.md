@@ -20,7 +20,7 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 4. ✅ Multi-platform Agent Integration (Phase 12) — v0.12.0
 5. ✅ Full-auto Dev Loop + Dashboard Enhancement (Phase 13) — v0.13.0 已发布
 6. ✅ Shared Workspace — 多 Agent 分布式协作工作区 (Phase 14) — v0.14.0 已发布
-7. ✅ Horizontal Scaling + Postgres (Phase 14+) — v0.15.0 发布中
+7. ✅ Horizontal Scaling + Postgres (Phase 14+) — v0.15.0 已发布
 8. 🔮 Kubernetes / 分布式部署 (Phase 15+)
 
 ## Phase 9-12: ✅ 已完成
@@ -75,11 +75,11 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - 文件锁粒度：文件级，agent 编辑前必须 acquire lock
 - 支持大文件流式上传/下载
 
-## Phase 14+: ✅ Horizontal Scaling + Postgres（开发+审查全部完成，v0.15.0 发布中）
+## Phase 14+: ✅ Horizontal Scaling + Postgres（v0.15.0 已发布）
 
 > 设计文档：[docs/DESIGN-phase14plus.md](DESIGN-phase14plus.md)
 >
-> 🎉 Phase 14+ 全部 5 个 Part（A-E）开发 + Fix + Review 均已通过。v0.15.0 发布任务已创建 (t_d2444d2c)。
+> 🎉 Phase 14+ 全部 5 个 Part（A-E）开发 + Fix + Review 均已通过。v0.15.0 已发布 (2026-06-17)。
 
 - SQLite → Postgres 迁移（StorageBackend ABC + asyncpg）
 - 消息队列（Redis Pub/Sub）解耦 WS 广播 — LocalBus + RedisBus
