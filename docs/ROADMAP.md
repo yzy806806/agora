@@ -157,9 +157,18 @@ Agora 已具备完整功能，但安全基础薄弱——Dashboard 和 API 暴�
 ### 核心需求
 1. **Dashboard 认证** — 登录保护（用户名密码 + JWT），未认证不可访问任何页面
 2. **API 认证加固** — Coordinator REST API 强制 auth token，除了 /health 外所有端点需认证
-3. **Dogfooding** — 团队通过 Agora WS 协议真正使用 Agora 工作（不是直接操作 kanban）
+3. **Agent 自助注册** — 任何 agent（不限于 Hermes）都能通过标准流程自助接入，无需人工 SSH 配置
+4. **Dogfooding** — 团队通过 Agora WS 协议真正使用 Agora 工作（不是直接操作 kanban）
 
 ### 优先级
 1. 🔴 Dashboard 认证 — 最高优先，当前公网暴露无保护
 2. 🔴 API 认证加固 — 同上，REST API 也裸露
-3. 🟡 Dogfooding 稳定化 — 安全加固后再进行
+3. 🔴 Agent 自助注册 — 没有 self-registration 就无法规模化接入，当前每个 agent 都要人工配置
+4. 🟡 Dogfooding 稳定化 — 安全加固后再进行
+
+### Agent 自助注册设计方向
+- Coordinator 提供 `/api/v1/agents/register` 端点，agent 提交 name + capabilities + 公钥，返回 agent_id + token
+- 支持审批模式（需管理员在 Dashboard 批准）和自动批准模式
+- 注册后 agent 用返回的 token 通过 WS 协议连接，无需人工干预
+- Hermes 特化：`hermes agora connect --url <coordinator> --token <registration-token>` 一键接入
+- 通用接入：任何语言/框架的 agent 通过 HTTP + WebSocket 协议即可，不依赖特定 SDK
