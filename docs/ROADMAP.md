@@ -135,9 +135,8 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 
 ### Phase 15+: 生态扩展
 
-- Mobile Dashboard（响应式或原生 App）
-- PicoClaw 适配器
-- 插件市场（社区贡献的 Hook + Extension）
+- Agora 接入消息渠道（Telegram），通过聊天下任务
+- Mobile Dashboard（响应式）
 - DocMind — Agora 全自动开发的首个真实项目
 
 ## Phase 16: MCP Server — 标准协议接入
@@ -241,6 +240,17 @@ opencode mcp add agora --url https://agora.example.com/mcp
 | 16.7 | Hermes 集成测试（mcp_servers 配置 → 自动发现 tools → 调用）| 🔴 |
 | 16.8 | 其他框架集成验证（Claude Code / OpenCode）| 🟢 |
 | 16.9 | MCP Server 文档 + 接入指南 | 🟡 |
+| 16.10 | 减法：删除 WS 协议相关代码（ws.py, ws_endpoint.py, ws_handlers.py, ws_smart.py, ws_vote.py, ws_rate_limit.py）| 🔴 |
+| 16.11 | 减法：删除 Agent Client 模块（agent_client/）| 🔴 |
+| 16.12 | 减法：删除 Voting 系统（voting/，6种投票算法过度设计）| 🔴 |
+| 16.13 | 减法：删除 Plugin 系统（plugin*.py，MCP tools 就是插件）| 🔴 |
+| 16.14 | 减法：删除 Quality Guard（quality_*.py，质量由 reviewer agent 负责）| 🔴 |
+| 16.15 | 减法：删除 Observability（observability/，简单 logging 够用）| 🟡 |
+| 16.16 | 减法：删除 Capability v2（capability_v2*.py，MCP 自带能力声明）| 🔴 |
+| 16.17 | 减法：合并 Rate Limiting（3个文件→1个）| 🟡 |
+| 16.18 | 减法：简化 Pipeline（砍 review_agent/release_agent，保留核心状态机）| 🟡 |
+| 16.19 | 减法：简化 Webhook（955行→极简或删除，MCP notifications 替代）| 🟡 |
+| 16.20 | 文档更新：README.md, ARCHITECTURE.md, API.md 与新定位对齐 | 🔴 |
 
 ### 优先级
 1. 🔴 MCP Server 框架 + Tools + Notifications + 认证 — 核心可用
@@ -297,4 +307,4 @@ Agora 已具备完整功能，但安全基础薄弱——Dashboard 和 API 暴�
 
 - 通用接入：任何语言/框架的 agent 通过 HTTP + WebSocket 协议即可，不依赖特定 SDK
 
-## 状态：✅ 已完成（2026-06-19，v0.16.0 待发布）
+## 状态：✅ 已完成（2026-06-19，v0.16.0 已发布）
