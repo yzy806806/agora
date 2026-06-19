@@ -3,6 +3,7 @@
 All notable changes to this project will be documented in this file.
 Per-version details live in [docs/changelog/](docs/changelog/).
 
+## [v0.17.0](docs/changelog/v0.17.0.md) (2026-06-20)
 ## [v0.16.0](docs/changelog/v0.16.0.md) (2026-06-19)
 ## [v0.15.0](docs/changelog/v0.15.0.md) (2026-06-17)
 ## [v0.14.0](docs/changelog/v0.14.0.md) (2026-06-16)
