@@ -55,12 +55,22 @@ def _is_whitelisted(path: str) -> bool:
     return False
 
 
+def _extract_token(request: Request) -> str:
+    """Extract auth token from Authorization header or dashboard_token cookie."""
+    auth: str = request.headers.get("authorization", "")
+    token = auth.removeprefix("Bearer ").strip()
+    if token:
+        return token
+    # Fallback: dashboard_token cookie (set by /api/v1/auth/login)
+    cookie_token = request.cookies.get("dashboard_token", "")
+    return cookie_token.strip()
+
+
 def _resolve_role_and_scopes(
     request: Request,
 ) -> tuple[Role, list[str] | None]:
-    """Determine role and scopes from Authorization header."""
-    auth: str = request.headers.get("authorization", "")
-    token = auth.removeprefix("Bearer ").strip()
+    """Determine role and scopes from Authorization header or cookie."""
+    token = _extract_token(request)
 
     if not token:
         return Role.OBSERVER, None
@@ -93,8 +103,7 @@ def _resolve_role_and_scopes(
 
 def _is_token_valid(request: Request) -> bool:
     """Check if the request carries a valid token (any kind)."""
-    auth: str = request.headers.get("authorization", "")
-    token = auth.removeprefix("Bearer ").strip()
+    token = _extract_token(request)
     if not token:
         return False
 
