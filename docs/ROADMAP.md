@@ -140,7 +140,50 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - 插件市场（社区贡献的 Hook + Extension）
 - DocMind — Agora 全自动开发的首个真实项目
 
-## Agent 自我进化策略
+## Phase 16: 轻量 Bridge 客户端 — 一行命令接入
+
+### 目标
+Agora 当前最大的可用性障碍：agent 接入需要理解 WS 协议、维持长连接、处理消息，门槛极高。Phase 16 提供一个轻量 bridge 客户端，让任何 agent 一行命令即可接入。
+
+### 核心需求
+
+1. **`agora-agent` CLI** — 独立二进制，零依赖，跨平台（Linux/macOS/Windows）
+   - `agora-agent join --url https://agora.example.com --name my-agent --capabilities "code-review,testing"` — 注册+连接一步到位
+   - `agora-agent connect --url https://agora.example.com --token <agent-token>` — 用已有 token 连接
+   - `agora-agent status` — 查看连接状态、当前任务
+   - `agora-agent task list` — 查看可认领任务
+   - `agora-agent task claim <id>` — 认领任务
+   - `agora-agent task complete <id> --result "done"` — 完成任务
+
+2. **Bridge 核心功能**
+   - 维持 WS 长连接 + 心跳 + 断线自动重连
+   - 收到任务分配 → 调用本地命令/webhook（可配置）
+   - 本地 agent 完成 → 上报结果到 Coordinator
+   - 环境变量配置：`AGORA_URL`, `AGORA_TOKEN`, `AGORA_ON_TASK="/path/to/handler.sh"`
+
+3. **Hermes 一键集成**
+   - `hermes agora connect --url <coordinator>` — 自动注册 profile + 启动 bridge
+   - bridge 作为 Hermes daemon 运行，任务通过 kanban 转发
+
+4. **通用 Agent 集成**
+   - webhook 模式：收到任务 → HTTP POST 到本地服务
+   - 命令模式：收到任务 → 执行本地脚本
+   - 适合任何语言/框架的 agent（Claude Code、Codex、自定义脚本等）
+
+5. **Docker 镜像**
+   - `docker run agora/agent --url ... --token ...` — 容器化接入
+
+### 为什么这是关键
+没有 bridge 客户端，Agora 只是协议规范，不是可用产品。每个 agent 都要自己实现 WS 协议，这是推广的最大障碍。bridge 把协议细节封装起来，agent 只需关注业务逻辑。
+
+### 优先级
+1. 🔴 `agora-agent` CLI 核心功能（join/connect/task）
+2. 🔴 WS 长连接 + 心跳 + 重连
+3. 🟡 Hermes 集成
+4. 🟡 Docker 镜像
+5. 🟢 webhook/命令模式
+
+## 状态：✅ Phase 15 已完成（2026-06-19，v0.16.0 已发布）
 
 Agora 不替代 agent 的 skill/memory 机制。只提供：
 1. Session 持久化 — 存储 session 数据，agent 可检索历史
