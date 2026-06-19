@@ -1,10 +1,12 @@
-"""Unit tests for PipelineReviewer (review phase logic)."""
-import pytest
-from unittest.mock import AsyncMock, patch
+"""Unit tests for PipelineReviewer (consolidated, simplified).
 
-from agora.coordinator.pipeline_reviewer import PipelineReviewer
-from agora.coordinator.pipeline_review_models import (
-    ReviewIssue, ReviewResult,
+Auto-approves; no agent dispatch.
+"""
+import pytest
+from unittest.mock import AsyncMock
+
+from agora.coordinator.pipeline_review import (
+    PipelineReviewer, ReviewResult, ReviewIssue,
 )
 
 
@@ -15,18 +17,11 @@ def _make_reviewer():
 
 @pytest.mark.asyncio
 async def test_request_review():
-    """request_review submits ReviewRequest and returns result."""
+    """request_review auto-approves (no agent dispatch)."""
     reviewer = _make_reviewer()
-    expected = ReviewResult(
-        pipeline_id="p1", reviewer_id="r1",
-        outcome="approved", summary="LGTM",
-    )
-    reviewer.hub.submit_review = AsyncMock(return_value=expected)
     result = await reviewer.request_review("p1", ["a.py", "b.py"])
     assert result.outcome == "approved"
-    req = reviewer.hub.submit_review.call_args[0][0]
-    assert req.pipeline_id == "p1"
-    assert req.changed_files == ["a.py", "b.py"]
+    assert result.reviewer_id == "auto"
 
 
 @pytest.mark.asyncio
@@ -63,15 +58,11 @@ async def test_process_review_changes_requested():
 
 
 @pytest.mark.asyncio
-async def test_re_review_no_agent():
-    """Re-review auto-approves when no review agent found."""
+async def test_re_review():
+    """Re-review auto-approves (simplified)."""
     reviewer = _make_reviewer()
-    with patch(
-        "agora.coordinator.pipeline_reviewer.find_review_agent",
-        return_value=None,
-    ):
-        result = await reviewer.re_review("p1", [
-            {"file": "a.py"}, {"file": "b.py"},
-        ])
+    result = await reviewer.re_review("p1", [
+        {"file": "a.py"}, {"file": "b.py"},
+    ])
     assert result.outcome == "approved"
     assert result.reviewer_id == "auto"

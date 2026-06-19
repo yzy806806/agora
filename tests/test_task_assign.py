@@ -1,12 +1,14 @@
-"""Tests for Task Assigner — capability matching and assignment."""
+"""Tests for Task Assigner — capability matching and assignment.
 
+Phase 16.10: _send_task_assignment renamed to _notify_task_assignment.
+"""
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from agora.coordinator.task_assign import (
     assign_tasks, capability_match_score,
-    _find_capable_agents, _round_robin_pick, _send_task_assignment,
+    _find_capable_agents, _round_robin_pick, _notify_task_assignment,
     DEFAULT_MAX_CONCURRENT,
 )
 from agora.coordinator.task_models import TaskGraph, TaskNode, TaskStatus
@@ -110,16 +112,25 @@ async def test_assign_no_agent_skips():
     assert result == {}
 
 
-# --- _send_task_assignment ---
+# --- _notify_task_assignment ---
 
 @pytest.mark.asyncio
-async def test_send_assignment():
+async def test_notify_assignment_via_hub():
     task = TaskNode(id="t1", graph_id="g1", motion_id="m1", title="T",
                      required_capabilities=["code"])
     hub = MagicMock()
     hub.send = AsyncMock(return_value=True)
-    assert await _send_task_assignment(task, "a1", hub) is True
+    assert await _notify_task_assignment(task, "a1", hub) is True
     hub.send.assert_called_once()
     msg = hub.send.call_args[0][1]
     assert msg["type"] == "TASK_ASSIGNED"
     assert msg["task_id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_notify_assignment_via_mcp():
+    """When hub is None, notification goes via event bus (MCP)."""
+    task = TaskNode(id="t1", graph_id="g1", motion_id="m1", title="T",
+                     required_capabilities=["code"])
+    result = await _notify_task_assignment(task, "a1", hub=None)
+    assert result is True

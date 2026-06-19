@@ -4,7 +4,7 @@ import threading
 import pytest
 
 from agora.coordinator.rate_limiter import TokenBucket
-from agora.coordinator.token_rate_limiter import TokenRateLimiter
+from agora.coordinator.rate_limiter import TokenRateLimiter
 
 
 class TestTokenBucket:

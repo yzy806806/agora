@@ -1,10 +1,9 @@
 """AgoraAgentClient — main SDK client for connecting agents to Agora.
 
-Provides HTTP + WebSocket lifecycle: register → connect → run event loop.
-Discussion and task-reporting methods are bound from client_ws.py.
-Lifecycle methods are bound from client_lifecycle.py.
+Phase 16.10: WS-based methods removed (speak, vote, task reporting).
+Agents now communicate via MCP tools. This client provides HTTP
+registration and task management only.
 """
-
 from __future__ import annotations
 
 import logging
@@ -14,8 +13,6 @@ import httpx
 
 from .config import AgentConnectionConfig
 from .protocol import AgentConfig, RegistrationResult
-from . import client_ws as _ws_mod
-from . import client_lifecycle as _lc_mod
 
 logger = logging.getLogger(__name__)
 
@@ -28,22 +25,7 @@ class AgoraAgentClient:
         self._http = httpx.AsyncClient(
             base_url=config.coordinator_url, timeout=30.0
         )
-        self._ws: Any = None
-        self._connected = False
-        self._bridge: Any = None
-        self._last_ack: float = 0.0
         self._agent_config: AgentConfig | None = None
-        self._heartbeat_task: Any = None
-        # Bind methods from sibling modules
-        self.speak = _ws_mod.speak.__get__(self)
-        self.vote = _ws_mod.vote.__get__(self)
-        self.report_task_start = _ws_mod.report_task_start.__get__(self)
-        self.report_task_progress = _ws_mod.report_task_progress.__get__(self)
-        self.report_task_complete = _ws_mod.report_task_complete.__get__(self)
-        self.report_task_failed = _ws_mod.report_task_failed.__get__(self)
-        self.connect = _lc_mod.connect.__get__(self)
-        self.disconnect = _lc_mod.disconnect.__get__(self)
-        self.run = _lc_mod.run.__get__(self)
 
     @property
     def config(self) -> AgentConnectionConfig:
@@ -52,12 +34,6 @@ class AgoraAgentClient:
     @property
     def agent_config(self) -> AgentConfig | None:
         return self._agent_config
-
-    def set_bridge(self, bridge: Any) -> None:
-        """Set the bridge for dispatching WS events."""
-        self._bridge = bridge
-
-    # -- Registration ------------------------------------------------
 
     async def register(self) -> RegistrationResult:
         """Register this agent with the Coordinator (HTTP POST)."""
@@ -84,3 +60,7 @@ class AgoraAgentClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def aclose(self) -> None:
+        """Close the HTTP client."""
+        await self._http.aclose()

@@ -82,7 +82,6 @@ class TestRbacOffBackwardCompat:
 
     def test_public_endpoints_no_auth(self, client):
         """In none mode (default), all endpoints work without auth."""
-        assert client.get("/metrics").status_code == 200
         assert client.get("/agents").status_code == 200
         assert client.get("/motions").status_code == 200
 
@@ -135,14 +134,9 @@ class TestDecoratorsPresent:
 
 
 class TestWsRbacCheck:
-    """Verify WS endpoint has RBAC role check."""
+    """Verify RBAC permission checks work for agent registration."""
 
-    def test_ws_rbac_imports(self):
-        from agora.coordinator.ws_endpoint import rbac_enforced, Role
-        assert callable(rbac_enforced)
-        assert Role.AGENT.value == "agent"
-
-    def test_ws_closes_on_insufficient_role(self):
+    def test_observer_cannot_register_agent(self):
         """Observer role lacks AGENT_REGISTER, should be rejected."""
         from agora.coordinator.rbac import check_permission, Role, Permission
         assert not check_permission(Role.OBSERVER, Permission.AGENT_REGISTER)

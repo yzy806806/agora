@@ -121,8 +121,7 @@ class TestMotionAPI:
         assert resp.status_code == 404
 
     def test_start_motion(self, client, mock_storage, mock_sm):
-        with patch("agora.coordinator.router.manager") as ws_mgr:
-            ws_mgr.broadcast = AsyncMock()
+        with patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
             resp = client.post("/motions/m1/start")
         assert resp.status_code == 200
         assert resp.json()["status"] == "started"
@@ -131,8 +130,7 @@ class TestMotionAPI:
         mock_sm.transition = AsyncMock(
             side_effect=InvalidTransitionError("bad")
         )
-        with patch("agora.coordinator.router.manager") as ws_mgr:
-            ws_mgr.broadcast = AsyncMock()
+        with patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
             resp = client.post("/motions/m1/start")
         assert resp.status_code == 409
 

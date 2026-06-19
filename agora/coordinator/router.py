@@ -45,10 +45,6 @@ from .rbac import Permission, Role, get_current_role, requires
 from .registration_rate_limiter import RegistrationRateLimiter
 from .state import InvalidTransitionError, StateMachine
 from .storage import Storage
-from .ws import manager
-from .curator import DiscussionCurator
-from .observability.metrics import collect_metrics
-from .observability.trace import get_trace_id, set_trace_id
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +53,15 @@ router = APIRouter()
 # Module-level singletons — set by main.py during app startup
 _storage: Optional[Storage] = None
 _state_machine: Optional[StateMachine] = None
-_curator: Optional[DiscussionCurator] = None
 _reg_rate_limiter: Optional[RegistrationRateLimiter] = None
 
 
 def init_deps(storage: Storage, state_machine: StateMachine) -> None:
     """Initialize module dependencies. Called once at app startup."""
-    global _storage, _state_machine, _curator, _reg_rate_limiter
+    global _storage, _state_machine, _reg_rate_limiter
     _storage = storage
     _state_machine = state_machine
-    _curator = DiscussionCurator(storage, storage.db_path)
     _reg_rate_limiter = RegistrationRateLimiter()
-    manager.set_deps(storage, state_machine)
 
 
 def _get_storage() -> Storage:
@@ -91,21 +84,6 @@ def _require_admin(authorization: str = Header("")) -> None:
     token = authorization.removeprefix("Bearer ").strip()
     if token != admin_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-# ---------------------------------------------------------------------------
-# Observability API
-# ---------------------------------------------------------------------------
-
-
-@router.get("/metrics")
-@requires(Permission.CONFIG_READ)
-async def metrics_endpoint(
-    _rbac_role: Role | None = Depends(get_current_role),
-) -> Response:
-    """Prometheus-format metrics endpoint."""
-    body, content_type = collect_metrics()
-    return Response(content=body, media_type=content_type)
 
 
 # ---------------------------------------------------------------------------
@@ -337,12 +315,6 @@ async def create_motion(
         voting_method=request.voting_method.value,
         context=request.context or "",
     )
-    if _curator is not None:
-        try:
-            optimized = await _curator.optimize_motion(data)
-            data.update(optimized)
-        except Exception as exc:
-            logger.warning("Curator optimization failed: %s", exc)
     return Motion(**data)
 
 
@@ -398,13 +370,6 @@ async def start_motion(
         raise HTTPException(status_code=404, detail=str(exc))
 
     motion = await storage.get_motion(motion_id)
-    await manager.broadcast(
-        {
-            "type": "NEW_MOTION",
-            "motion_id": motion_id,
-            "payload": motion,
-        }
-    )
     # Phase 11.5a: Push to dashboard event bus
     from .event_bus import publish
     await publish("MOTION_STATUS", {
@@ -517,15 +482,6 @@ async def force_vote(
     except InvalidTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    await manager.broadcast({
-        "type": "REQUEST_VOTE",
-        "motion_id": motion_id,
-        "payload": {
-            "voting_method": motion.get("voting_method",
-                                        "simple_majority"),
-            "forced": True,
-        },
-    })
     return {"status": "voting_started", "current_status": new_status.value}
 
 

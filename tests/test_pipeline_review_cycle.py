@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from agora.coordinator.pipeline_review import PipelineReviewer
-from agora.coordinator.pipeline_review_models import (
+from agora.coordinator.pipeline_review import (
     ReviewIssue, ReviewResult,
 )
 

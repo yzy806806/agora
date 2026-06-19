@@ -1,4 +1,7 @@
-"""Tests for Phase 15 Part D: Task complete endpoint + WS notification."""
+"""Tests for Phase 15 Part D: Task complete endpoint + event notification.
+
+Phase 16.10: Updated — no more WS manager; uses event_bus.publish.
+"""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -48,9 +51,9 @@ class TestCompleteTask:
             _make_task(status="running"),
             _make_task(status="done"),
         ])
-        with patch("agora.coordinator.task_action_router.manager") as m, \
-             patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
-            m.broadcast = AsyncMock(return_value=1)
+        with patch(
+            "agora.coordinator.event_bus.publish", new_callable=AsyncMock
+        ):
             resp = client.post("/api/v1/tasks/t1/complete",
                                json={"agent_id": "dev-merger"})
         assert resp.status_code == 200
@@ -61,9 +64,9 @@ class TestCompleteTask:
             _make_task(status="running"),
             _make_task(status="failed"),
         ])
-        with patch("agora.coordinator.task_action_router.manager") as m, \
-             patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
-            m.broadcast = AsyncMock(return_value=1)
+        with patch(
+            "agora.coordinator.event_bus.publish", new_callable=AsyncMock
+        ):
             resp = client.post("/api/v1/tasks/t1/complete",
                                json={"agent_id": "dev-merger",
                                      "error": "Build failed"})
@@ -90,31 +93,33 @@ class TestCompleteTask:
                            json={"agent_id": "dev-merger"})
         assert resp.status_code == 403
 
-    def test_complete_broadcasts_task_completed(self, client, mock_storage):
+    def test_complete_publishes_task_completed(self, client, mock_storage):
         mock_storage.get_task = AsyncMock(side_effect=[
             _make_task(status="running"),
             _make_task(status="done"),
         ])
-        with patch("agora.coordinator.task_action_router.manager") as m, \
-             patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
-            m.broadcast = AsyncMock(return_value=1)
+        with patch(
+            "agora.coordinator.event_bus.publish",
+            new_callable=AsyncMock,
+        ) as mock_publish:
             client.post("/api/v1/tasks/t1/complete",
                         json={"agent_id": "dev-merger"})
-            msg = m.broadcast.call_args[0][0]
-            assert msg["type"] == "TASK_COMPLETED"
+            mock_publish.assert_called_once()
+            assert mock_publish.call_args[0][0] == "TASK_STATUS"
 
-    def test_complete_failed_broadcasts_task_failed(self, client, mock_storage):
+    def test_complete_failed_publishes_task_failed(self, client, mock_storage):
         mock_storage.get_task = AsyncMock(side_effect=[
             _make_task(status="running"),
             _make_task(status="failed"),
         ])
-        with patch("agora.coordinator.task_action_router.manager") as m, \
-             patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
-            m.broadcast = AsyncMock(return_value=1)
+        with patch(
+            "agora.coordinator.event_bus.publish",
+            new_callable=AsyncMock,
+        ) as mock_publish:
             client.post("/api/v1/tasks/t1/complete",
                         json={"agent_id": "dev-merger", "error": "fail"})
-            msg = m.broadcast.call_args[0][0]
-            assert msg["type"] == "TASK_FAILED"
+            mock_publish.assert_called_once()
+            assert mock_publish.call_args[0][0] == "TASK_STATUS"
 
 
 class TestTaskAckMessageType:

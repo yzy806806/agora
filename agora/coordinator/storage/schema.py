@@ -1,6 +1,6 @@
 """SQL schema definitions for the Agora Coordinator database."""
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 SCHEMA_SQL = """\
 PRAGMA foreign_keys = ON;
@@ -460,6 +460,18 @@ CREATE TABLE IF NOT EXISTS file_locks (
 
 CREATE INDEX IF NOT EXISTS idx_file_locks_path ON file_locks(project_id, path);
 CREATE INDEX IF NOT EXISTS idx_file_locks_holder ON file_locks(held_by);
+
+-- Phase 16.4: MCP session tracking
+
+CREATE TABLE IF NOT EXISTS mcp_sessions (
+    mcp_session_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    connected_at TEXT NOT NULL,
+    last_activity_at TEXT NOT NULL,
+    transport_type TEXT DEFAULT 'streamable-http'
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_sessions_agent ON mcp_sessions(agent_id);
 """
 MIGRATION_6_TO_7 = [
     "ALTER TABLE agents ADD COLUMN agent_type TEXT DEFAULT 'hermes';",
@@ -733,6 +745,18 @@ MIGRATION_17_TO_18 = [
 # Phase 15.C: Add registration_token column for agent self-registration (18 → 19)
 MIGRATION_18_TO_19 = [
     "ALTER TABLE agents ADD COLUMN registration_token TEXT DEFAULT '';",
+]
+
+# Phase 16.4: MCP sessions table (schema 19 → 20)
+MIGRATION_19_TO_20 = [
+    """CREATE TABLE IF NOT EXISTS mcp_sessions (
+    mcp_session_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    connected_at TEXT NOT NULL,
+    last_activity_at TEXT NOT NULL,
+    transport_type TEXT DEFAULT 'streamable-http'
+);""",
+    "CREATE INDEX IF NOT EXISTS idx_mcp_sessions_agent ON mcp_sessions(agent_id);",
 ]
 
 # Default RBAC roles to seed on fresh DB

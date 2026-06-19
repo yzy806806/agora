@@ -1,5 +1,9 @@
-"""Task Assigner — capability matching and round-robin assignment."""
+"""Task Assigner — capability matching and round-robin assignment.
 
+Phase 16.10: hub parameter is now optional (None). Agent communication
+uses MCP notifications instead of WebSocket. When hub is None, task
+assignment notifications are delivered via MCPNotificationBridge.
+"""
 from __future__ import annotations
 
 import logging
@@ -22,14 +26,20 @@ def capability_match_score(
 
 
 async def _find_capable_agents(
-    required_caps: list[str], storage: Any, hub: Any,
+    required_caps: list[str], storage: Any, hub: Any = None,
 ) -> list[dict]:
-    """Find online agents matching required capabilities, sorted by score."""
-    online_ids = set(hub.get_online_agents())
+    """Find agents matching required capabilities, sorted by score.
+
+    When hub is provided and has get_online_agents(), filters by
+    online status. Otherwise, considers all registered agents.
+    """
+    online_ids: set[str] | None = None
+    if hub is not None and hasattr(hub, "get_online_agents"):
+        online_ids = set(hub.get_online_agents())
     all_agents = await storage.list_agents(online_only=False)
     scored: list[tuple[float, dict]] = []
     for agent in all_agents:
-        if agent["agent_id"] not in online_ids:
+        if online_ids is not None and agent["agent_id"] not in online_ids:
             continue
         caps = agent.get("capabilities") or []
         if isinstance(caps, str):
@@ -64,10 +74,14 @@ def _round_robin_pick(
     return None
 
 
-async def _send_task_assignment(
-    task: TaskNode, agent_id: str, hub: Any,
+async def _notify_task_assignment(
+    task: TaskNode, agent_id: str, hub: Any = None,
 ) -> bool:
-    """Send TASK_ASSIGNED WebSocket message to the agent."""
+    """Send task assignment notification to agent.
+
+    Uses MCP notification bridge when hub is None.
+    Falls back to hub.send() when hub is provided (legacy).
+    """
     msg = {
         "type": "TASK_ASSIGNED",
         "task_id": task.id,
@@ -78,11 +92,23 @@ async def _send_task_assignment(
         "depends_on": task.depends_on,
         "workspace_paths": task.workspace_paths,
     }
-    return await hub.send(agent_id, msg)
+    if hub is not None and hasattr(hub, "send"):
+        return await hub.send(agent_id, msg)
+    # MCP notification path
+    try:
+        from .event_bus import publish
+        await publish("TASK_ASSIGNED", {
+            "task_id": task.id,
+            "agent_id": agent_id,
+            "title": task.title,
+        }, channel="tasks")
+    except Exception:
+        logger.warning("MCP task assignment notification failed for %s", agent_id)
+    return True
 
 
 async def assign_tasks(
-    graph: TaskGraph, storage: Any, hub: Any,
+    graph: TaskGraph, storage: Any, hub: Any = None,
 ) -> dict[str, str]:
     """Assign all PENDING tasks in a graph to capable agents.
 
@@ -93,20 +119,17 @@ async def assign_tasks(
     agent_loads: dict[str, int] = {}
     rr_index = [0]
 
-    # Build status lookup for dependency checks
     status_map: dict[str, TaskStatus] = {}
     for t in graph.tasks:
         status_map[t.id] = t.status
         if t.status in (TaskStatus.DONE, TaskStatus.ACCEPTED):
             done_ids.add(t.id)
 
-    # Sort: tasks with no pending deps first
     pending = [t for t in graph.tasks if t.status == TaskStatus.PENDING]
 
     def _deps_ready(task: TaskNode) -> bool:
         return all(d in done_ids for d in task.depends_on)
 
-    # Process in dependency order (BFS-like)
     remaining = list(pending)
     while remaining:
         ready = [t for t in remaining if _deps_ready(t)]
@@ -119,7 +142,6 @@ async def assign_tasks(
             candidates = await _find_capable_agents(
                 task.required_capabilities, storage, hub,
             )
-            # Refresh load for candidates
             for c in candidates:
                 aid = c["agent_id"]
                 if aid not in agent_loads:
@@ -139,7 +161,7 @@ async def assign_tasks(
             )
             task.status = TaskStatus.ASSIGNED
             task.assigned_to = picked
-            await _send_task_assignment(task, picked, hub)
+            await _notify_task_assignment(task, picked, hub)
             agent_loads[picked] = agent_loads.get(picked, 0) + 1
             assignments[task.id] = picked
         done_ids.update(t.id for t in ready)
@@ -149,13 +171,11 @@ async def assign_tasks(
 
 
 async def reassign_task(
-    task_id: str, storage: Any, hub: Any,
+    task_id: str, storage: Any, hub: Any = None,
     agent_slots: dict[str, int] | None = None,
 ) -> str | None:
     """Re-assign a task to a different agent (dynamic re-assignment).
 
-    Used when an agent finishes early or goes offline, allowing
-    the task to be picked up by another available agent.
     Returns the new agent_id or None if no agent available.
     """
     task = await storage.get_task(task_id)
@@ -184,6 +204,6 @@ async def reassign_task(
         depends_on=task.get("depends_on", []),
         workspace_paths=task.get("workspace_paths", []),
     )
-    await _send_task_assignment(node, picked, hub)
+    await _notify_task_assignment(node, picked, hub)
     logger.info("Reassigned task %s from %s to %s", task_id, old_agent, picked)
     return picked

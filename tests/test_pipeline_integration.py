@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 from agora.coordinator.pipeline import PipelineOrchestrator
 from agora.coordinator.pipeline_errors import ExecutionFailedError
 from agora.coordinator.pipeline_models import PipelinePhase
-from agora.coordinator.pipeline_review_models import PipelineRetryPolicy
+from agora.coordinator.pipeline_models import PipelineRetryPolicy
 from agora.coordinator.bootstrap.discussion_driver import DiscussionResult
 
 

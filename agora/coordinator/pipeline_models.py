@@ -45,3 +45,11 @@ class PipelineStartRequest(BaseModel):
     """Request body for starting a new pipeline run."""
     idea: str
     project_id: str
+
+
+class PipelineRetryPolicy(BaseModel):
+    """Configurable retry policy for pipeline phases."""
+    max_retries: int = 3
+    retry_delay: int = 30  # seconds
+    retryable_phases: set[str] = {"executing", "reviewing", "releasing"}
+    max_task_retries: int = 2

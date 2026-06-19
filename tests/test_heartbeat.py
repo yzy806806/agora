@@ -1,25 +1,18 @@
-"""Tests for coordinator/heartbeat.py."""
+"""Tests for coordinator/heartbeat.py.
+
+Phase 16.10: HeartbeatManager no longer depends on ConnectionManager.
+"""
 import asyncio
 import time
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from agora.coordinator.heartbeat import HeartbeatManager, AgentConnectionStatus
 
 
 @pytest.fixture
-def mgr():
-    """Create a mock ConnectionManager."""
-    m = MagicMock()
-    m.active_connections = {}
-    m.send = AsyncMock(return_value=True)
-    return m
-
-
-@pytest.fixture
-def hb(mgr):
-    """Create a HeartbeatManager with mock ConnectionManager."""
-    return HeartbeatManager(mgr)
+def hb():
+    """Create a HeartbeatManager (no ConnectionManager needed)."""
+    return HeartbeatManager()
 
 
 class TestAgentConnectionStatus:
@@ -63,16 +56,6 @@ class TestGetConnectionStatus:
     def test_offline_after_three_misses(self, hb):
         hb.missed_pings["agent1"] = 3
         assert hb.get_connection_status("agent1") == AgentConnectionStatus.OFFLINE
-
-
-class TestSendHeartbeats:
-    @pytest.mark.asyncio
-    async def test_sends_ping_to_all_connections(self, hb, mgr):
-        mgr.active_connections = {"a1": MagicMock(), "a2": MagicMock()}
-        await hb._send_heartbeats()
-        assert mgr.send.call_count == 2
-        assert "a1" in hb.pending_pings
-        assert "a2" in hb.pending_pings
 
 
 class TestStartStop:

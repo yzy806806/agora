@@ -1,7 +1,7 @@
 """Tests for TokenRateLimiter (Phase 9.4)."""
 import pytest
 
-from agora.coordinator.token_rate_limiter import TokenRateLimiter
+from agora.coordinator.rate_limiter import TokenRateLimiter
 
 
 class TestTokenRateLimiter:

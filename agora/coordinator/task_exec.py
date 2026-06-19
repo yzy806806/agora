@@ -1,5 +1,8 @@
-"""Task Execution — state machine and WebSocket message handlers."""
+"""Task Execution — state machine and message handlers.
 
+Phase 16.10: hub parameter is now optional (None). Agent communication
+uses MCP notifications via event bus instead of WebSocket.
+"""
 from __future__ import annotations
 
 import logging
@@ -9,46 +12,51 @@ from .models import MessageType
 
 logger = logging.getLogger(__name__)
 
-# Valid state transitions: current -> set of allowed next states
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "pending": {"assigned"},
     "assigned": {"running", "failed"},
     "running": {"done", "failed"},
     "done": {"accepted", "rejected"},
     "rejected": {"pending"},
-    "failed": {"pending"},  # Phase 10.1e: retry resets to pending
-    "accepted": set(), # terminal
+    "failed": {"pending"},
+    "accepted": set(),
 }
 
 
 def _is_valid_transition(current: str, next_status: str) -> bool:
-    """Check if a state transition is allowed."""
     return next_status in VALID_TRANSITIONS.get(current, set())
 
 
 async def _send_error(
     hub: Any, agent_id: str, code: str, message: str,
 ) -> None:
-    """Send an ERROR message back to the agent."""
-    await hub.send(agent_id, {
-        "type": MessageType.ERROR.value,
-        "payload": {"code": code, "message": message},
-    })
+    """Send error notification to agent via event bus or WS hub."""
+    if hub is not None and hasattr(hub, "send"):
+        await hub.send(agent_id, {
+            "type": MessageType.ERROR.value,
+            "payload": {"code": code, "message": message},
+        })
+        return
+    # MCP path: publish error event
+    try:
+        from .event_bus import publish
+        await publish("TASK_ERROR", {
+            "agent_id": agent_id,
+            "code": code,
+            "message": message,
+        }, channel="tasks")
+    except Exception:
+        logger.warning("Error notification failed for agent %s", agent_id)
 
 
 async def handle_task_status(
     agent_id: str,
     payload: dict,
     storage: Any,
-    hub: Any,
+    hub: Any = None,
     parallel_coord: Any | None = None,
 ) -> None:
-    """Process TASK_STATUS from an agent.
-
-    Validates the transition, updates DB, and triggers next steps:
-    - RUNNING -> DONE: trigger verification + parallel resource release
-    - -> FAILED: log error event + parallel failure cascade
-    """
+    """Process TASK_STATUS from an agent."""
     task_id = payload.get("task_id")
     new_status = payload.get("status") or ""
     if not new_status:
@@ -69,10 +77,10 @@ async def handle_task_status(
         error_message=payload.get("error"),
         artifact_paths=payload.get("artifact_paths"),
     )
-    # Phase 11.5a: Push to dashboard event bus
     from .event_bus import publish
     await publish("TASK_STATUS", {
         "task_id": task_id, "status": new_status,
+        "old_status": task["status"],
         "agent_id": agent_id, "motion_id": task.get("motion_id"),
     }, channel="tasks")
     if new_status == "done":
@@ -94,7 +102,7 @@ async def handle_task_status(
 
 
 async def handle_task_started(
-    agent_id: str, payload: dict, storage: Any, hub: Any,
+    agent_id: str, payload: dict, storage: Any, hub: Any = None,
     parallel_coord: Any | None = None,
 ) -> None:
     """Process TASK_STARTED: agent confirms execution has begun."""
@@ -111,7 +119,6 @@ async def handle_task_started(
         "task.started", f"Task {task_id} started by {agent_id}",
         motion_id=task["motion_id"], agent_id=agent_id,
     )
-    # Track slot in parallel coordinator if active
     if parallel_coord and task_id in parallel_coord._running_futures:
         parallel_coord.agent_slots[agent_id] = (
             parallel_coord.agent_slots.get(agent_id, 0) - 1)
@@ -119,7 +126,7 @@ async def handle_task_started(
 
 
 async def handle_task_progress(
-    agent_id: str, payload: dict, storage: Any, hub: Any,
+    agent_id: str, payload: dict, storage: Any, hub: Any = None,
 ) -> None:
     """Process TASK_PROGRESS: optional progress update from agent."""
     task_id = payload.get("task_id")
@@ -137,15 +144,11 @@ async def handle_task_progress(
 
 
 async def handle_task_result(
-    agent_id: str, payload: dict, storage: Any, hub: Any,
+    agent_id: str, payload: dict, storage: Any, hub: Any = None,
     parallel_coord: Any | None = None,
 ) -> None:
-    """Process TASK_RESULT (Protocol v2): structured task result.
-
-    Validates the payload, stores structured result, and triggers
-    the normal task completion flow (status update + verification).
-    """
-    from .capability_v2_messages import (
+    """Process TASK_RESULT (Protocol v2): structured task result."""
+    from .models import (
         StructuredError, TaskOutput, TaskResult, TaskResultStatus,
     )
     task_id = payload.get("task_id")
@@ -157,16 +160,13 @@ async def handle_task_result(
         await _send_error(hub, agent_id, "task_not_found",
                           f"Task {task_id} not found")
         return
-    # Parse and validate the structured result
     result_status = payload.get("status", "success")
     try:
-        # Build output sub-object
         out_data = payload.get("output", {})
         if isinstance(out_data, dict):
             output = TaskOutput(**out_data)
         else:
             output = TaskOutput()
-        # Build optional error
         err_data = payload.get("error")
         error = StructuredError(**err_data) if err_data else None
         tr = TaskResult(
@@ -180,16 +180,13 @@ async def handle_task_result(
         await _send_error(hub, agent_id, "invalid_result",
                           f"Invalid TaskResult: {exc}")
         return
-    # Store structured result as JSON
     await storage.save_task_result(task_id, tr.model_dump_json())
-    # Map v2 status to v1 task status for state machine
     if result_status == "success":
         v1_status = "done"
     elif result_status == "partial":
         v1_status = "done"
     else:
         v1_status = "failed"
-    # Delegate to existing status handler (validates transition)
     await handle_task_status(
         agent_id,
         {
@@ -203,17 +200,15 @@ async def handle_task_result(
 
 
 async def _parallel_on_done(
-    task_id: str, task: dict, coord: Any, storage: Any, hub: Any,
+    task_id: str, task: dict, coord: Any, storage: Any, hub: Any = None,
 ) -> None:
     """Release resources and free agent slot on task completion."""
     from .task_parallel_events import on_task_complete
-    from .task_parallel_helpers import priority_value
     await on_task_complete(
         task_id, coord._graph_tasks, coord._completed,
         coord._failed, coord._result, coord.agent_slots,
         coord.resource_tracker, coord.runqueue,
     )
-    # Re-dispatch any newly-ready tasks
     from .task_parallel_dispatch import dispatch_ready
     await dispatch_ready(
         coord._graph_tasks, coord.runqueue, storage, hub,
@@ -224,7 +219,7 @@ async def _parallel_on_done(
 
 
 async def _parallel_on_fail(
-    task_id: str, task: dict, coord: Any, storage: Any, hub: Any,
+    task_id: str, task: dict, coord: Any, storage: Any, hub: Any = None,
 ) -> None:
     """Cascade failure to dependents and release agent slot."""
     from .task_parallel_events import on_task_failed
@@ -237,15 +232,10 @@ async def _parallel_on_fail(
 
 
 async def execute_task_graph(
-    graph: Any, storage: Any, hub: Any,
+    graph: Any, storage: Any, hub: Any = None,
     parallel_coord: Any | None = None,
 ) -> dict[str, str]:
-    """Execute a task graph, delegating to parallel coordinator when needed.
-
-    Phase 10.4a integration: when parallel_mode != 'sequential' and a
-    ParallelExecutionCoordinator is available, use it for execution.
-    Otherwise, fall back to sequential assignment (Phase 9 behavior).
-    """
+    """Execute a task graph, delegating to parallel coordinator when needed."""
     mode = getattr(graph, "parallel_mode", "auto")
     if parallel_coord and mode != "sequential":
         logger.info(
@@ -253,6 +243,5 @@ async def execute_task_graph(
             graph.id, mode,
         )
         return await parallel_coord.execute_graph(graph)
-    # Sequential fallback (Phase 9 behavior)
     from .task_assign import assign_tasks
     return await assign_tasks(graph, storage, hub)

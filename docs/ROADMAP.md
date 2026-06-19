@@ -252,6 +252,19 @@ opencode mcp add agora --url https://agora.example.com/mcp
 | 16.19 | 减法：简化 Webhook（955行→极简或删除，MCP notifications 替代）| 🟡 |
 | 16.20 | 文档更新：README.md, ARCHITECTURE.md, API.md 与新定位对齐 | 🔴 |
 
+### 状态：✅ Phase 16 全部完成（Re-review 通过，待发布 v0.17.0）
+
+- 16.1-16.9 (MCP Server 核心功能) ✅ 已完成
+- 16.10-16.14 (删除废弃模块) ✅ 已完成
+- 16.15-16.19 (简化过度设计模块) ✅ 已完成
+- 16.20 (文档更新) ✅ 已完成
+- Review 16.10-16.19 (删除+简化) ✅ 已通过
+- Review 16.1-16.9 (MCP Server) ✅ 已通过（发现 2 个 P1，已修复）
+- Review 16.20 (文档+SDK) ✅ 已通过（发现 1 个 P2，已修复）
+- ✅ 测试修复任务 t_02c1831f 已完成（4 collection errors + 13 runtime failures 全部修复）
+- ✅ Fix 任务 t_1e595cda 已完成（P1-1 字段名一致性 + P1-2 孤儿代码 + P2 entry point）
+- ✅ Re-review 任务 t_6877c9f8 已通过（3 个 fix 点全部验证正确）
+
 ### 优先级
 1. 🔴 MCP Server 框架 + Tools + Notifications + 认证 — 核心可用
 2. 🟡 Resources + 双协议共存 — 完善体验

@@ -8,7 +8,7 @@ def test_app_version_is_0_10():
     """Verify FastAPI app version bumped to 0.10.0."""
     from agora.coordinator.main import create_app
     app = create_app()
-    assert app.version == "0.16.0"
+    assert app.version == "0.17.0"
 
 
 def test_tenant_router_mounted():

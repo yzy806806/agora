@@ -1,5 +1,7 @@
-"""Helper utilities for parallel execution (Phase 10)."""
+"""Helper utilities for parallel execution (Phase 10).
 
+Phase 16.10: hub parameter is now optional (None).
+"""
 from __future__ import annotations
 
 import logging
@@ -17,10 +19,12 @@ def priority_value(task: TaskNode) -> int:
 
 
 async def pick_agent(
-    task: TaskNode, storage: Any, hub: Any,
-    agent_slots: dict[str, int],
+    task: TaskNode, storage: Any, hub: Any = None,
+    agent_slots: dict[str, int] | None = None,
 ) -> str | None:
     """Find an agent with a free slot matching capabilities."""
+    if agent_slots is None:
+        agent_slots = {}
     from .task_assign import _find_capable_agents
     candidates = await _find_capable_agents(
         task.required_capabilities, storage, hub,
@@ -44,7 +48,6 @@ async def acquire_resources(
     for path in paths:
         ok = await resource_tracker.acquire(task_id, path, "write")
         if not ok:
-            # Release any partial acquisitions
             for prev in paths:
                 if prev == path:
                     break
@@ -58,4 +61,3 @@ async def release_resources(
 ) -> None:
     """Release all resource locks held by a task."""
     unblocked = resource_tracker.release_all(task_id)
-    # unblocked is list of task_ids that can now proceed

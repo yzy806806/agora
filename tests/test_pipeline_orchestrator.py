@@ -41,7 +41,7 @@ def test_orchestrator_stores_pipeline():
 
 def test_orchestrator_retry_policy_default():
     """Default retry policy is used when none provided."""
-    from agora.coordinator.pipeline_review_models import PipelineRetryPolicy
+    from agora.coordinator.pipeline_models import PipelineRetryPolicy
     orch = PipelineOrchestrator(
         MagicMock(), MagicMock(), MagicMock(), MagicMock()
     )
@@ -51,7 +51,7 @@ def test_orchestrator_retry_policy_default():
 
 def test_orchestrator_retry_policy_custom():
     """Custom retry policy is used when provided."""
-    from agora.coordinator.pipeline_review_models import PipelineRetryPolicy
+    from agora.coordinator.pipeline_models import PipelineRetryPolicy
     policy = PipelineRetryPolicy(max_retries=5)
     orch = PipelineOrchestrator(
         MagicMock(), MagicMock(), MagicMock(), MagicMock(),

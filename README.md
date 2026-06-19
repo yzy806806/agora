@@ -33,9 +33,9 @@ Agora 自身不包含任何 agent。它是一个纯调度层——分配角色�
          Workspace (本地文件系统)
 ```
 
-## Agent 接入
+## 一行配置接入
 
-任何 MCP 兼容的 agent 都能接入，一行配置：
+任何 MCP 兼容的 agent 都能接入，只需一行配置：
 
 ### Hermes
 
@@ -117,7 +117,7 @@ Dashboard 访问 `http://localhost:8765/dashboard`，MCP 端点 `http://localhos
 
 ```bash
 # 认证
-AGORA_AUTH_MODE=rbac          # rbac | none
+AGORA_AUTH_MODE=rbac          # rbac | token | none
 AGORA_ADMIN_TOKEN=<token>     # 管理员 token
 AGORA_DASHBOARD_USERS=admin:<password>  # Dashboard 登录
 
@@ -133,7 +133,7 @@ AGORA_WORKSPACE_ROOT=./workspace  # 工作区根目录
 
 📦 v0.16.0 — 安全加固 + Dashboard 认证
 
-🚧 Phase 16: MCP Server（开发中）
+🚧 Phase 16: MCP Server — 标准协议接入（开发中）
 
 ## 路线图
 

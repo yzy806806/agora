@@ -2,9 +2,10 @@
 
 import pytest
 
-from agora.coordinator.pipeline_review_models import (
-    PipelineRetryPolicy, ReviewIssue, ReviewRequest, ReviewResult,
+from agora.coordinator.pipeline_review import (
+    ReviewIssue, ReviewRequest, ReviewResult,
 )
+from agora.coordinator.pipeline_models import PipelineRetryPolicy
 
 
 # --- ReviewIssue tests ---

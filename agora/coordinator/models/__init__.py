@@ -1,4 +1,4 @@
-"""Models package — re-exports from _models + session + v2 models."""
+"""Models package — re-exports from _models + session + task result."""
 from __future__ import annotations
 
 from ._models import *  # noqa: F401,F403
@@ -7,26 +7,18 @@ from .sessions import (  # noqa: F401
     SessionNote,
     SessionRecord,
 )
-from ..capability_v2_base import (  # noqa: F401
+from ._enums import (  # noqa: F401
     ErrorCategory,
     SkillCategory,
-    SkillDeclaration,
     SkillProficiency,
     TaskResultStatus,
 )
-from ..capability_v2 import (  # noqa: F401
-    AgentCapabilities,
-    DiscussionCapabilities,
-    TaskExecutionCapabilities,
-    WorkspaceCapabilities,
+from ._skill import (  # noqa: F401
+    SkillDeclaration,
 )
-from ..capability_v2_messages import (  # noqa: F401
+from ._task_result import (  # noqa: F401
     StructuredError,
     TaskMetrics,
     TaskOutput,
     TaskResult,
-)
-from ..capability_v2_meta import (  # noqa: F401
-    AgentMetadata,
-    ProtocolVersion,
 )

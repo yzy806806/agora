@@ -14,7 +14,6 @@ from .ws_messages import (
     emit_lock_acquired,
     emit_lock_expired,
     emit_lock_released,
-    init_ws_messages,
 )
 from .workspace_router import router as workspace_router
 from .workspace_router import init_workspace_router_deps
@@ -33,6 +32,6 @@ __all__ = [
     "init_workspace_router_deps",
     "_extract_agent_id", "parse_range_header",
     "workspace_router_dirs", "workspace_router_locks",
-    "init_ws_messages", "emit_file_changed", "emit_file_deleted",
+    "emit_file_changed", "emit_file_deleted",
     "emit_lock_acquired", "emit_lock_released", "emit_lock_expired",
 ]

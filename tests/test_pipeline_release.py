@@ -1,18 +1,11 @@
-"""Tests for release integration (Phase 13.1d)."""
+"""Tests for release models + trigger (consolidated)."""
 from __future__ import annotations
-
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agora.coordinator.pipeline_release_models import (
-    ReleaseRequest, ReleaseResult,
+from agora.coordinator.pipeline_release import (
+    ReleaseRequest, ReleaseResult, trigger_release,
 )
-from agora.coordinator.pipeline_release_agent import find_release_agent
-from agora.coordinator.pipeline_phase_release import (
-    trigger_release, process_release_result,
-)
-from agora.coordinator.pipeline_errors import ReleaseFailedError
 
 
 class TestReleaseModels:
@@ -39,3 +32,21 @@ class TestReleaseModels:
         )
         assert r.outcome == "failed"
         assert r.error == "push rejected"
+
+
+class TestTriggerRelease:
+    @pytest.mark.asyncio
+    async def test_success(self):
+        result = await trigger_release(
+            None, {"id": "g1", "changed_files": ["a.py"]},
+            "proj-1", "LGTM",
+        )
+        assert "g1" in result
+
+    @pytest.mark.asyncio
+    async def test_no_hub_needed(self):
+        """Simplified mode: no hub or agent lookup required."""
+        result = await trigger_release(
+            None, {"id": "g2"}, "proj-2",
+        )
+        assert result == "release-g2"

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 from agora.coordinator.pipeline_review import (
     collect_changed_files, dispatch_review_request, build_fix_tasks,
 )
-from agora.coordinator.pipeline_review_models import (
+from agora.coordinator.pipeline_review import (
     ReviewIssue, ReviewRequest, ReviewResult,
 )
 

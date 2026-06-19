@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agora.coordinator.capability_v2_base import (
+from agora.coordinator.models import (
     ErrorCategory,
     TaskResultStatus,
 )
-from agora.coordinator.capability_v2_messages import (
+from agora.coordinator.models import (
     StructuredError,
     TaskMetrics,
     TaskOutput,

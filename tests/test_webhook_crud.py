@@ -3,10 +3,10 @@ import pytest
 import pytest_asyncio
 import aiosqlite
 
-from agora.coordinator.storage.webhook_crud import (
+from agora.coordinator.storage.webhooks import (
     create_webhook, get_webhook,
 )
-from agora.coordinator.storage.webhook_crud_extra import (
+from agora.coordinator.storage.webhooks import (
     list_webhooks, update_webhook, delete_webhook,
 )
 from agora.coordinator.storage.dialect import Dialect

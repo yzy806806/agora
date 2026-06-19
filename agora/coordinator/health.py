@@ -12,7 +12,9 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 
 from .config import settings
-from .observability.metrics import _START_TIME
+
+# Simple start time for uptime calculation (replaces observability.metrics._START_TIME)
+_START_TIME = time.time()
 
 router = APIRouter(tags=["health"])
 
@@ -27,9 +29,15 @@ async def health_check(request: Request) -> dict:
     # Uptime
     uptime = round(time.time() - _START_TIME, 1)
 
-    # Connected agents from WS manager
-    from .ws import manager
-    agents_connected = len(manager.active_connections)
+    # Connected agents from storage
+    agents_connected = 0
+    storage = getattr(app_state, "storage", None)
+    if storage is not None:
+        try:
+            agents = await storage.list_agents()
+            agents_connected = sum(1 for a in agents if a.get("is_online"))
+        except Exception:
+            agents_connected = 0
 
     # Tenant count from TenantManager
     tenants = 0

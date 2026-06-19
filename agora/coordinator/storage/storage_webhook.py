@@ -1,11 +1,9 @@
-"""Storage mixin: Webhook CRUD + trigger history (dialect-aware)."""
+"""Storage mixin: Webhook CRUD + trigger history (consolidated)."""
 from __future__ import annotations
 
 from typing import Optional
 
-from . import webhook_crud as _crud
-from . import webhook_crud_extra as _extra
-from . import webhook_trigger_history as _hist
+from . import webhooks as _wh
 
 
 class StorageWebhookMixin:
@@ -17,7 +15,7 @@ class StorageWebhookMixin:
         max_triggers_per_hour: int = 60,
     ) -> dict:
         async with self._connection() as db:
-            return await _crud.create_webhook(
+            return await _wh.create_webhook(
                 db, self.dialect, project_id, name,
                 secret_hash, pipeline_template,
                 description=description, events=events,
@@ -26,28 +24,26 @@ class StorageWebhookMixin:
 
     async def get_webhook(self, webhook_id: str) -> Optional[dict]:
         async with self._connection() as db:
-            return await _crud.get_webhook(
-                db, self.dialect, webhook_id)
+            return await _wh.get_webhook(db, self.dialect, webhook_id)
 
     async def list_webhooks(
         self, project_id: str | None = None,
         limit: int = 100, offset: int = 0,
     ) -> list[dict]:
         async with self._connection() as db:
-            return await _extra.list_webhooks(
+            return await _wh.list_webhooks(
                 db, self.dialect, project_id, limit, offset)
 
     async def update_webhook(
         self, webhook_id: str, updates: dict,
     ) -> Optional[dict]:
         async with self._connection() as db:
-            return await _extra.update_webhook(
+            return await _wh.update_webhook(
                 db, self.dialect, webhook_id, updates)
 
     async def delete_webhook(self, webhook_id: str) -> bool:
         async with self._connection() as db:
-            return await _extra.delete_webhook(
-                db, self.dialect, webhook_id)
+            return await _wh.delete_webhook(db, self.dialect, webhook_id)
 
     async def record_webhook_trigger(
         self, webhook_id: str, event: str, success: bool,
@@ -55,7 +51,7 @@ class StorageWebhookMixin:
         error: str | None = None, source_ip: str | None = None,
     ) -> dict:
         async with self._connection() as db:
-            return await _hist.record_trigger(
+            return await _wh.record_trigger(
                 db, self.dialect, webhook_id, event,
                 success, pipeline_id=pipeline_id,
                 error=error, source_ip=source_ip)
@@ -65,6 +61,6 @@ class StorageWebhookMixin:
         limit: int = 100, offset: int = 0,
     ) -> list[dict]:
         async with self._connection() as db:
-            return await _hist.list_trigger_history(
+            return await _wh.list_trigger_history(
                 db, self.dialect, webhook_id,
                 limit=limit, offset=offset)

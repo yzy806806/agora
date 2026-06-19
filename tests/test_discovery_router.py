@@ -1,4 +1,7 @@
-"""Tests for discovery endpoint (Phase 14+.E.5)."""
+"""Tests for discovery endpoint (simplified).
+
+Removed: skill_category/min_proficiency filters, capabilities_v2.
+"""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
@@ -72,14 +75,6 @@ class TestDiscoveryEndpoint:
         assert len(data["agents"]) == 1
         assert data["agents"][0]["agent_id"] == "a1"
 
-    def test_filter_invalid_category(self, client, mock_storage):
-        resp = client.get("/api/v1/discovery?skill_category=invalid")
-        assert resp.status_code == 400
-
-    def test_filter_invalid_proficiency(self, client, mock_storage):
-        resp = client.get("/api/v1/discovery?min_proficiency=99")
-        assert resp.status_code == 400
-
 
 class TestAgentStatusHelper:
     def test_offline_approved(self):
@@ -104,31 +99,20 @@ class TestAgentStatusHelper:
 
 
 class TestBuildDiscoveredAgent:
-    def test_with_v2_capabilities(self):
+    def test_with_capabilities(self):
         agent = {
             "agent_id": "a1", "name": "Bot",
             "model": "gpt-4", "is_approved": True,
             "is_online": True, "load": 0.1,
-            "capabilities_v2": {
-                "discussion": {"roles": ["participant"], "voting": True},
-                "task_execution": {
-                    "max_concurrent": 2,
-                    "skills": [
-                        {"name": "python",
-                         "category": "programming",
-                         "proficiency": 5}
-                    ],
-                },
-                "workspace": {"supported_operations": ["read"]},
-            },
+            "capabilities": ["python", "review"],
         }
         result = _build_discovered_agent(agent)
         assert result.agent_id == "a1"
         assert result.status == "online"
-        assert len(result.skills) == 1
-        assert result.skills[0]["name"] == "python"
+        assert result.capabilities == ["python", "review"]
+        assert result.skills == []
 
-    def test_without_v2_capabilities(self):
+    def test_without_capabilities(self):
         agent = {
             "agent_id": "a2", "name": "Legacy",
             "model": "", "is_approved": True,
@@ -137,4 +121,5 @@ class TestBuildDiscoveredAgent:
         result = _build_discovered_agent(agent)
         assert result.agent_id == "a2"
         assert result.status == "offline"
+        assert result.capabilities == []
         assert result.skills == []

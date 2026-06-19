@@ -2,7 +2,7 @@
 import json
 import pytest
 
-from agora.coordinator.storage.webhook_crud import _normalize_webhook
+from agora.coordinator.storage.webhooks import _normalize as _normalize_webhook
 
 
 class TestNormalizeWebhook:

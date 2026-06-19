@@ -1,46 +1,34 @@
 """WS message helpers for workspace file/lock events.
 
-Provides broadcast functions that fan-out workspace change
-notifications to all connected agents via the WS hub.
+Broadcasts workspace change notifications to dashboard clients
+via the DashboardHub. MCP notifications handle agent-side delivery.
 """
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 from ..models import MessageType
 
 logger = logging.getLogger(__name__)
 
-# Type: async callable that takes a message dict and returns count
-BroadcastFn = Callable[[dict[str, Any]], Awaitable[int]]
-
-# Module-level broadcast function, set during init
-_broadcast: BroadcastFn | None = None
-
-
-def init_ws_messages(broadcast_fn: BroadcastFn) -> None:
-    """Wire the WS broadcast function (called from lifespan)."""
-    global _broadcast
-    _broadcast = broadcast_fn
-
 
 async def _do_broadcast(message: dict[str, Any]) -> None:
-    """Broadcast if wired; log warning otherwise."""
-    if _broadcast is None:
-        logger.debug("WS broadcast not initialized, skipping event")
-        return
+    """Broadcast to dashboard clients; log warning if not wired."""
+    from ..dashboard_ws import dashboard_hub
+    event_type = message.get("type", "WORKSPACE_EVENT")
+    payload = message.get("payload", {})
     try:
-        await _broadcast(message)
+        await dashboard_hub.broadcast_event(event_type, payload)
     except Exception:
-        logger.warning("WS broadcast failed", exc_info=True)
+        logger.warning("Dashboard broadcast failed", exc_info=True)
 
 
 async def emit_file_changed(
     project_id: str, path: str,
     agent_id: str, version: int,
 ) -> None:
-    """Broadcast WORKSPACE_FILE_CHANGED to project agents."""
+    """Broadcast WORKSPACE_FILE_CHANGED to dashboard clients."""
     await _do_broadcast({
         "type": MessageType.WORKSPACE_FILE_CHANGED,
         "payload": {
@@ -55,7 +43,7 @@ async def emit_file_changed(
 async def emit_file_deleted(
     project_id: str, path: str, agent_id: str,
 ) -> None:
-    """Broadcast WORKSPACE_FILE_CHANGED (deleted) to project agents."""
+    """Broadcast WORKSPACE_FILE_CHANGED (deleted) to dashboard clients."""
     await _do_broadcast({
         "type": MessageType.WORKSPACE_FILE_CHANGED,
         "payload": {

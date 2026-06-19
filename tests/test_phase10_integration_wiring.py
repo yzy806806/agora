@@ -1,7 +1,6 @@
 """Tests for Phase 10.4a: Integration Wiring.
 
-Verifies that Phase 10 components (RBAC, plugins, parallel executor)
-are correctly wired into the coordinator startup and config.
+Removed: plugins_enabled/plugins_disabled (plugin system removed).
 """
 from __future__ import annotations
 
@@ -23,14 +22,6 @@ class TestPhase10Config:
     def test_jwt_secret_default_empty(self):
         s = Settings()
         assert s.jwt_secret == ""
-
-    def test_plugins_enabled_default_empty(self):
-        s = Settings()
-        assert s.plugins_enabled == []
-
-    def test_plugins_disabled_default_empty(self):
-        s = Settings()
-        assert s.plugins_disabled == []
 
     def test_parallel_mode_default_auto(self):
         s = Settings()

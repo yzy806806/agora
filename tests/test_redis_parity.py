@@ -1,7 +1,7 @@
 """Parity tests: LocalBus and RedisBus behavior consistency.
 
 LocalBus.publish() is a no-op (local delivery is handled by
-ConnectionHub._broadcast_local), so parity tests focus on RedisBus
+DashboardHub.broadcast_event), so parity tests focus on RedisBus
 delivery and shared lifecycle behavior (subscribe, close).
 Requires Docker (for Redis).
 """

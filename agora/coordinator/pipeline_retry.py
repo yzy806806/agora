@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from agora.coordinator.pipeline_models import PipelinePhase
-from agora.coordinator.pipeline_review_models import PipelineRetryPolicy
+from agora.coordinator.pipeline_models import PipelineRetryPolicy
 from agora.coordinator.pipeline_errors import PipelineError
 
 logger = logging.getLogger(__name__)

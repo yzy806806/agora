@@ -13,10 +13,10 @@ from agora.coordinator.pipeline_retry import is_retryable, retry_with_backoff
 from agora.coordinator.pipeline_phase_discuss import (
     create_and_run_discussion, generate_task_graph,
 )
-from agora.coordinator.pipeline_phase_review import (
+from agora.coordinator.pipeline_review import (
     trigger_code_review, process_review_response,
 )
-from agora.coordinator.pipeline_phase_release import trigger_release
+from agora.coordinator.pipeline_release import trigger_release
 from agora.coordinator.pipeline_phase_record import record_pipeline_session
 from agora.coordinator.pipeline_workspace import (
     ensure_project_root, augment_graph_with_paths,
@@ -116,7 +116,7 @@ async def _review_loop(
     graph: dict, max_rounds: int,
 ) -> Any:
     """Review -> fix -> re-execute loop with bounded rounds."""
-    from agora.coordinator.pipeline_review_models import ReviewResult
+    from agora.coordinator.pipeline_review import ReviewResult
     last_review: ReviewResult | None = None
     for round_num in range(1, max_rounds + 1):
         last_review = await _retryable(

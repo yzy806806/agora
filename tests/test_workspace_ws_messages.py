@@ -1,12 +1,13 @@
 """Tests for workspace WS message events (Phase 14.4a).
 
-Verifies that file/lock operations emit the correct WS messages
-via the ws_messages broadcast helpers.
+Phase 16.10: Updated to work without init_ws_messages callback.
+Now patches dashboard_hub.broadcast_event directly.
 """
 import pytest
+from unittest.mock import AsyncMock, patch
 from agora.coordinator.storage import Storage
 from agora.coordinator.workspace import (
-    WorkspaceManager, LocalFileBackend, init_ws_messages,
+    WorkspaceManager, LocalFileBackend,
 )
 from agora.coordinator.workspace.models import LockType
 from agora.coordinator.models import MessageType
@@ -14,15 +15,18 @@ from agora.coordinator.models import MessageType
 
 @pytest.fixture
 def captured():
-    """Collect broadcast messages in a list."""
+    """Collect broadcast messages in a list via dashboard_hub patch."""
     messages: list[dict] = []
 
-    async def _broadcast(msg: dict) -> int:
-        messages.append(msg)
+    async def _broadcast_event(event_type, payload, channel="events"):
+        messages.append({"type": event_type, "payload": payload})
         return 1
 
-    init_ws_messages(_broadcast)
-    return messages
+    with patch(
+        "agora.coordinator.dashboard_ws.dashboard_hub.broadcast_event",
+        new=_broadcast_event,
+    ):
+        yield messages
 
 
 @pytest.fixture
@@ -108,15 +112,12 @@ async def test_lock_expired_event(workspace, captured):
     """cleanup_expired emits WORKSPACE_LOCK_EXPIRED per lock."""
     import asyncio
     await workspace.write_file("p1", "f.txt", b"x", "a1")
-    # Acquire with very short TTL
     await workspace.locks.acquire_lock(
         "p1", "f.txt", "a1", LockType.WRITE, ttl_seconds=0)
     captured.clear()
-    # Wait briefly so the lock is definitely expired
     await asyncio.sleep(0.05)
     count = await workspace.locks.cleanup_expired("p1")
     assert count >= 1
-    # Find the LOCK_EXPIRED message
     expired_msgs = [
         m for m in captured
         if m["type"] == MessageType.WORKSPACE_LOCK_EXPIRED

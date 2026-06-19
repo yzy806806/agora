@@ -1,10 +1,12 @@
-"""Tests for webhook_executor.py (execute_webhook orchestration)."""
+"""Tests for webhook_executor.py (simplified).
+
+Template rendering removed; webhooks create pipelines from event data.
+"""
 import pytest
 
-from agora.coordinator.webhook_models import WebhookConfig, WebhookEvent
-from agora.coordinator.webhook_executor import (
+from agora.coordinator.webhook import WebhookConfig, WebhookEvent
+from agora.coordinator.webhook import (
     WebhookPipelineError,
-    WebhookRenderError,
     execute_webhook,
 )
 
@@ -12,11 +14,7 @@ from agora.coordinator.webhook_executor import (
 def _webhook(**kw) -> WebhookConfig:
     d = dict(
         id="wh-1", project_id="proj-1", name="ci-hook",
-        secret_hash="hash",
-        pipeline_template={
-            "idea": "{{ event.payload.msg }}",
-            "project_id": "{{ webhook.project_id }}",
-        },
+        secret_hash="hash", pipeline_template={},
     )
     d.update(kw)
     return WebhookConfig(**d)
@@ -25,7 +23,7 @@ def _webhook(**kw) -> WebhookConfig:
 def _event(**kw) -> WebhookEvent:
     d = dict(
         webhook_id="wh-1", event="push",
-        payload={"msg": "fix bug"},
+        payload={"idea": "fix bug"},
         headers={}, signature="sig", source_ip="1.2.3.4",
     )
     d.update(kw)
@@ -59,14 +57,6 @@ class TestExecuteWebhook:
         assert result["metadata"]["source"] == "webhook"
 
     @pytest.mark.asyncio
-    async def test_render_error(self):
-        wh = _webhook(pipeline_template={"idea": "{{ unclosed"})
-        ev = _event()
-        storage = _FakeStorage()
-        with pytest.raises(WebhookRenderError):
-            await execute_webhook(wh, ev, storage)
-
-    @pytest.mark.asyncio
     async def test_pipeline_creation_failure(self):
         wh = _webhook()
         ev = _event()
@@ -76,16 +66,16 @@ class TestExecuteWebhook:
 
     @pytest.mark.asyncio
     async def test_default_idea(self):
-        wh = _webhook(pipeline_template={"project_id": "proj-1"})
-        ev = _event()
+        ev = _event(payload={"project_id": "proj-1"})
+        wh = _webhook()
         storage = _FakeStorage()
         result = await execute_webhook(wh, ev, storage)
         assert result["idea"] == "Webhook-triggered pipeline"
 
     @pytest.mark.asyncio
     async def test_default_project_id(self):
-        wh = _webhook(pipeline_template={"idea": "test"})
-        ev = _event()
+        ev = _event(payload={"idea": "test"})
+        wh = _webhook()
         storage = _FakeStorage()
         result = await execute_webhook(wh, ev, storage)
         assert result["project_id"] == "proj-1"

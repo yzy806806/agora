@@ -10,7 +10,6 @@ import logging
 
 from .models import MessageType
 from .storage import Storage
-from .ws import manager
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ async def heartbeat_timeout_checker(
 
     Runs forever. Checks every `interval` seconds.
     If an agent hasn't sent HEARTBEAT in `timeout` seconds,
-    mark offline and broadcast AGENT_OFFLINE.
+    mark offline.
     """
     while True:
         try:
@@ -40,12 +39,6 @@ async def heartbeat_timeout_checker(
                     agent_id, agent.get("last_seen_at"),
                 )
                 await storage.set_agent_online(agent_id, False)
-                hub = manager.get_hub(tenant_id)
-                await hub.broadcast({
-                    "type": MessageType.AGENT_OFFLINE,
-                    "agent_id": agent_id,
-                    "payload": {"reason": "heartbeat_timeout"},
-                })
         except Exception:
             logger.exception("Heartbeat timeout checker error")
         await asyncio.sleep(interval)

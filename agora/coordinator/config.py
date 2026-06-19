@@ -146,10 +146,6 @@ class Settings(BaseSettings):
     # Format: "username:hashedpassword,username2:hashedpassword2"
     dashboard_users: str = ""
 
-    # Phase 10.3: Plugin configuration
-    plugins_enabled: list[str] = Field(default_factory=list)   # whitelist
-    plugins_disabled: list[str] = Field(default_factory=list)  # blacklist
-
     # Phase 14+.B: Broadcast bus configuration
     redis_url: str = ""                # env: AGORA_REDIS_URL
     broadcast_backend: Literal["local", "redis"] = "local"
@@ -164,13 +160,6 @@ class Settings(BaseSettings):
     heartbeat_interval_seconds: int = 30
     heartbeat_timeout_seconds: int = 120
     heartbeat_max_missed: int = 3
-
-    # Plugin sandbox configuration
-    plugin_blocked_imports: list[str] = Field(
-        default_factory=lambda: ["os", "subprocess", "socket", "ctypes"]
-    )
-    plugin_default_timeout_seconds: int = 30
-    plugin_memory_limit_mb: int = 100
 
     # Timeout configuration
     round_timeout_seconds: int = 300

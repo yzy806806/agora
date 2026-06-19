@@ -1,5 +1,4 @@
 """Shared test fixtures for storage layer tests."""
-
 import asyncio
 import os
 from collections.abc import Generator
@@ -8,7 +7,6 @@ import pytest
 import pytest_asyncio
 
 from agora.coordinator.storage import Storage
-from agora.coordinator.judgment_tracker import JudgmentTracker
 
 
 @pytest.fixture(scope="session")
@@ -26,12 +24,6 @@ async def storage(tmp_path):
     s = Storage(db_path)
     await s.init_db()
     yield s
-
-
-@pytest_asyncio.fixture(loop_scope="session")
-async def tracker(storage):
-    """Create a JudgmentTracker instance using the test database."""
-    return JudgmentTracker(storage.db_path)
 
 
 # --- Docker availability check -------------------------------------------
@@ -70,10 +62,7 @@ _pg_container = None
 
 
 def _get_postgres_dsn() -> str:
-    """Get or create Postgres container, return asyncpg-compatible DSN.
-
-    Container is created once and reused across tests.
-    """
+    """Get or create Postgres container, return asyncpg-compatible DSN."""
     global _pg_container
     if not _docker_available():
         pytest.skip(_SKIP_DOCKER)
@@ -87,5 +76,4 @@ def _get_postgres_dsn() -> str:
         )
         _pg_container.start()
     dsn = _pg_container.get_connection_url()
-    # testcontainers returns psycopg2 DSN, asyncpg needs postgresql://
     return dsn.replace("+psycopg2", "")

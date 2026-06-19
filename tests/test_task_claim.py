@@ -1,4 +1,7 @@
-"""Tests for Phase 15 Part D: Task claim endpoint + WS notification."""
+"""Tests for Phase 15 Part D: Task claim endpoint + event notification.
+
+Phase 16.10: Updated — no more WS manager; uses event_bus.publish.
+"""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -49,10 +52,9 @@ class TestClaimTask:
             _make_task(status="pending"),
             _make_task(status="assigned", assigned_to="dev-merger"),
         ])
-        with patch("agora.coordinator.task_action_router.manager") as m, \
-             patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
-            m.send = AsyncMock(return_value=True)
-            m.broadcast = AsyncMock(return_value=1)
+        with patch(
+            "agora.coordinator.event_bus.publish", new_callable=AsyncMock
+        ):
             resp = client.post("/api/v1/tasks/t1/claim",
                                json={"agent_id": "dev-merger"})
         assert resp.status_code == 200
@@ -81,21 +83,17 @@ class TestClaimTask:
                            json={"agent_id": "dev-merger"})
         assert resp.status_code == 409
 
-    def test_claim_sends_targeted_ws(self, client, mock_storage):
+    def test_claim_publishes_event(self, client, mock_storage):
         mock_storage.get_task = AsyncMock(side_effect=[
             _make_task(status="pending"),
             _make_task(status="assigned", assigned_to="dev-merger"),
         ])
-        with patch("agora.coordinator.task_action_router.manager") as m, \
-             patch("agora.coordinator.event_bus.publish", new_callable=AsyncMock):
-            m.send = AsyncMock(return_value=True)
-            m.broadcast = AsyncMock(return_value=1)
+        with patch(
+            "agora.coordinator.event_bus.publish",
+            new_callable=AsyncMock,
+        ) as mock_publish:
             client.post("/api/v1/tasks/t1/claim",
                         json={"agent_id": "dev-merger"})
-            m.send.assert_called_once()
-            msg = m.send.call_args[0][1]
-            assert msg["type"] == "TASK_ASSIGNED"
-            assert msg["payload"]["title"] == "Test task"
-            m.broadcast.assert_called_once()
-            exclude = m.broadcast.call_args[1].get("exclude", [])
-            assert "dev-merger" in exclude
+            mock_publish.assert_called_once()
+            call_args = mock_publish.call_args
+            assert call_args[0][0] == "TASK_ASSIGNED"

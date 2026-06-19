@@ -1,6 +1,6 @@
 [project]
 name = "agora"
-version = "0.16.0"
+version = "0.17.0"
 description = "Multi-Agent Deliberation Platform"
 readme = "README.md"
 license = {text = "MIT"}
@@ -20,6 +20,7 @@ dependencies = [
     "packaging>=24.0",
     "aiofiles>=24.1",
     "aiobotocore>=2.12",
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +38,6 @@ dev = [
 [project.scripts]
 agora = "agora.cli:main"
 agora-coordinator = "agora.coordinator.main:main"
-agora-agent = "agora.agent_client.client:main"
 
 [build-system]
 requires = ["hatchling"]

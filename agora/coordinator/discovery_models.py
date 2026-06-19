@@ -8,9 +8,6 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from .capability_v2_base import SkillCategory, SkillProficiency
-from .capability_v2 import AgentCapabilities
-
 
 class DiscoveryFeatures(BaseModel):
     """Server feature capabilities advertised via discovery."""
@@ -58,7 +55,5 @@ class DiscoveredAgent(BaseModel):
     name: str
     model: str = ""
     status: str = "offline"
-    capabilities: AgentCapabilities = Field(
-        default_factory=AgentCapabilities
-    )
+    capabilities: list[str] = Field(default_factory=list)
     skills: list[dict[str, Any]] = Field(default_factory=list)

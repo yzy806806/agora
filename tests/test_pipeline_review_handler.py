@@ -3,11 +3,11 @@ process_incoming_review_result, register_fix_tasks."""
 import pytest
 from unittest.mock import AsyncMock
 
-from agora.coordinator.pipeline_review_handler import (
+from agora.coordinator.pipeline_review import (
     parse_review_result, process_incoming_review_result,
     register_fix_tasks,
 )
-from agora.coordinator.pipeline_review_models import (
+from agora.coordinator.pipeline_review import (
     ReviewIssue, ReviewResult,
 )
 

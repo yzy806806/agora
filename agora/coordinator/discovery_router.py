@@ -1,9 +1,11 @@
 """Discovery endpoint router (Phase 14+.E.5).
 
 GET /api/v1/discovery — protocol and agent capability discovery.
+Simplified: removed capability_v2 dependency, uses flat capabilities list.
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional
 
@@ -12,10 +14,7 @@ from fastapi import APIRouter, HTTPException
 from .config import settings
 from .discovery_models import DiscoveredAgent
 from .discovery_response import DiscoveryResponse
-from .capability_v2_base import SkillCategory, SkillProficiency
-from .capability_v2 import AgentCapabilities
 from .storage import Storage
-from .ws import manager
 
 logger = logging.getLogger(__name__)
 
@@ -49,61 +48,30 @@ def _agent_status(agent: dict) -> str:
 
 def _build_discovered_agent(agent: dict) -> DiscoveredAgent:
     """Build DiscoveredAgent from storage record."""
-    caps_data = agent.get("capabilities_v2")
-    if isinstance(caps_data, dict):
-        capabilities = AgentCapabilities(**caps_data)
-    else:
-        capabilities = AgentCapabilities()
-    skills = [
-        s.model_dump() for s in capabilities.task_execution.skills
-    ]
+    caps_raw = agent.get("capabilities") or []
+    if isinstance(caps_raw, str):
+        try:
+            caps_raw = json.loads(caps_raw)
+        except (json.JSONDecodeError, TypeError):
+            caps_raw = []
     return DiscoveredAgent(
         agent_id=agent["agent_id"],
         name=agent.get("name", ""),
         model=agent.get("model", ""),
         status=_agent_status(agent),
-        capabilities=capabilities,
-        skills=skills,
+        capabilities=caps_raw if isinstance(caps_raw, list) else [],
+        skills=[],
     )
 
 
 @router.get("/discovery", response_model=DiscoveryResponse)
 async def discovery(
-    skill_category: Optional[str] = None,
-    min_proficiency: Optional[int] = None,
     status: Optional[str] = None,
 ) -> DiscoveryResponse:
     """Protocol and agent capability discovery endpoint."""
     storage = _get_storage()
     agents_raw = await storage.list_agents()
     discovered = [_build_discovered_agent(a) for a in agents_raw]
-    # Filter by skill category
-    if skill_category is not None:
-        try:
-            cat = SkillCategory(skill_category)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid skill_category: {skill_category}",
-            )
-        discovered = [
-            a for a in discovered
-            if any(s.get("category") == cat.value for s in a.skills)
-        ]
-    # Filter by minimum proficiency
-    if min_proficiency is not None:
-        if min_proficiency < 1 or min_proficiency > 5:
-            raise HTTPException(
-                status_code=400,
-                detail="min_proficiency must be 1-5",
-            )
-        discovered = [
-            a for a in discovered
-            if any(
-                s.get("proficiency", 1) >= min_proficiency
-                for s in a.skills
-            )
-        ]
     # Filter by status
     if status is not None:
         discovered = [

@@ -14,7 +14,7 @@ import uuid
 from typing import Any, Optional
 
 from agora.coordinator.pipeline_models import PipelinePhase, PipelineRun
-from agora.coordinator.pipeline_review_models import PipelineRetryPolicy
+from agora.coordinator.pipeline_models import PipelineRetryPolicy
 from agora.coordinator.pipeline_errors import PipelineError
 from agora.coordinator.pipeline_executor import execute_phases
 

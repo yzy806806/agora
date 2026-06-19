@@ -1,11 +1,11 @@
-"""BroadcastBus abstraction for cross-instance WS message delivery.
+"""BroadcastBus abstraction for cross-instance message delivery.
 
-Phase 14+.B: Decouples broadcast from in-process ConnectionHub so that
-future multi-instance deployments can use Redis Pub/Sub while single-instance
-deployments keep the current in-memory behavior via LocalBus.
+Phase 14+.B: Broadcast bus for cross-instance pub/sub.
+Phase 16.10: Agent WS removed; dashboard WS still uses bus for
+cross-instance fan-out of dashboard events.
 
 Channel naming convention:
-  - ``agora:{tenant}:ws`` — fan-out to all connected agents in a tenant
+  - ``agora:{tenant}:ws`` — fan-out to all connected clients in a tenant
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ class LocalBus(BroadcastBus):
     """In-memory broadcast bus (single-instance default).
 
     LocalBus.publish() is a no-op — the in-process broadcast already
-    happens via ConnectionHub._broadcast_local(). This class exists so
+    happens via DashboardHub.broadcast_event(). This class exists so
     code always calls bus.publish() without an ``if bus is not None``
     branch, as specified in DESIGN-phase14plus.md §B.3.
     """
@@ -68,7 +68,7 @@ class LocalBus(BroadcastBus):
         self, tenant: str, message: dict[str, Any],
         exclude: list[str] | None = None,
     ) -> None:
-        """No-op: local broadcast is handled by ConnectionHub._broadcast_local()."""
+        """No-op: local broadcast is handled by DashboardHub.broadcast_event()."""
         logger.debug(
             "LocalBus.publish() no-op for tenant=%s (local delivery already done)",
             tenant,

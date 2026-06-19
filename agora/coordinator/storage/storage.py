@@ -31,6 +31,7 @@ from .storage_pipeline import (
     StoragePipelineMixin, StorageNotificationMixin, StorageMetricsMixin,
 )
 from .storage_webhook import StorageWebhookMixin
+from .storage_mcp import StorageMcpMixin
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class Storage(
     StorageNotificationMixin,
     StorageMetricsMixin,
     StorageWebhookMixin,
+    StorageMcpMixin,
 ):
     """Backend-agnostic storage facade."""
 

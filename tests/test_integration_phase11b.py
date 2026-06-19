@@ -1,4 +1,7 @@
-"""Phase 11.5a: event bus + router registration + backward compat tests."""
+"""Phase 11.5a: event bus + router registration + backward compat tests.
+
+Removed: test_plugin_routes_registered (plugin system removed).
+"""
 from __future__ import annotations
 
 import pytest
@@ -48,7 +51,7 @@ class TestEventBus:
 
 
 class TestRouterRegistration:
-    """Verify all Phase 11 routers are registered in create_app()."""
+    """Verify Phase 11 routers are registered in create_app()."""
 
     def test_auth_router_registered(self):
         app = create_app()
@@ -64,11 +67,6 @@ class TestRouterRegistration:
         app = create_app()
         paths = _get_route_paths(app)
         assert "/api/v1/admin/audit" in paths
-
-    def test_plugin_routes_registered(self):
-        app = create_app()
-        paths = _get_route_paths(app)
-        assert "/api/v1/admin/plugins" in paths
 
     def test_task_query_routes_registered(self):
         app = create_app()

@@ -1,5 +1,8 @@
-"""Parallel Execution Coordinator (Phase 10)."""
+"""Parallel Execution Coordinator (Phase 10).
 
+Phase 16.10: hub parameter is now optional (None). Agent communication
+uses MCP notifications instead of WebSocket.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -19,11 +22,11 @@ class ParallelExecutionCoordinator:
     """Orchestrates parallel task execution across multiple agents."""
 
     def __init__(
-        self, storage: Any, hub: Any,
+        self, storage: Any, hub: Any = None,
         resource_tracker: FileResourceTracker | None = None,
     ) -> None:
         self.storage = storage
-        self.hub = hub
+        self.hub = hub  # None: MCP replaces WS
         self.runqueue: asyncio.PriorityQueue[tuple[int, str]] = asyncio.PriorityQueue()
         self.agent_slots: dict[str, int] = {}
         self.resource_tracker = resource_tracker or FileResourceTracker()

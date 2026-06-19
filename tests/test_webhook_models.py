@@ -1,8 +1,10 @@
-"""Tests for webhook_models: WebhookConfig, WebhookEvent, WebhookTriggerHistory."""
+"""Tests for webhook_models (simplified).
 
+Removed: allowed_ips, max_triggers_per_hour.
+"""
 import pytest
 
-from agora.coordinator.webhook_models import (
+from agora.coordinator.webhook import (
     WebhookConfig,
     WebhookEvent,
     WebhookTriggerHistory,
@@ -13,27 +15,20 @@ class TestWebhookConfig:
     def test_defaults(self):
         cfg = WebhookConfig(
             id="wh-test", project_id="p1", name="test",
-            secret_hash="abc", pipeline_template={"idea": "test"},
         )
-        assert cfg.id  # auto-generated
+        assert cfg.id == "wh-test"
         assert cfg.events == ["push"]
         assert cfg.enabled is True
-        assert cfg.allowed_ips == []
-        assert cfg.max_triggers_per_hour == 60
         assert cfg.trigger_count == 0
         assert cfg.failure_count == 0
 
     def test_custom_values(self):
         cfg = WebhookConfig(
             id="wh-1", project_id="p1", name="ci-hook",
-            secret_hash="hash", pipeline_template={},
+            secret_hash="hash",
             events=["push", "pull_request"],
-            allowed_ips=["10.0.0.0/8"],
-            max_triggers_per_hour=120,
         )
         assert cfg.events == ["push", "pull_request"]
-        assert cfg.allowed_ips == ["10.0.0.0/8"]
-        assert cfg.max_triggers_per_hour == 120
 
 
 class TestWebhookEvent:

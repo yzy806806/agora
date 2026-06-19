@@ -42,6 +42,8 @@ AUTH_WHITELIST: list[str] = [
     "/api/v1/auth/logout",
     "/api/v1/discovery",
     "/api/v1/agents/register",
+    "/mcp",           # Phase 16: MCP handles its own auth
+    "/mcp/health",    # Phase 16.6: MCP health check
 ]
 
 
@@ -51,6 +53,9 @@ def _is_whitelisted(path: str) -> bool:
         return True
     # Phase 15.C: registration status polling endpoint
     if path.startswith("/api/v1/agents/register/") and path.endswith("/status"):
+        return True
+    # Phase 16.5a: all MCP sub-paths (e.g. /mcp/sse, /mcp/messages)
+    if path.startswith("/mcp"):
         return True
     return False
 

@@ -1,5 +1,8 @@
-"""Parallel execution dispatch logic (Phase 10)."""
+"""Parallel execution dispatch logic (Phase 10).
 
+Phase 16.10: hub parameter is now optional (None). Task assignment
+notifications use MCP/event bus instead of WebSocket.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -14,11 +17,17 @@ logger = logging.getLogger(__name__)
 
 async def dispatch_ready(
     graph_tasks: dict[str, TaskNode], runqueue: asyncio.PriorityQueue,
-    storage: Any, hub: Any, agent_slots: dict[str, int],
-    resource_tracker: Any, result: dict,
-    running_futures: dict[str, asyncio.Task],
+    storage: Any, hub: Any = None, agent_slots: dict[str, int] | None = None,
+    resource_tracker: Any = None, result: dict | None = None,
+    running_futures: dict[str, asyncio.Task] | None = None,
 ) -> None:
     """Assign ready tasks to agents with free slots."""
+    if agent_slots is None:
+        agent_slots = {}
+    if result is None:
+        result = {}
+    if running_futures is None:
+        running_futures = {}
     while not runqueue.empty():
         _, task_id = await runqueue.get()
         task = graph_tasks.get(task_id)
@@ -37,7 +46,7 @@ async def assign_task(
     task: TaskNode, agent_id: str, storage: Any,
     agent_slots: dict[str, int], resource_tracker: Any,
     result: dict, running_futures: dict[str, asyncio.Task],
-    hub: Any,
+    hub: Any = None,
 ) -> None:
     """Assign a task to an agent, checking resource conflicts."""
     if task.artifact_paths:
@@ -53,10 +62,21 @@ async def assign_task(
         _run_task(task, agent_id, hub))
 
 
-async def _run_task(task: TaskNode, agent_id: str, hub: Any) -> str:
-    """Send task assignment to agent via WebSocket."""
-    await hub.send(agent_id, {
-        "type": "TASK_ASSIGNED", "task_id": task.id,
-        "graph_id": task.graph_id, "title": task.title,
-        "workspace_paths": task.workspace_paths})
+async def _run_task(task: TaskNode, agent_id: str, hub: Any = None) -> str:
+    """Send task assignment notification via MCP or WS."""
+    if hub is not None and hasattr(hub, "send"):
+        await hub.send(agent_id, {
+            "type": "TASK_ASSIGNED", "task_id": task.id,
+            "graph_id": task.graph_id, "title": task.title,
+            "workspace_paths": task.workspace_paths})
+    else:
+        try:
+            from .event_bus import publish
+            await publish("TASK_ASSIGNED", {
+                "task_id": task.id,
+                "agent_id": agent_id,
+                "title": task.title,
+            }, channel="tasks")
+        except Exception:
+            logger.warning("MCP task dispatch failed for %s", agent_id)
     return task.id

@@ -1,7 +1,7 @@
 """Tests for multi-tenant infrastructure (Phase 8.2).
 
 Covers: TenantConfig, Tenant, GlobalStorage, StorageManager,
-TenantManager, TenantResourceGuard, tenant API routes, ConnectionHub.
+TenantManager, TenantResourceGuard, tenant API routes, DashboardHub.
 """
 
 import asyncio

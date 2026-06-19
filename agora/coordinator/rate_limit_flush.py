@@ -9,7 +9,7 @@ import time
 import aiosqlite
 
 from .storage import Storage
-from .token_rate_limiter import TokenRateLimiter
+from .rate_limiter import TokenRateLimiter
 
 logger = logging.getLogger(__name__)
 

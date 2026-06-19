@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 from .dashboard_models import TaskDetailResponse
 from .rbac import Permission, Role, get_current_role, requires
 from .storage import Storage
-from .ws import manager
 
 logger = logging.getLogger(__name__)
 
@@ -80,25 +79,15 @@ async def claim_task(
     await storage.update_task_status(
         task_id, "assigned", assigned_to=request.agent_id,
     )
-    # WS: targeted send to the claiming agent + broadcast to others
-    task_msg = {
-        "type": "TASK_ASSIGNED",
-        "task_id": task_id,
-        "agent_id": request.agent_id,
-        "payload": {
-            "status": "assigned",
-            "title": task.get("title", ""),
-            "description": task.get("description", ""),
-        },
-    }
-    await manager.send(request.agent_id, task_msg)
-    await manager.broadcast(task_msg, exclude=[request.agent_id])
     # Dashboard event bus
     from .event_bus import publish
-    await publish("TASK_STATUS", {
+    await publish("TASK_ASSIGNED", {
         "task_id": task_id, "status": "assigned",
         "agent_id": request.agent_id,
         "motion_id": task.get("motion_id"),
+        "title": task.get("title", ""),
+        "description": task.get("description", ""),
+        "priority": task.get("priority", 0),
     }, channel="tasks")
     updated = await storage.get_task(task_id)
     assert updated is not None
@@ -141,21 +130,11 @@ async def complete_task(
         error_message=request.error,
         artifact_paths=request.artifact_paths or None,
     )
-    # WS broadcast
-    msg_type = "TASK_COMPLETED" if new_status == "done" else "TASK_FAILED"
-    await manager.broadcast({
-        "type": msg_type,
-        "task_id": task_id,
-        "agent_id": request.agent_id,
-        "payload": {
-            "status": new_status,
-            "error": request.error,
-        },
-    })
     # Dashboard event bus
     from .event_bus import publish
     await publish("TASK_STATUS", {
         "task_id": task_id, "status": new_status,
+        "old_status": task["status"],
         "agent_id": request.agent_id,
         "motion_id": task.get("motion_id"),
     }, channel="tasks")
