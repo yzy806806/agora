@@ -131,12 +131,16 @@ class Settings(BaseSettings):
     api_key_header: str = "X-Agora-Key"
 
     # Phase 9.3: Agent registration auth
-    require_approval: bool = False        # env: AGORA_REQUIRE_APPROVAL
+    require_approval: bool = True         # env: AGORA_REQUIRE_APPROVAL (Phase 15.C: default True)
     admin_token: str = ""                 # env: AGORA_ADMIN_TOKEN
 
     # Phase 10.2: RBAC configuration
     rbac_enforce: bool = False            # env: AGORA_RBAC_ENFORCE
     jwt_secret: str = ""                  # env: AGORA_JWT_SECRET
+
+    # Phase 15.B: Auth mode (supersedes rbac_enforce for new code)
+    # none = no auth (dev), token = Bearer required (no RBAC), rbac = full RBAC
+    auth_mode: Literal["none", "token", "rbac"] = "none"  # env: AGORA_AUTH_MODE
 
     # Phase 11.2: Dashboard auth (env: AGORA_DASHBOARD_USERS)
     # Format: "username:hashedpassword,username2:hashedpassword2"

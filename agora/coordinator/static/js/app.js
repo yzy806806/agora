@@ -36,13 +36,6 @@ function init() {
     const page = location.hash.slice(1) || 'overview';
     if (page !== currentPage) navigate(page);
   });
-  document.getElementById('login-form')?.addEventListener('submit', e => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    auth.login(fd.get('username'), fd.get('password'))
-      .then(() => navigate('overview'))
-      .catch(err => alert(err.message));
-  });
   document.getElementById('btn-logout')?.addEventListener('click', () => {
     auth.logout();
   });

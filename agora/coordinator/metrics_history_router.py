@@ -8,11 +8,12 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .metrics_history_models import (
     MetricType, MetricsHistoryResponse, RangePeriod,
 )
+from .rbac import Permission, Role, get_current_role, requires
 from .storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,12 @@ _QUERY_MAP = {
 
 
 @router.get("/metrics/history", response_model=MetricsHistoryResponse)
+@requires(Permission.CONFIG_READ)
 async def get_metrics_history(
     metric: MetricType,
     range: RangePeriod = RangePeriod.seven_days,
     project_id: Optional[str] = Query(default=None),
+    _rbac_role: Role | None = Depends(get_current_role),
 ) -> MetricsHistoryResponse:
     """Return historical metrics data for dashboard charts."""
     storage = _get_storage()

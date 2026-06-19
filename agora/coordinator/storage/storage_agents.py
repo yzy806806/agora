@@ -97,3 +97,8 @@ class StorageAgentMixin:
                 [new_token, agent_id])
             await db.execute(sql, params)
             await db.commit()
+
+    async def clear_registration_token(self, agent_id: str) -> None:
+        """Clear registration_token after one-time agent_token retrieval."""
+        async with self._connection() as db:
+            await _agents.clear_registration_token(db, self.dialect, agent_id)

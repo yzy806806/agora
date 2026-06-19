@@ -90,6 +90,7 @@ class Storage(
                              approval_status: str = "pending",
                              tpm_limit: int = 10000,
                              tpm_burst_factor: float = 1.5,
+                             registration_token: str = "",
                              **kwargs) -> dict:
         async with self._connection() as db:
             return await _agents.register_agent(
@@ -102,6 +103,7 @@ class Storage(
                 approval_status=approval_status,
                 tpm_limit=tpm_limit,
                 tpm_burst_factor=tpm_burst_factor,
+                registration_token=registration_token,
             )
 
     async def get_agent(self, agent_id: str) -> Optional[dict]:
@@ -111,6 +113,14 @@ class Storage(
     async def get_agent_by_token(self, token: str) -> Optional[dict]:
         async with self._connection() as db:
             return await _agents.get_agent_by_token(db, self.dialect, token)
+
+    async def get_agent_by_registration_token(
+        self, token: str,
+    ) -> Optional[dict]:
+        """Look up agent by registration_token (Phase 15.C)."""
+        async with self._connection() as db:
+            return await _agents.get_agent_by_registration_token(
+                db, self.dialect, token)
 
     async def list_agents(self, online_only: bool = False) -> list[dict]:
         async with self._connection() as db:
@@ -167,6 +177,11 @@ class Storage(
             )
             await db.execute(sql, params)
             await db.commit()
+
+    async def clear_registration_token(self, agent_id: str) -> None:
+        """Clear registration_token after one-time agent_token retrieval."""
+        async with self._connection() as db:
+            await _agents.clear_registration_token(db, self.dialect, agent_id)
 
     # --- Agent Heartbeat (dialect-aware) --
 

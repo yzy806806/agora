@@ -1,6 +1,6 @@
 """SQL schema definitions for the Agora Coordinator database."""
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 SCHEMA_SQL = """\
 PRAGMA foreign_keys = ON;
@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS agents (
     active_tasks TEXT DEFAULT '[]',
     tpm_limit INTEGER DEFAULT 10000,
     tpm_burst_factor REAL DEFAULT 1.5,
-    allowed_discussion_roles TEXT DEFAULT '["participant"]'
+    allowed_discussion_roles TEXT DEFAULT '["participant"]',
+    registration_token TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS motions (
@@ -727,6 +728,11 @@ MIGRATION_16_TO_17 = [
 # NOTE: The migration runner checks for column existence before executing.
 MIGRATION_17_TO_18 = [
     "ALTER TABLE tasks ADD COLUMN task_result TEXT;",
+]
+
+# Phase 15.C: Add registration_token column for agent self-registration (18 → 19)
+MIGRATION_18_TO_19 = [
+    "ALTER TABLE agents ADD COLUMN registration_token TEXT DEFAULT '';",
 ]
 
 # Default RBAC roles to seed on fresh DB

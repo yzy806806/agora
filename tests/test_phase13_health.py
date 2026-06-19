@@ -20,7 +20,7 @@ class TestHealthRoute:
 
     def test_health_version_is_0_13(self):
         """Health module version matches Phase 13."""
-        assert _VERSION == "0.13.0"
+        assert _VERSION == "0.16.0"
 
     @pytest.mark.asyncio
     async def test_health_returns_expected_fields(self):
@@ -45,7 +45,7 @@ class TestHealthRoute:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "0.13.0"
+        assert data["version"] == "0.16.0"
         assert "uptime_seconds" in data
         assert "agents_connected" in data
         assert "tenants" in data

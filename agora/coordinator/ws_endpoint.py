@@ -237,6 +237,9 @@ async def _route_message(agent_id: str, raw: str, hub) -> None:
         tokens_used = payload.get("tokens_used", 0)
         _token_limiter.consume(agent_id, tokens_used)
         await check_and_warn(agent_id, hub, _token_limiter)
+    elif msg_type == MessageType.TASK_ACK:
+        logger.info("Agent %s acknowledged task %s",
+                     agent_id, payload.get("task_id", "?"))
     else:
         logger.warning("Unknown type from %s: %s", agent_id, msg_type)
 

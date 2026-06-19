@@ -9,7 +9,6 @@ from agora.coordinator.router import init_deps
 from agora.coordinator.state import StateMachine
 from agora.coordinator.main import create_app
 
-
 @pytest_asyncio.fixture(loop_scope="session")
 async def storage(tmp_path):
     db_path = str(tmp_path / "test_dashboard.db")
@@ -19,14 +18,22 @@ async def storage(tmp_path):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def client(storage):
+async def client_and_app(storage):
+    """Yield (httpx client, FastAPI app) for dashboard tests."""
+    from agora.coordinator.token_manager import TokenManager
+    from agora.coordinator.audit import AuditLogger
+    from agora.coordinator.auth_router import init_auth_deps
     app = create_app()
     sm = StateMachine(storage)
     init_deps(storage, sm)
     init_dashboard_deps(storage)
+    # Manually init token_mgr (lifespan doesn't run with ASGITransport)
+    token_mgr = TokenManager()
+    app.state.token_mgr = token_mgr
+    init_auth_deps(token_mgr)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+        yield c, app
 
 
 # --- Storage-level tests ---
@@ -69,14 +76,16 @@ async def test_get_timeline(storage):
 # --- API-level tests ---
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_api_get_events(client):
+async def test_api_get_events(client_and_app):
+    client, _ = client_and_app
     resp = await client.get("/api/v1/events")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_api_get_events_with_params(client):
+async def test_api_get_events_with_params(client_and_app):
+    client, _ = client_and_app
     resp = await client.get("/api/v1/events", params={"type": "test", "limit": 5})
     assert resp.status_code == 200
 
@@ -85,19 +94,37 @@ async def test_api_get_events_with_params(client):
 async def test_api_events_stream_is_sse():
     """Verify SSE endpoint route is registered correctly."""
     from agora.coordinator.dashboard import router
-    # Verify the route is registered with correct path
     paths = [getattr(r, "path", "") for r in router.routes]
     assert "/events/stream" in paths
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_api_timeline_not_found(client):
+async def test_api_timeline_not_found(client_and_app):
+    client, _ = client_and_app
     resp = await client.get("/api/v1/discussions/nonexistent/timeline")
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_api_dashboard_page(client):
-    resp = await client.get("/dashboard")
+async def test_api_dashboard_page_no_token(client_and_app):
+    """No JWT → /dashboard should redirect to /login (Phase 15.A)."""
+    client, _ = client_and_app
+    resp = await client.get("/dashboard", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "/login" in resp.headers.get("location", "")
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_api_dashboard_page_with_valid_token(client_and_app):
+    """Valid JWT via Bearer header → /dashboard should return 200."""
+    client, app = client_and_app
+    token_mgr = app.state.token_mgr
+    token = token_mgr.create_token(
+        agent_id="dashboard_user:testadmin", role="admin"
+    )
+    resp = await client.get(
+        "/dashboard",
+        headers={"Authorization": f"Bearer {token}"},
+        follow_redirects=False,
+    )
     assert resp.status_code == 200
-    assert "Agora Dashboard" in resp.text

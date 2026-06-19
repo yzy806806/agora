@@ -11,7 +11,7 @@ import secrets
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response
 
 from .config import settings
@@ -27,6 +27,7 @@ from .models import (
     MotionListResponse,
     MotionResultResponse,
     MotionStatus,
+    RegistrationStatusResponse,
     VotingMethod,
 )
 from .dashboard_models import (
@@ -41,6 +42,7 @@ from .dashboard_models import (
     TaskResultResponse,
 )
 from .rbac import Permission, Role, get_current_role, requires
+from .registration_rate_limiter import RegistrationRateLimiter
 from .state import InvalidTransitionError, StateMachine
 from .storage import Storage
 from .ws import manager
@@ -56,14 +58,16 @@ router = APIRouter()
 _storage: Optional[Storage] = None
 _state_machine: Optional[StateMachine] = None
 _curator: Optional[DiscussionCurator] = None
+_reg_rate_limiter: Optional[RegistrationRateLimiter] = None
 
 
 def init_deps(storage: Storage, state_machine: StateMachine) -> None:
     """Initialize module dependencies. Called once at app startup."""
-    global _storage, _state_machine, _curator
+    global _storage, _state_machine, _curator, _reg_rate_limiter
     _storage = storage
     _state_machine = state_machine
     _curator = DiscussionCurator(storage, storage.db_path)
+    _reg_rate_limiter = RegistrationRateLimiter()
     manager.set_deps(storage, state_machine)
 
 
@@ -95,7 +99,10 @@ def _require_admin(authorization: str = Header("")) -> None:
 
 
 @router.get("/metrics")
-async def metrics_endpoint() -> Response:
+@requires(Permission.CONFIG_READ)
+async def metrics_endpoint(
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> Response:
     """Prometheus-format metrics endpoint."""
     body, content_type = collect_metrics()
     return Response(content=body, media_type=content_type)
@@ -108,16 +115,25 @@ async def metrics_endpoint() -> Response:
 
 @router.post("/agents/register", response_model=AgentRegistrationResponse,
              status_code=201)
-@requires(Permission.AGENT_REGISTER)
 async def register_agent(
     request: AgentRegisterRequest,
-    _rbac_role: Role | None = Depends(get_current_role),
+    http_request: Request,
 ) -> AgentRegistrationResponse:
-    """Register a new agent. Returns agent_token for WS auth.
+    """Self-register a new agent (Phase 15.C: no auth required).
 
-    If AGORA_REQUIRE_APPROVAL=true: agent is PENDING until admin approves.
-    If AGORA_REQUIRE_APPROVAL=false (default): auto-approved.
+    IP-based rate limiting: 3 requests/minute per IP.
+    If AGORA_REQUIRE_APPROVAL=true (default): agent is PENDING,
+    returns registration_token for polling approval status.
+    If AGORA_REQUIRE_APPROVAL=false: auto-approved, returns agent_token.
     """
+    # Phase 15.C.5: IP-based rate limiting
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if _reg_rate_limiter and not _reg_rate_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registration requests. Try again later.",
+        )
+
     storage = _get_storage()
     existing = await storage.get_agent(request.agent_id)
     if existing is not None:
@@ -127,6 +143,8 @@ async def register_agent(
     require_approval = settings.require_approval
     is_approved = not require_approval
     approval_status = "approved" if is_approved else "pending"
+    # Phase 15.C: generate registration_token for pending agents
+    reg_token = secrets.token_hex(16) if require_approval else None
 
     await storage.register_agent(
         agent_id=request.agent_id,
@@ -139,19 +157,68 @@ async def register_agent(
         agent_token=agent_token,
         is_approved=is_approved,
         approval_status=approval_status,
+        registration_token=reg_token or "",
     )
 
     message = (
         "Registration successful. You can now connect via WebSocket."
         if is_approved
-        else "Registration pending approval. An admin must approve before you can connect."
+        else "Registration pending approval. Use registration_token to poll status."
     )
 
     return AgentRegistrationResponse(
         agent_id=request.agent_id,
         status=AgentStatus(approval_status),
-        agent_token=agent_token,
+        agent_token=agent_token if is_approved else None,
+        registration_token=reg_token,
         message=message,
+        approval_required=require_approval,
+    )
+
+
+@router.get("/agents/register/{agent_id}/status",
+            response_model=RegistrationStatusResponse)
+async def get_registration_status(
+    agent_id: str,
+    registration_token: str = Header(alias="X-Registration-Token"),
+) -> RegistrationStatusResponse:
+    """Poll agent registration approval status (Phase 15.C.2).
+
+    Requires X-Registration-Token header matching the token
+    returned during registration.
+    """
+    storage = _get_storage()
+    agent = await storage.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Verify registration_token matches
+    stored_token = agent.get("registration_token", "")
+    if not stored_token or stored_token != registration_token:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or expired registration token",
+        )
+
+    approval_status = agent.get("approval_status", "pending")
+    agent_token = agent.get("agent_token") if approval_status == "approved" else None
+
+    # Phase 15.C fix: one-time read — clear registration_token
+    # after agent successfully retrieves agent_token.
+    if approval_status == "approved":
+        await storage.clear_registration_token(agent_id)
+
+    messages = {
+        "pending": "Registration is pending admin approval.",
+        "approved": "Registration approved. You can now connect via WebSocket.",
+        "rejected": "Registration was rejected by an admin.",
+    }
+
+    return RegistrationStatusResponse(
+        agent_id=agent_id,
+        approval_status=approval_status,
+        agent_token=agent_token,
+        message=messages.get(approval_status, "Unknown status."),
     )
 
 
@@ -171,7 +238,10 @@ async def deregister_agent(
 
 
 @router.get("/agents", response_model=list[AgentInfo])
-async def list_agents() -> list[AgentInfo]:
+@requires(Permission.CONFIG_READ)
+async def list_agents(
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> list[AgentInfo]:
     """List all registered agents."""
     storage = _get_storage()
     agents = await storage.list_agents()
@@ -277,10 +347,12 @@ async def create_motion(
 
 
 @router.get("/motions", response_model=MotionListResponse)
+@requires(Permission.CONFIG_READ)
 async def list_motions(
     status: Optional[MotionStatus] = None,
     limit: int = 100,
     offset: int = 0,
+    _rbac_role: Role | None = Depends(get_current_role),
 ) -> MotionListResponse:
     """List motions, optionally filtered by status."""
     storage = _get_storage()
@@ -296,7 +368,11 @@ async def list_motions(
 
 
 @router.get("/motions/{motion_id}", response_model=Motion)
-async def get_motion(motion_id: str) -> Motion:
+@requires(Permission.CONFIG_READ)
+async def get_motion(
+    motion_id: str,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> Motion:
     """Get details of a specific motion."""
     storage = _get_storage()
     data = await storage.get_motion(motion_id)
@@ -343,7 +419,11 @@ async def start_motion(
 
 
 @router.get("/motions/{motion_id}/history", response_model=MotionHistoryResponse)
-async def get_history(motion_id: str) -> MotionHistoryResponse:
+@requires(Permission.CONFIG_READ)
+async def get_history(
+    motion_id: str,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> MotionHistoryResponse:
     """Get discussion history (messages + votes) for a motion."""
     storage = _get_storage()
     motion = await storage.get_motion(motion_id)
@@ -355,7 +435,11 @@ async def get_history(motion_id: str) -> MotionHistoryResponse:
 
 
 @router.get("/motions/{motion_id}/result", response_model=MotionResultResponse)
-async def get_result(motion_id: str) -> MotionResultResponse:
+@requires(Permission.CONFIG_READ)
+async def get_result(
+    motion_id: str,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> MotionResultResponse:
     """Get the final result of a closed motion."""
     storage = _get_storage()
     motion = await storage.get_motion(motion_id)
@@ -385,7 +469,11 @@ async def get_result(motion_id: str) -> MotionResultResponse:
 
 @router.get("/motions/{motion_id}/assessment",
             response_model=AssessmentResponse)
-async def get_assessment(motion_id: str) -> AssessmentResponse:
+@requires(Permission.CONFIG_READ)
+async def get_assessment(
+    motion_id: str,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> AssessmentResponse:
     """Get the latest assessment for a motion's discussion."""
     storage = _get_storage()
     motion = await storage.get_motion(motion_id)

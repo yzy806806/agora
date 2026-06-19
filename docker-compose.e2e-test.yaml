@@ -1,0 +1,5 @@
+# Override for e2e testing with admin token
+services:
+  coordinator:
+    environment:
+      - AGORA_ADMIN_TOKEN=admin-e2e-test-token

@@ -171,4 +171,7 @@ Agora 已具备完整功能，但安全基础薄弱——Dashboard 和 API 暴�
 - 支持审批模式（需管理员在 Dashboard 批准）和自动批准模式
 - 注册后 agent 用返回的 token 通过 WS 协议连接，无需人工干预
 - Hermes 特化：`hermes agora connect --url <coordinator> --token <registration-token>` 一键接入
+
 - 通用接入：任何语言/框架的 agent 通过 HTTP + WebSocket 协议即可，不依赖特定 SDK
+
+## 状态：✅ 已完成（2026-06-19，v0.16.0 待发布）

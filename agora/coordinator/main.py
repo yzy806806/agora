@@ -89,6 +89,9 @@ from .webhook_rate_limiter import WebhookRateLimiter
 # Phase 14+.E.5: Discovery endpoint
 from .discovery_router import router as discovery_router
 from .discovery_router import init_discovery_deps
+# Phase 15 Part D: Task claim/complete endpoints
+from .task_action_router import router as task_action_router
+from .task_action_router import init_task_action_deps
 # Phase 14.3a: Workspace REST API
 from .workspace.workspace_router import router as workspace_router
 from .workspace.workspace_router_read import router_read as workspace_router_read
@@ -137,6 +140,8 @@ async def lifespan(app: FastAPI):
     init_deps(storage, state_machine)
     # Phase 14+.E.5: Discovery endpoint deps
     init_discovery_deps(storage)
+    # Phase 15 Part D: Task action deps
+    init_task_action_deps(storage)
     # Phase 14+.B.3: Create broadcast bus
     from .broadcast_bus import LocalBus
     from .broadcast_bus_redis import RedisBus
@@ -336,6 +341,8 @@ def create_app() -> FastAPI:
     # Phase 14+.D.5: Webhook triggers
     app.include_router(webhook_router, prefix="/api/v1")
     app.include_router(webhook_trigger_router, prefix="/api/v1")
+    # Phase 15 Part D: Task claim/complete
+    app.include_router(task_action_router, prefix="/api/v1")
     app.add_api_websocket_route("/ws/{agent_id}", websocket_endpoint)
     # Phase 11.2b: Dashboard WebSocket endpoint
     app.add_api_websocket_route("/ws/dashboard", dashboard_ws_endpoint)
@@ -345,10 +352,34 @@ def create_app() -> FastAPI:
     if static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    @app.get("/dashboard")
-    async def dashboard_page():
+    @app.get("/login")
+    async def login_page():
+        """Phase 15.A: Independent login page."""
         from fastapi.responses import FileResponse
-        return FileResponse(static_dir / "dashboard.html")
+        return FileResponse(static_dir / "login.html")
+
+    @app.get("/dashboard")
+    async def dashboard_page(request: Request):
+        """Phase 15.A: Dashboard page — requires valid JWT.
+
+        Checks dashboard_token cookie or Authorization header.
+        Invalid/missing → redirect to /login.
+        """
+        from fastapi.responses import FileResponse, RedirectResponse
+        token = request.cookies.get("dashboard_token")
+        if not token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header.removeprefix("Bearer ").strip()
+        if token:
+            token_mgr = getattr(app.state, "token_mgr", None)
+            if token_mgr:
+                try:
+                    token_mgr.validate_token(token)
+                    return FileResponse(static_dir / "dashboard.html")
+                except ValueError:
+                    pass
+        return RedirectResponse(url="/login", status_code=302)
 
     # Legacy /health redirect (backward compat with Phase 7 Docker config)
     @app.get("/health")

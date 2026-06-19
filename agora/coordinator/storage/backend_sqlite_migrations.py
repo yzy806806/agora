@@ -9,6 +9,7 @@ from .schema import (
     MIGRATION_10_TO_11, MIGRATION_11_TO_12, MIGRATION_12_TO_13,
     MIGRATION_12_TO_13_PIPELINES, MIGRATION_14_TO_15,
     MIGRATION_15_TO_16, MIGRATION_16_TO_17, MIGRATION_17_TO_18,
+    MIGRATION_18_TO_19,
     MIGRATION_6_TO_7, MIGRATION_7_TO_8, MIGRATION_8_TO_9,
     MIGRATION_9_TO_10, SCHEMA_VERSION,
 )
@@ -46,6 +47,7 @@ async def run_migrations(
         (16, MIGRATION_15_TO_16, "Phase 14.5b workspace_paths"),
         (17, MIGRATION_16_TO_17, "Phase 14+ Part D webhooks"),
         (18, MIGRATION_17_TO_18, "Phase 14+.E.3 task_result column"),
+        (19, MIGRATION_18_TO_19, "Phase 15.C registration_token column"),
     ]
     for target_ver, stmts, label in migrations:
         if current_ver < target_ver:

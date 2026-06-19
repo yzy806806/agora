@@ -33,6 +33,7 @@ async def register_agent(
     max_concurrent_tasks: int = 2, agent_token: str = "",
     is_approved: bool = False, approval_status: str = "pending",
     tpm_limit: int = 10000, tpm_burst_factor: float = 1.5,
+    registration_token: str = "",
 ) -> dict:
     caps_json = json.dumps(capabilities or [])
     active_tasks_json = json.dumps([])
@@ -42,12 +43,14 @@ async def register_agent(
            (agent_id, name, model, capabilities, role,
             agent_type, max_concurrent_tasks, agent_token,
             is_approved, approval_status, load, active_tasks,
-            registered_at, is_online, tpm_limit, tpm_burst_factor)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            registered_at, is_online, tpm_limit, tpm_burst_factor,
+            registration_token)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [agent_id, name, model, caps_json, role,
          agent_type, max_concurrent_tasks, agent_token,
          1 if is_approved else 0, approval_status, 0.0,
-         active_tasks_json, now, 1, tpm_limit, tpm_burst_factor],
+         active_tasks_json, now, 1, tpm_limit, tpm_burst_factor,
+         registration_token],
     )
     await db.execute(sql, params)
     await db.commit()
@@ -64,6 +67,7 @@ async def register_agent(
         "last_seen": None,
         "tpm_limit": tpm_limit,
         "tpm_burst_factor": tpm_burst_factor,
+        "registration_token": registration_token,
     }
 
 
@@ -82,6 +86,19 @@ async def get_agent_by_token(db: Any, dialect: Dialect, token: str
                              ) -> Optional[dict]:
     sql, params = dialect.render(
         "SELECT * FROM agents WHERE agent_token = ?", [token])
+    async with db.execute(sql, params) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    return _normalize_agent(dict(row))
+
+
+async def get_agent_by_registration_token(
+    db: Any, dialect: Dialect, token: str,
+) -> Optional[dict]:
+    """Look up agent by registration_token (Phase 15.C)."""
+    sql, params = dialect.render(
+        "SELECT * FROM agents WHERE registration_token = ?", [token])
     async with db.execute(sql, params) as cursor:
         row = await cursor.fetchone()
     if not row:
@@ -125,9 +142,25 @@ async def deregister_agent(db: Any, dialect: Dialect,
 async def set_agent_approval(db: Any, dialect: Dialect,
                              agent_id: str, is_approved: bool,
                              approval_status: str) -> None:
+    # Phase 15.C fix: do NOT clear registration_token here.
+    # Token is cleared only after agent successfully retrieves agent_token
+    # via GET /agents/register/{id}/status (one-time read pattern).
     sql, params = dialect.render(
-        "UPDATE agents SET is_approved = ?, approval_status = ? WHERE agent_id = ?",
+        """UPDATE agents SET is_approved = ?, approval_status = ?
+           WHERE agent_id = ?""",
         [1 if is_approved else 0, approval_status, agent_id])
+    await db.execute(sql, params)
+    await db.commit()
+
+
+async def clear_registration_token(
+    db: Any, dialect: Dialect, agent_id: str,
+) -> None:
+    """Clear registration_token after one-time agent_token retrieval."""
+    sql, params = dialect.render(
+        "UPDATE agents SET registration_token = '' WHERE agent_id = ?",
+        [agent_id],
+    )
     await db.execute(sql, params)
     await db.commit()
 

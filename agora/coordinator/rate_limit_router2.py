@@ -2,14 +2,14 @@
 
 Split from rate_limit_router.py to keep files under 80 lines.
 """
-
 from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from .config import settings
+from .rbac import Permission, Role, get_current_role, requires
 from .storage import Storage
 from .token_rate_limiter import TokenRateLimiter
 
@@ -26,7 +26,11 @@ def init_rate_limit_deps2(storage: Storage, limiter: TokenRateLimiter) -> None:
 
 
 @router.post("/agents/{agent_id}/rate-limit/check")
-async def check_rate_limit(agent_id: str, body: dict) -> dict:
+@requires(Permission.AGENT_REGISTER)
+async def check_rate_limit(
+    agent_id: str, body: dict,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> dict:
     """Pre-check: can agent make a call of N tokens? No deduction."""
     if _token_limiter is None or _storage is None:
         raise HTTPException(status_code=503, detail="Not initialized")
@@ -46,17 +50,12 @@ async def check_rate_limit(agent_id: str, body: dict) -> dict:
 
 
 @router.patch("/agents/{agent_id}/config")
+@requires(Permission.CONFIG_WRITE)
 async def update_agent_config(
     agent_id: str, body: dict,
-    authorization: str = Header(""),
+    _rbac_role: Role | None = Depends(get_current_role),
 ) -> dict:
     """Update agent config including TPM limits. Admin only."""
-    admin_token = settings.admin_token
-    if not admin_token:
-        raise HTTPException(status_code=501, detail="Admin not configured")
-    token = authorization.removeprefix("Bearer ").strip()
-    if token != admin_token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
     if _storage is None or _token_limiter is None:
         raise HTTPException(status_code=503, detail="Not initialized")
     agent = await _storage.get_agent(agent_id)

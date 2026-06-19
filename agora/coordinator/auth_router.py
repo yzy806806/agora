@@ -1,7 +1,8 @@
-"""Auth router — Phase 11.2a: Dashboard user login.
+"""Auth router — Phase 11.2a + Phase 15.A: Dashboard user login/logout.
 
 POST /api/v1/auth/login validates username+password against
-AGORA_DASHBOARD_USERS env var, returns JWT on success.
+AGORA_DASHBOARD_USERS env var, returns JWT on success with Set-Cookie.
+POST /api/v1/auth/logout clears the dashboard_token cookie.
 Returns 501 if AGORA_DASHBOARD_USERS not configured (backward compat).
 """
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from .auth_helpers import parse_dashboard_users, verify_password
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _token_mgr: Optional[TokenManager] = None
+
+COOKIE_NAME = "dashboard_token"
+COOKIE_MAX_AGE = 86400  # 24 hours
 
 
 def init_auth_deps(token_mgr: TokenManager) -> None:
@@ -41,9 +45,35 @@ class LoginResponse(BaseModel):
     expires_in: int = 3600
 
 
+def _set_cookie(response: Response, token: str) -> None:
+    """Set dashboard_token cookie on response."""
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path="/",
+    )
+
+
+def _clear_cookie(response: Response) -> None:
+    """Clear dashboard_token cookie on response."""
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value="",
+        max_age=0,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path="/",
+    )
+
+
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest) -> LoginResponse:
-    """Authenticate dashboard user, return JWT."""
+async def login(request: LoginRequest, response: Response) -> LoginResponse:
+    """Authenticate dashboard user, return JWT with Set-Cookie."""
     if _token_mgr is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
     users = parse_dashboard_users()
@@ -55,10 +85,18 @@ async def login(request: LoginRequest) -> LoginResponse:
     hashed = users.get(request.username)
     if hashed is None or not verify_password(request.password, hashed):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    # First user is admin, others are observer by default
     role = "admin" if request.username == list(users.keys())[0] else "observer"
     token = _token_mgr.create_token(
         agent_id=f"dashboard_user:{request.username}",
         role=role,
+        expires_delta=COOKIE_MAX_AGE,
     )
-    return LoginResponse(token=token, role=role)
+    _set_cookie(response, token)
+    return LoginResponse(token=token, role=role, expires_in=COOKIE_MAX_AGE)
+
+
+@router.post("/logout")
+async def logout(response: Response) -> dict:
+    """Clear dashboard_token cookie (client should also discard JWT)."""
+    _clear_cookie(response)
+    return {"status": "logged_out"}

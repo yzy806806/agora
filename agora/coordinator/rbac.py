@@ -65,8 +65,15 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 
 
 def rbac_enforced() -> bool:
-    """Check whether RBAC enforcement is enabled via env var."""
-    return os.getenv("AGORA_RBAC_ENFORCE", "").lower() in ("true", "1")
+    """Check whether RBAC enforcement is enabled via env var.
+
+    Phase 15.B: Also returns True when AGORA_AUTH_MODE=rbac.
+    """
+    if os.getenv("AGORA_RBAC_ENFORCE", "").lower() in ("true", "1"):
+        return True
+    # New auth_mode takes precedence
+    from .config import settings
+    return getattr(settings, "auth_mode", "none") == "rbac"
 
 
 # Permission hierarchy: higher implies lower.
@@ -104,8 +111,10 @@ def get_current_role(request: Request) -> Role | None:
 def requires(permission: Permission) -> Callable:
     """Decorator that checks the caller's role has the required permission.
 
-    When AGORA_RBAC_ENFORCE is off (default), this is a no-op for
-    backward compatibility.
+    Auth mode behavior (Phase 15.B):
+    - none:  no-op (backward compat)
+    - token: checks authentication only (not permission)
+    - rbac:  checks authentication + permission
 
     Endpoints using this MUST accept ``_rbac_role`` as a parameter
     with ``Depends(get_current_role)`` so the role from middleware
@@ -114,8 +123,18 @@ def requires(permission: Permission) -> Callable:
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not rbac_enforced():
+            from .config import settings
+            mode = getattr(settings, "auth_mode", "none")
+            # Legacy compat: rbac_enforce=true → treat as rbac mode
+            if mode == "none" and rbac_enforced():
+                mode = "rbac"
+            if mode == "none":
                 return await func(*args, **kwargs)
+            # token mode: authentication already enforced by middleware
+            if mode == "token":
+                # Middleware already rejected unauthenticated requests
+                return await func(*args, **kwargs)
+            # rbac mode: check permission
             role = kwargs.get("_rbac_role")
             if role is None:
                 raise HTTPException(
@@ -157,8 +176,16 @@ def requires_scope(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not rbac_enforced():
+            from .config import settings
+            mode = getattr(settings, "auth_mode", "none")
+            if mode == "none" and rbac_enforced():
+                mode = "rbac"
+            if mode == "none":
                 return await func(*args, **kwargs)
+            if mode == "token":
+                # token mode: no scope check, auth already enforced
+                return await func(*args, **kwargs)
+            # rbac mode: check scopes
             token_scopes: list[str] | None = kwargs.get("_rbac_scopes")
             # No scope claim → backward compat: all scopes granted
             if token_scopes is None:

@@ -2,17 +2,15 @@
 
 GET  /agents/{agent_id}/rate-limit          — status
 POST /agents/{agent_id}/rate-limit/report   — report usage
-POST /agents/{agent_id}/rate-limit/check    — pre-check
-PATCH /agents/{agent_id}/config             — update TPM config
 """
-
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from .rbac import Permission, Role, get_current_role, requires
 from .storage import Storage
 from .token_rate_limiter import TokenRateLimiter
 
@@ -31,7 +29,11 @@ def init_rate_limit_deps(storage: Storage, limiter: TokenRateLimiter) -> None:
 
 
 @router.get("/agents/{agent_id}/rate-limit")
-async def get_rate_limit(agent_id: str) -> dict:
+@requires(Permission.CONFIG_READ)
+async def get_rate_limit(
+    agent_id: str,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> dict:
     """Get current rate limit status for an agent."""
     if _token_limiter is None or _storage is None:
         raise HTTPException(status_code=503, detail="Not initialized")
@@ -47,7 +49,11 @@ async def get_rate_limit(agent_id: str) -> dict:
 
 
 @router.post("/agents/{agent_id}/rate-limit/report")
-async def report_token_usage(agent_id: str, body: dict) -> dict:
+@requires(Permission.AGENT_REGISTER)
+async def report_token_usage(
+    agent_id: str, body: dict,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> dict:
     """Agent reports actual token usage after an LLM call."""
     if _token_limiter is None or _storage is None:
         raise HTTPException(status_code=503, detail="Not initialized")

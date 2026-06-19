@@ -76,6 +76,8 @@ class MessageType(str, Enum):
     # Phase 14+.E: Protocol v2 messages
     CAPABILITIES = "CAPABILITIES"          # agent→coordinator: v2 structured capabilities
     TASK_RESULT = "TASK_RESULT"            # agent→coordinator: v2 structured task result
+    # Phase 15 Part D: Notification acknowledgment
+    TASK_ACK = "TASK_ACK"                  # agent→coordinator: confirm notification received
 
 
 class MotionStatus(str, Enum):
@@ -185,7 +187,7 @@ class WSMessage(BaseModel):
 
 
 class AgentRegisterRequest(BaseModel):
-    """Request body for agent registration (Phase 9.3)."""
+    """Request body for agent registration (Phase 9.3, Phase 15.C)."""
 
     agent_id: str
     name: str
@@ -196,6 +198,10 @@ class AgentRegisterRequest(BaseModel):
     model: str = "unknown"
     max_concurrent_tasks: int = 2
     auth_token: str = ""  # Agent's own API key for re-auth
+
+    # Phase 15.C: optional fields for self-registration
+    public_key: str | None = None
+    contact_url: str | None = None
 
 
 class AgentInfo(BaseModel):
@@ -211,6 +217,7 @@ class AgentInfo(BaseModel):
     agent_token: str = ""
     is_approved: bool = False
     approval_status: AgentStatus = AgentStatus.PENDING
+    registration_token: str = ""  # Phase 15.C: for self-registration polling
 
     capabilities: list[str] = Field(default_factory=list)
     role: AgentRole = AgentRole.PARTICIPANT
@@ -236,12 +243,23 @@ class AgentConfig(BaseModel):
 
 
 class AgentRegistrationResponse(BaseModel):
-    """Response for POST /api/v1/agents/register."""
+    """Response for POST /api/v1/agents/register (Phase 15.C)."""
 
     agent_id: str
     status: AgentStatus
-    agent_token: str
+    agent_token: str | None = None  # Only when auto-approved
+    registration_token: str | None = None  # For polling approval status
     message: str = ""
+    approval_required: bool = False
+
+
+class RegistrationStatusResponse(BaseModel):
+    """Response for GET /api/v1/agents/register/{agent_id}/status."""
+
+    agent_id: str
+    approval_status: str  # pending / approved / rejected
+    agent_token: str | None = None  # Returned when approved
+    message: str
 
 
 # ---------------------------------------------------------------------------

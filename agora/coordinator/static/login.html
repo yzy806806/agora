@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agora — Login</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.login-box{background:#1e293b;border-radius:12px;padding:40px;width:100%;max-width:380px;box-shadow:0 4px 24px rgba(0,0,0,.4)}
+.login-box h1{font-size:1.5rem;margin-bottom:8px;text-align:center}
+.login-box p.sub{font-size:.85rem;color:#94a3b8;text-align:center;margin-bottom:24px}
+.login-box label{display:block;font-size:.85rem;margin-bottom:4px;color:#94a3b8}
+.login-box input{width:100%;padding:10px 12px;border:1px solid #334155;border-radius:6px;background:#0f172a;color:#e2e8f0;font-size:.95rem;margin-bottom:16px}
+.login-box input:focus{outline:none;border-color:#3b82f6}
+.login-box button{width:100%;padding:10px;border:none;border-radius:6px;background:#3b82f6;color:#fff;font-size:1rem;cursor:pointer}
+.login-box button:hover{background:#2563eb}
+.login-box button:disabled{opacity:.6;cursor:not-allowed}
+#error-msg{color:#f87171;font-size:.85rem;margin-top:12px;text-align:center;min-height:1.2em}
+</style>
+</head>
+<body>
+<div class="login-box">
+  <h1>Agora Dashboard</h1>
+  <p class="sub">Sign in to continue</p>
+  <form id="login-form">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" required>
+    <button type="submit" id="btn-login">Sign In</button>
+  </form>
+  <div id="error-msg"></div>
+</div>
+<script>
+(function(){
+  var form=document.getElementById('login-form');
+  var errEl=document.getElementById('error-msg');
+  var btn=document.getElementById('btn-login');
+  form.addEventListener('submit',function(e){
+    e.preventDefault();
+    errEl.textContent='';
+    btn.disabled=true;
+    var u=document.getElementById('username').value;
+    var p=document.getElementById('password').value;
+    fetch('/api/v1/auth/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u,password:p})
+    }).then(function(r){
+      if(!r.ok) return r.json().then(function(d){throw new Error(d.detail||'Login failed')});
+      return r.json();
+    }).then(function(data){
+      sessionStorage.setItem('jwt',data.token);
+      window.location.href='/dashboard';
+    }).catch(function(err){
+      errEl.textContent=err.message;
+      btn.disabled=false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

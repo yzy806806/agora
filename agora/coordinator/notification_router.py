@@ -9,9 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from .rbac import Permission, Role, get_current_role, requires
 from .storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -32,12 +33,14 @@ def init_notification_router_deps(storage: Storage) -> None:
 
 
 @router.get("/notifications")
+@requires(Permission.CONFIG_READ)
 async def list_notifications(
     project_id: Optional[str] = Query(default=None),
     unread_only: bool = Query(default=False),
     priority: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    _rbac_role: Role | None = Depends(get_current_role),
 ) -> dict:
     """List notifications with optional filters."""
     if _storage is None:
@@ -62,7 +65,11 @@ async def list_notifications(
 
 
 @router.post("/notifications/{notif_id}/read")
-async def mark_notification_read(notif_id: str) -> dict:
+@requires(Permission.CONFIG_READ)
+async def mark_notification_read(
+    notif_id: str,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> dict:
     """Mark a single notification as read."""
     if _storage is None:
         raise HTTPException(status_code=503, detail="Not initialized")
@@ -73,8 +80,10 @@ async def mark_notification_read(notif_id: str) -> dict:
 
 
 @router.post("/notifications/read-all")
+@requires(Permission.CONFIG_READ)
 async def mark_all_notifications_read(
     body: ReadAllBody = ReadAllBody(),
+    _rbac_role: Role | None = Depends(get_current_role),
 ) -> dict:
     """Mark all notifications as read, optionally scoped to a project."""
     if _storage is None:

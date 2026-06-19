@@ -81,6 +81,7 @@ class TestRbacOffBackwardCompat:
         assert resp.status_code == 200
 
     def test_public_endpoints_no_auth(self, client):
+        """In none mode (default), all endpoints work without auth."""
         assert client.get("/metrics").status_code == 200
         assert client.get("/agents").status_code == 200
         assert client.get("/motions").status_code == 200
@@ -89,16 +90,19 @@ class TestRbacOffBackwardCompat:
 class TestRbacOnEnforcement:
     """When AGORA_RBAC_ENFORCE=1, @requires checks permissions."""
 
-    def test_register_agent_needs_role(self, client, mock_storage):
+    def test_register_agent_whitelisted(self, client, mock_storage):
+        """Phase 15.B/C: /agents/register is whitelisted from auth.
+
+        Even in rbac mode, new agents can register without a token.
+        """
         with patch.dict(os.environ, {"AGORA_RBAC_ENFORCE": "1"}):
-            # Reload the requires decorator to pick up env
             from agora.coordinator.rbac import rbac_enforced
             assert rbac_enforced()
-            # Without _rbac_role kwarg, should get 401
+            # Whitelisted: no auth needed for registration
             resp = client.post("/agents/register", json={
                 "agent_id": "a1", "name": "Test", "model": "gpt-4",
             })
-            assert resp.status_code == 401
+            assert resp.status_code == 201
 
     def test_create_motion_needs_role(self, client, mock_storage):
         with patch.dict(os.environ, {"AGORA_RBAC_ENFORCE": "1"}):
@@ -111,10 +115,11 @@ class TestRbacOnEnforcement:
 class TestDecoratorsPresent:
     """Verify @requires decorators are wired on key endpoints."""
 
-    def test_register_agent_has_decorator(self):
+    def test_register_agent_no_decorator(self):
+        """Phase 15.B/C: /agents/register is whitelisted, no @requires."""
         from agora.coordinator.router import register_agent
-        # Check the function is wrapped by @requires
-        assert hasattr(register_agent, "__wrapped__")
+        # Whitelisted endpoint: no @requires decorator
+        assert not hasattr(register_agent, "__wrapped__")
 
     def test_create_motion_has_decorator(self):
         from agora.coordinator.router import create_motion

@@ -77,3 +77,9 @@
   .kanban-col { min-width: auto; }
 }
 
+
+/* Phase 15.C: Tab bar for approval workflow */
+.tab-bar { display: flex; gap: 2px; background: var(--bg-card); border-radius: 6px; padding: 2px; }
+.tab-bar .tab { padding: 6px 14px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-radius: 4px; font-size: 13px; }
+.tab-bar .tab.active { background: var(--accent); color: #fff; }
+.tab-bar .tab:hover:not(.active) { background: var(--bg-hover); }

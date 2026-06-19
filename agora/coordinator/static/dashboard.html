@@ -10,17 +10,6 @@
 </head>
 <body>
 
-<!-- Login Overlay -->
-<div id="login-overlay" class="hidden">
-  <form id="login-form">
-    <h2>Agora Login</h2>
-    <input type="text" id="login-user" placeholder="Username" autocomplete="username">
-    <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password">
-    <div id="login-error"></div>
-    <button type="submit">Sign In</button>
-  </form>
-</div>
-
 <!-- Navigation -->
 <nav id="nav">
   <a class="active" data-page="overview" href="#overview">Overview</a>
@@ -30,6 +19,7 @@
   <a data-page="plugins" href="#plugins">Plugins</a>
   <a data-page="audit" href="#audit">Audit</a>
   <a data-page="metrics" href="#metrics">Metrics</a>
+  <button id="btn-logout" class="btn-logout" title="Sign out">Logout</button>
   <div id="conn-status" class="conn-status offline" title="Connection status">
     <span id="conn-dot" class="conn-dot offline"></span>
     <span id="conn-label" class="conn-label">Offline</span>
