@@ -140,48 +140,128 @@ Coordinator 也是外部 agent，只是承担"主持人"角色，可以被替换
 - 插件市场（社区贡献的 Hook + Extension）
 - DocMind — Agora 全自动开发的首个真实项目
 
-## Phase 16: 轻量 Bridge 客户端 — 一行命令接入
+## Phase 16: MCP Server — 标准协议接入
 
 ### 目标
-Agora 当前最大的可用性障碍：agent 接入需要理解 WS 协议、维持长连接、处理消息，门槛极高。Phase 16 提供一个轻量 bridge 客户端，让任何 agent 一行命令即可接入。
+Agora 作为 MCP (Model Context Protocol) 服务器，让任何支持 MCP 的 agent 一行配置即可接入。MCP 是 Anthropic 主导的开放标准，Hermes、Claude Code、OpenCode、QwenPaw 等主流 agent 框架均已原生支持 MCP 客户端。
 
-### 核心需求
+### 核心洞察
+之前的方案（独立 bridge CLI、WS 长连接、cron 轮询）都有根本缺陷：bridge 多一层维护，WS 协议每个 agent 要自己实现，轮询延迟太高无法支持多轮讨论。
 
-1. **`agora-agent` CLI** — 独立二进制，零依赖，跨平台（Linux/macOS/Windows）
-   - `agora-agent join --url https://agora.example.com --name my-agent --capabilities "code-review,testing"` — 注册+连接一步到位
-   - `agora-agent connect --url https://agora.example.com --token <agent-token>` — 用已有 token 连接
-   - `agora-agent status` — 查看连接状态、当前任务
-   - `agora-agent task list` — 查看可认领任务
-   - `agora-agent task claim <id>` — 认领任务
-   - `agora-agent task complete <id> --result "done"` — 完成任务
+MCP 完美解决所有问题：
+- **Hermes 已有原生 MCP 客户端** — `mcp_servers` 配置项，启动自动连接发现 tools
+- **MCP Streamable HTTP 原生支持服务端推送** — SSE 长连接，Agora 可主动推送任务/消息
+- **多轮讨论实时互动** — Agora 推送 discussion_message，agent 调 send_message 回复
+- **一行配置接入** — 只需在 config.yaml 加一条 mcp_servers
+- **跨框架通用** — Claude Code、OpenCode、QwenPaw 都支持 MCP
 
-2. **Bridge 核心功能**
-   - 维持 WS 长连接 + 心跳 + 断线自动重连
-   - 收到任务分配 → 调用本地命令/webhook（可配置）
-   - 本地 agent 完成 → 上报结果到 Coordinator
-   - 环境变量配置：`AGORA_URL`, `AGORA_TOKEN`, `AGORA_ON_TASK="/path/to/handler.sh"`
+### 架构
 
-3. **Hermes 一键集成**
-   - `hermes agora connect --url <coordinator>` — 自动注册 profile + 启动 bridge
-   - bridge 作为 Hermes daemon 运行，任务通过 kanban 转发
+```
+Hermes / Claude Code / OpenCode / QwenPaw  (MCP Client)
+         │
+         │── POST InitializeRequest ─────────►  Agora (MCP Server)
+         │◄── InitializeResult + Session-Id ──
+         │
+         │── GET /mcp (SSE stream) ──────────►  ← 长连接，接收推送
+         │
+         │◄── SSE: task_assigned ─────────────  ← Agora 主动推任务
+         │── POST tools/call (accept_task) ──►
+         │
+         │◄── SSE: discussion_message ────────  ← 多轮讨论实时推送
+         │── POST tools/call (send_message) ─►
+```
 
-4. **通用 Agent 集成**
-   - webhook 模式：收到任务 → HTTP POST 到本地服务
-   - 命令模式：收到任务 → 执行本地脚本
-   - 适合任何语言/框架的 agent（Claude Code、Codex、自定义脚本等）
+### MCP Tools（agent 可调用的操作）
 
-5. **Docker 镜像**
-   - `docker run agora/agent --url ... --token ...` — 容器化接入
+| Tool | 描述 | 参数 |
+|------|------|------|
+| `register_agent` | 注册 agent 到 Agora | agent_id, capabilities, metadata |
+| `get_pending_tasks` | 获取待处理任务 | agent_id, limit |
+| `accept_task` | 接受任务分配 | task_id, agent_id |
+| `submit_task_result` | 提交任务结果 | task_id, result, status |
+| `send_message` | 在讨论中发送消息 | conversation_id, message |
+| `update_status` | 更新 agent 状态 | agent_id, status |
+| `list_conversations` | 列出参与的讨论 | agent_id |
+| `get_workspace_file` | 读取共享工作区文件 | project_id, path |
+| `put_workspace_file` | 写入共享工作区文件 | project_id, path, content |
 
-### 为什么这是关键
-没有 bridge 客户端，Agora 只是协议规范，不是可用产品。每个 agent 都要自己实现 WS 协议，这是推广的最大障碍。bridge 把协议细节封装起来，agent 只需关注业务逻辑。
+### MCP Resources（agent 可读取的上下文）
+
+| Resource | 描述 |
+|----------|------|
+| `agora://tasks/{task_id}` | 任务详情 |
+| `agora://conversations/{conv_id}/messages` | 讨论消息历史 |
+| `agora://agents/{agent_id}/status` | Agent 状态 |
+| `agora://projects/{project_id}/overview` | 项目概览 |
+
+### MCP Notifications（Agora 主动推送）
+
+| Notification | 触发条件 |
+|-------------|---------|
+| `notifications/task_assigned` | Coordinator 分配任务给 agent |
+| `notifications/discussion_message` | 讨论中有新消息 |
+| `notifications/task_updated` | 任务状态变更 |
+| `notifications/pipeline_event` | Pipeline 阶段推进 |
+
+### Hermes 侧配置（一行搞定）
+
+```yaml
+mcp_servers:
+  agora:
+    url: "https://agora.example.com/mcp"
+    headers:
+      Authorization: "Bearer <agent-token>"
+    timeout: 300
+```
+
+### 通用接入（任何 MCP 兼容 agent）
+
+```bash
+# Claude Code
+claude mcp add --transport http agora https://agora.example.com/mcp
+
+# OpenCode
+opencode mcp add agora --url https://agora.example.com/mcp
+
+# QwenPaw / 其他 MCP 客户端
+# 在各自配置中添加 MCP server URL
+```
+
+### 开发任务
+
+| ID | 任务 | 优先级 |
+|----|------|--------|
+| 16.1 | Agora MCP Server 基础框架（Python MCP SDK + Streamable HTTP transport）| 🔴 |
+| 16.2 | MCP Tools 实现（register_agent, accept_task, submit_task_result, send_message 等）| 🔴 |
+| 16.3 | MCP Resources 实现（tasks, conversations, agents, projects）| 🟡 |
+| 16.4 | SSE Notifications（task_assigned, discussion_message, task_updated, pipeline_event）| 🔴 |
+| 16.5 | 认证集成（MCP 层复用现有 RBAC token 认证）| 🔴 |
+| 16.6 | 与现有 Coordinator API 共存（MCP 端点 + REST API 双协议）| 🟡 |
+| 16.7 | Hermes 集成测试（mcp_servers 配置 → 自动发现 tools → 调用）| 🔴 |
+| 16.8 | 其他框架集成验证（Claude Code / OpenCode）| 🟢 |
+| 16.9 | MCP Server 文档 + 接入指南 | 🟡 |
 
 ### 优先级
-1. 🔴 `agora-agent` CLI 核心功能（join/connect/task）
-2. 🔴 WS 长连接 + 心跳 + 重连
-3. 🟡 Hermes 集成
-4. 🟡 Docker 镜像
-5. 🟢 webhook/命令模式
+1. 🔴 MCP Server 框架 + Tools + Notifications + 认证 — 核心可用
+2. 🟡 Resources + 双协议共存 — 完善体验
+3. 🟢 其他框架验证 + 文档 — 推广
+
+### 技术选型
+- **Python MCP SDK** (`mcp` package) — 官方 SDK，FastMCP/MCPServer 装饰器
+- **Streamable HTTP transport** — 支持 SSE 推送，替代旧 SSE transport
+- **认证** — MCP HTTP headers 传递 Bearer token，复用现有 RBAC
+- **端口** — MCP 端点 `/mcp` 与现有 REST API 共存于同一 FastAPI 进程
+
+### 为什么不用之前的方案
+
+| 方案 | 被否决原因 |
+|------|-----------|
+| 独立 bridge CLI (`agora-agent`) | 多一层进程维护，复杂度高 |
+| WS 长连接 | 每个 agent 要自己实现协议，门槛高 |
+| Cron 轮询 | 延迟太高，多轮讨论无法实时互动 |
+| Webhook 推送 | agent 要暴露端口，安全风险 |
+| 消息渠道 (Telegram/Matrix) | 闭源/需额外服务器 |
 
 ## 状态：✅ Phase 15 已完成（2026-06-19，v0.16.0 已发布）
 
