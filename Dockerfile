@@ -16,7 +16,7 @@ RUN uv pip install --system \
     httpx>=0.27 aiohttp>=3.9 prometheus-client>=0.20 pyyaml>=6.0 \
     pyjwt>=2.8 packaging>=24.0 \
     asyncpg>=0.29 redis>=5.0 \
-    jinja2>=3.1 pydantic-settings>=2.0
+    jinja2>=3.1 pydantic-settings>=2.0 mcp>=1.0
 
 # === Production stage ===
 FROM python:3.12-slim AS coordinator

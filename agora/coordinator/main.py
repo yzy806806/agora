@@ -52,7 +52,7 @@ from .auth_router import init_auth_deps
 from .event_bus import init_event_bus, init_mcp_bridge
 # Phase 16.1: MCP Server
 from .mcp.deps import init_mcp_deps
-from .mcp.server import create_mcp_app
+from .mcp.server import create_mcp_app, mcp_lifespan
 # Phase 16.4: MCP SSE Notification Bridge
 from .mcp.session_map import MCPSessionMap
 from .mcp.notifications import MCPNotificationBridge
@@ -208,6 +208,10 @@ async def lifespan(app: FastAPI):
     )
     app.state.parallel_coord = parallel_coord
     app.state.resource_tracker = resource_tracker
+    # Phase 16.1: Start MCP session manager task group
+    mcp_app_ref = getattr(app.state, "_mcp_app", None)
+    mcp_cm = mcp_lifespan(app)
+    await mcp_cm.__aenter__()
     logger.info("Coordinator started (backend=%s)", db_backend)
     yield
     # Cleanup
@@ -229,6 +233,11 @@ async def lifespan(app: FastAPI):
             pass
         logger.info("Heartbeat timeout checker stopped")
     await heartbeat_mgr.stop()
+    # Stop MCP session manager
+    try:
+        await mcp_cm.__aexit__(None, None, None)
+    except Exception:
+        pass
     logger.info("Coordinator shutting down")
 
 

@@ -6,6 +6,7 @@ so create_mcp_app() can be called before lifespan init.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from mcp.server.fastmcp import FastMCP
@@ -19,7 +20,26 @@ mcp_server = FastMCP(
         "Use tools to register agents, manage tasks, "
         "send discussion messages, and access shared workspaces."
     ),
+    streamable_http_path="/",
 )
+
+
+@contextlib.asynccontextmanager
+async def mcp_lifespan(app):
+    """Lifespan context manager for MCP session manager.
+
+    Must be integrated into the main app's lifespan so that
+    the StreamableHTTP session manager's task group is initialized.
+    """
+    session_mgr = mcp_server._session_manager
+    if session_mgr is None:
+        logger.warning("MCP session manager not initialized")
+        yield
+        return
+    async with session_mgr.run():
+        logger.info("MCP session manager started")
+        yield
+    logger.info("MCP session manager stopped")
 
 
 def create_mcp_app():
@@ -27,6 +47,9 @@ def create_mcp_app():
 
     Returns a Starlette app suitable for FastAPI.mount("/mcp").
     Auth middleware resolves deps lazily at request time.
+
+    IMPORTANT: The caller must integrate mcp_lifespan into the main
+    app lifespan, because FastAPI.mount() does not run sub-app lifespans.
     """
     from .auth import MCPAuthMiddleware
     from .health import health_route
