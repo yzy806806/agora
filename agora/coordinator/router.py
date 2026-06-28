@@ -507,14 +507,13 @@ async def create_task_api(
     """
     storage = _get_storage()
     graph_id = request.graph_id
-    motion_id = ""
+    motion_id = None
 
     # Auto-create a graph if none specified
     if not graph_id:
         graph_id = f"graph-{uuid.uuid4().hex[:12]}"
-        motion_id = f"manual-{uuid.uuid4().hex[:8]}"
         await storage.create_task_graph(
-            graph_id=graph_id, motion_id=motion_id,
+            graph_id=graph_id, motion_id=None,
         )
     else:
         # Fetch existing graph to get motion_id
@@ -522,7 +521,7 @@ async def create_task_api(
         if graph is None:
             raise HTTPException(
                 status_code=404, detail=f"Task graph {graph_id} not found")
-        motion_id = graph.get("motion_id", "")
+        motion_id = graph.get("motion_id")
 
     task_id = f"task-{uuid.uuid4().hex[:12]}"
     status = "assigned" if request.assigned_to else "pending"
@@ -557,7 +556,7 @@ async def create_task_graph_api(
     """Manually create a task graph from Dashboard."""
     storage = _get_storage()
     graph_id = request.id or f"graph-{uuid.uuid4().hex[:12]}"
-    motion_id = request.motion_id or f"manual-{uuid.uuid4().hex[:8]}"
+    motion_id = request.motion_id  # May be None — motion_id is now nullable
     result = await storage.create_task_graph(
         graph_id=graph_id, motion_id=motion_id,
         parallel_mode=request.parallel_mode,

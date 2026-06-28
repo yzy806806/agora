@@ -35,35 +35,76 @@ _MCP_ROLE = "mcp_role"
 _MCP_AUTHENTICATED = "mcp_authenticated"
 
 # --- Agent-session mapping (Phase 16.4 D.4) ---
+# NOTE: Session mapping is now consolidated into MCPSessionMap
+# (session_map.py), accessed via deps.get_session_map().
+# The module-level dicts and functions below are DEPRECATED
+# and kept only for backward compatibility during migration.
+# They will be removed in a future version.
 
 _agent_sessions: dict[str, str] = {}
 _session_agents: dict[str, str] = {}
 
 
 def register_agent_session(agent_id: str, session_id: str) -> None:
-    """Map agent_id to MCP session_id for notification routing."""
-    old_session = _agent_sessions.get(agent_id)
-    if old_session and old_session != session_id:
-        _session_agents.pop(old_session, None)
-    _agent_sessions[agent_id] = session_id
-    _session_agents[session_id] = agent_id
+    """Map agent_id to MCP session_id for notification routing.
+    
+    DEPRECATED: Use MCPSessionMap.register() via deps.get_session_map().
+    This function now delegates to MCPSessionMap as the single source of truth.
+    """
+    # Delegate to MCPSessionMap if available
+    try:
+        from .deps import get_session_map
+        session_map = get_session_map()
+        session_map.register(agent_id, session_id)
+    except RuntimeError:
+        # Fallback to legacy dicts if deps not initialized (testing)
+        old_session = _agent_sessions.get(agent_id)
+        if old_session and old_session != session_id:
+            _session_agents.pop(old_session, None)
+        _agent_sessions[agent_id] = session_id
+        _session_agents[session_id] = agent_id
 
 
 def unregister_agent_session(session_id: str) -> None:
-    """Remove session mapping when MCP session closes."""
-    agent_id = _session_agents.pop(session_id, None)
-    if agent_id:
-        _agent_sessions.pop(agent_id, None)
+    """Remove session mapping when MCP session closes.
+    
+    DEPRECATED: Use MCPSessionMap.unregister_session() via deps.get_session_map().
+    """
+    try:
+        from .deps import get_session_map
+        session_map = get_session_map()
+        session_map.unregister_session(session_id)
+    except RuntimeError:
+        # Fallback to legacy dicts if deps not initialized (testing)
+        agent_id = _session_agents.pop(session_id, None)
+        if agent_id:
+            _agent_sessions.pop(agent_id, None)
 
 
 def get_session_id_for_agent(agent_id: str) -> Optional[str]:
-    """Look up MCP session_id for an agent."""
-    return _agent_sessions.get(agent_id)
+    """Look up MCP session_id for an agent.
+    
+    DEPRECATED: Use MCPSessionMap.get_session_id() via deps.get_session_map().
+    """
+    try:
+        from .deps import get_session_map
+        session_map = get_session_map()
+        return session_map.get_session_id(agent_id)
+    except RuntimeError:
+        return _agent_sessions.get(agent_id)
 
 
 def get_agent_id_for_session(session_id: str) -> Optional[str]:
-    """Look up agent_id for an MCP session."""
-    return _session_agents.get(session_id)
+    """Look up agent_id for an MCP session.
+    
+    DEPRECATED: Use MCPSessionMap.get_agent_id() via deps.get_session_map().
+    """
+    try:
+        from .deps import get_session_map
+        session_map = get_session_map()
+        return session_map.get_agent_id(session_id)
+    except RuntimeError:
+        return _session_agents.get(session_id)
 
 
 # --- Token validation ---

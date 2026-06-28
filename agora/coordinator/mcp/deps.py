@@ -13,17 +13,20 @@ _storage = None
 _token_mgr = None
 _ws_backend = None
 _ws_manager = None
+_session_map = None
 
 
 def init_mcp_deps(
     storage, token_mgr=None, ws_manager=None, ws_backend=None,
+    session_map=None,
 ) -> None:
     """Set shared service references. Called from main.py at startup."""
-    global _storage, _token_mgr, _ws_backend, _ws_manager
+    global _storage, _token_mgr, _ws_backend, _ws_manager, _session_map
     _storage = storage
     _token_mgr = token_mgr
     _ws_backend = ws_backend
     _ws_manager = ws_manager
+    _session_map = session_map
 
 
 def get_storage():
@@ -48,3 +51,10 @@ def get_ws_manager():
     if _ws_manager is None:
         raise RuntimeError("MCP deps not initialized: ws_manager")
     return _ws_manager
+
+
+def get_session_map():
+    """Return the shared MCPSessionMap instance (raises if not initialized)."""
+    if _session_map is None:
+        raise RuntimeError("MCP deps not initialized: session_map")
+    return _session_map

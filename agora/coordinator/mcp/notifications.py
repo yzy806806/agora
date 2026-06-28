@@ -113,28 +113,14 @@ class MCPNotificationBridge:
     def _find_session_id(self, agent_id: str) -> Optional[str]:
         """Find MCP session ID for an agent.
 
-        Checks MCPSessionMap first, then falls back to
-        auth.py's mapping (established during MCP requests).
+        Uses MCPSessionMap as the single source of truth.
+        Legacy auth.py fallback removed (consolidated in Phase 16.4b).
         """
-        sid = self._session_map.get_session_id(agent_id)
-        if sid:
-            return sid
-        # Fallback: auth.py's session mapping
-        try:
-            from .auth import get_session_id_for_agent
-            return get_session_id_for_agent(agent_id)
-        except ImportError:
-            return None
+        return self._session_map.get_session_id(agent_id)
 
     def _get_all_connected_agents(self) -> set[str]:
         """Get all agent IDs with active MCP sessions."""
-        agents = set(self._session_map.connected_agents)
-        try:
-            from .auth import _agent_sessions
-            agents.update(_agent_sessions.keys())
-        except ImportError:
-            pass
-        return agents
+        return set(self._session_map.connected_agents)
 
     async def _send_to_agent(
         self, agent_id: str, method: str, params: dict,

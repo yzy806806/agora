@@ -74,6 +74,9 @@ class TestPutWorkspaceFile:
         with patch(
             "agora.coordinator.mcp.tools.workspace_tools.get_ws_manager",
             return_value=mock_inst,
+        ), patch(
+            "agora.coordinator.mcp.tools.workspace_tools._get_current_agent_id",
+            return_value="agent-test",
         ):
             from agora.coordinator.mcp.tools.workspace_tools import (
                 put_workspace_file,
@@ -84,6 +87,29 @@ class TestPutWorkspaceFile:
             )
             assert result["path"] == "new.txt"
             assert result["size"] == 12
+
+    @pytest.mark.asyncio
+    async def test_write_without_agent_id_rejected(self):
+        """Writes without an authenticated agent_id should be rejected (401)."""
+        mock_inst = AsyncMock()
+        with patch(
+            "agora.coordinator.mcp.tools.workspace_tools.get_ws_manager",
+            return_value=mock_inst,
+        ), patch(
+            "agora.coordinator.mcp.tools.workspace_tools._get_current_agent_id",
+            return_value=None,
+        ):
+            from agora.coordinator.mcp.tools.workspace_tools import (
+                put_workspace_file,
+            )
+            result = await put_workspace_file(
+                project_id="proj", path="new.txt",
+                content="Test content",
+            )
+            assert "error" in result
+            assert result["code"] == 401
+            # write_file should never have been called
+            mock_inst.write_file.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_content_too_large(self):

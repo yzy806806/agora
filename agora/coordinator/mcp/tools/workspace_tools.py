@@ -61,6 +61,11 @@ async def put_workspace_file(
         ws_manager = get_ws_manager()
 
         agent_id = _get_current_agent_id()
+        if agent_id is None:
+            return {
+                "error": "Authentication required: no agent identity in MCP context",
+                "code": 401,
+            }
         node = await ws_manager.write_file(
             project_id, path, content.encode("utf-8"),
             agent_id=agent_id,
