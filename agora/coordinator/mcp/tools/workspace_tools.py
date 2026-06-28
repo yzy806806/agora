@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from ..deps import get_storage
+from ..deps import get_ws_manager
 from ..server import mcp_server
 
 logger = logging.getLogger(__name__)
@@ -19,17 +19,7 @@ async def get_workspace_file(
 ) -> dict:
     """Read a file from the shared workspace."""
     try:
-        from ...workspace.manager import WorkspaceManager
-        from ...config import settings as _settings
-        from ...workspace.backend import get_storage_backend
-
-        ws_config = {
-            "backend": getattr(_settings, "workspace_backend", "local"),
-            "local": {"root": getattr(_settings, "workspace_root",
-                                     "./data/workspaces")},
-        }
-        ws_backend = get_storage_backend(ws_config)
-        ws_manager = WorkspaceManager(_settings.get_db_path(), ws_backend)
+        ws_manager = get_ws_manager()
 
         node, data = await ws_manager.read_file(project_id, path, "mcp")
         if node is None:
@@ -68,28 +58,18 @@ async def put_workspace_file(
             "code": 413,
         }
     try:
-        from ...workspace.manager import WorkspaceManager
-        from ...config import settings as _settings
-        from ...workspace.backend import get_storage_backend
-
-        ws_config = {
-            "backend": getattr(_settings, "workspace_backend", "local"),
-            "local": {"root": getattr(_settings, "workspace_root",
-                                     "./data/workspaces")},
-        }
-        ws_backend = get_storage_backend(ws_config)
-        ws_manager = WorkspaceManager(_settings.get_db_path(), ws_backend)
+        ws_manager = get_ws_manager()
 
         agent_id = _get_current_agent_id()
         node = await ws_manager.write_file(
-            project_id, path, content,
+            project_id, path, content.encode("utf-8"),
+            agent_id=agent_id,
             content_type=content_type,
-            created_by=agent_id,
         )
         return {
             "path": path,
             "version": getattr(node, "version", 1) or 1,
-            "size": getattr(node, "size", len(content)) or len(content),
+            "size": getattr(node, "size", len(content.encode())) or len(content.encode()),
         }
     except Exception as exc:
         logger.error("put_workspace_file error: %s", exc)

@@ -1,7 +1,7 @@
 """Tests for workspace MCP tools: get_workspace_file, put_workspace_file.
 
-WorkspaceManager is imported lazily inside the tool functions,
-so we patch at the source module level.
+WorkspaceManager is obtained via deps.get_ws_manager(), so we patch
+at the workspace_tools module level where it's imported.
 """
 from __future__ import annotations
 
@@ -28,13 +28,13 @@ def _make_file_node(**overrides) -> FileNode:
 class TestGetWorkspaceFile:
     @pytest.mark.asyncio
     async def test_file_not_found(self):
-        with patch(
-            "agora.coordinator.workspace.manager.WorkspaceManager"
-        ) as MockWM:
-            mock_inst = AsyncMock()
-            mock_inst.read_file.return_value = (None, b"")
-            MockWM.return_value = mock_inst
+        mock_inst = AsyncMock()
+        mock_inst.read_file.return_value = (None, b"")
 
+        with patch(
+            "agora.coordinator.mcp.tools.workspace_tools.get_ws_manager",
+            return_value=mock_inst,
+        ):
             from agora.coordinator.mcp.tools.workspace_tools import (
                 get_workspace_file,
             )
@@ -47,13 +47,13 @@ class TestGetWorkspaceFile:
     @pytest.mark.asyncio
     async def test_read_text_file(self):
         node = _make_file_node()
-        with patch(
-            "agora.coordinator.workspace.manager.WorkspaceManager"
-        ) as MockWM:
-            mock_inst = AsyncMock()
-            mock_inst.read_file.return_value = (node, b"Hello, World!")
-            MockWM.return_value = mock_inst
+        mock_inst = AsyncMock()
+        mock_inst.read_file.return_value = (node, b"Hello, World!")
 
+        with patch(
+            "agora.coordinator.mcp.tools.workspace_tools.get_ws_manager",
+            return_value=mock_inst,
+        ):
             from agora.coordinator.mcp.tools.workspace_tools import (
                 get_workspace_file,
             )
@@ -68,13 +68,13 @@ class TestPutWorkspaceFile:
     @pytest.mark.asyncio
     async def test_write_text_file(self):
         node = _make_file_node(size=12)
-        with patch(
-            "agora.coordinator.workspace.manager.WorkspaceManager"
-        ) as MockWM:
-            mock_inst = AsyncMock()
-            mock_inst.write_file.return_value = node
-            MockWM.return_value = mock_inst
+        mock_inst = AsyncMock()
+        mock_inst.write_file.return_value = node
 
+        with patch(
+            "agora.coordinator.mcp.tools.workspace_tools.get_ws_manager",
+            return_value=mock_inst,
+        ):
             from agora.coordinator.mcp.tools.workspace_tools import (
                 put_workspace_file,
             )

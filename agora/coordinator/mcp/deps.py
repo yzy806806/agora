@@ -12,16 +12,18 @@ logger = logging.getLogger(__name__)
 _storage = None
 _token_mgr = None
 _ws_backend = None
+_ws_manager = None
 
 
 def init_mcp_deps(
     storage, token_mgr=None, ws_manager=None, ws_backend=None,
 ) -> None:
     """Set shared service references. Called from main.py at startup."""
-    global _storage, _token_mgr, _ws_backend
+    global _storage, _token_mgr, _ws_backend, _ws_manager
     _storage = storage
     _token_mgr = token_mgr
     _ws_backend = ws_backend
+    _ws_manager = ws_manager
 
 
 def get_storage():
@@ -39,3 +41,10 @@ def get_token_manager():
 def get_ws_backend():
     """Return the workspace storage backend (may be None)."""
     return _ws_backend
+
+
+def get_ws_manager():
+    """Return the shared WorkspaceManager instance (raises if not initialized)."""
+    if _ws_manager is None:
+        raise RuntimeError("MCP deps not initialized: ws_manager")
+    return _ws_manager
