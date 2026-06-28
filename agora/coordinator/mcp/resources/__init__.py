@@ -4,4 +4,5 @@ from . import (  # noqa: F401
     agent_resources,
     conversation_resources,
     project_resources,
+    project_context,
 )
