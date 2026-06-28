@@ -655,3 +655,93 @@ class BootstrapEngine:
 - Phase 3: Memory and Evolution Design
 - Phase 2: Smart Discussion Design
 - 现有 coordinator/ 模块结构
+
+---
+
+## 7. 重构记录 (v0.18+)
+
+### 7.1 去掉 Kanban 依赖
+
+**问题**：原 TaskGenerator 直接调 Hermes kanban API (`/api/kanban/tasks`)，
+违反后端无关原则——Agora 是通用平台，后端可以是 Hermes、OpenCode 或任何框架。
+
+**方案**：TaskGenerator 改为调 Agora 自身的 Task API (`POST /api/v1/tasks`)。
+所有任务操作走 Agora 协议，不依赖任何特定 agent 框架。
+
+### 7.2 内置 Daemon 模式
+
+**问题**：原 auto_bootstrap.py 是外部脚本，公开项目不能靠用户自写运行逻辑。
+
+**方案**：内置 `agora daemon` CLI 子命令：
+```bash
+agora daemon              # 循环运行，默认30分钟间隔
+agora daemon --once       # 跑一次就退出
+agora daemon --dry-run    # 只检测不执行
+agora daemon --interval 15  # 自定义间隔
+```
+
+Daemon 循环：
+1. 检查定时触发 (scheduled triggers)
+2. 检查 GitHub issues (如果开启)
+3. 处理 pending triggers → 启动讨论
+4. 处理 pending approvals (自动审批或等待用户)
+5. 自动 git commit (如果开启)
+
+### 7.3 Dashboard Settings 页面
+
+**问题**：GitHub token、LLM API key 等配置只能手动改 config.yaml 或环境变量。
+
+**方案**：新增 Settings API + Dashboard 页面，支持运行时配置：
+
+| 分类 | 配置项 |
+|------|--------|
+| 🐙 GitHub | token, repo, default_branch |
+| 🧠 LLM | api_key, base_url, default_model |
+| 🤖 Agents | architect/developer/reviewer 模型 |
+| ⚙️ Daemon | interval, auto_approve, github_sync |
+| 📝 Git | auto_commit, author_name, author_email |
+| 📄 Docs | auto_update |
+
+API 端点：
+- `GET /api/v1/settings` — 获取所有配置（secrets 脱敏）
+- `GET /api/v1/settings/schema` — 获取字段定义
+- `PUT /api/v1/settings` — 批量更新
+- `DELETE /api/v1/settings/{key}` — 删除（恢复默认）
+
+Secrets 在磁盘上 base64 编码存储，API 返回时脱敏 (`sk-***xyz`)。
+
+### 7.4 自驱逻辑完整流程
+
+```
+用户 → Dashboard 下任务/发讨论/配 Settings
+                │
+                ▼
+         Agora Coordinator
+         (8765 端口, FastAPI)
+                │
+    ┌───────────┼───────────┐
+    │           │           │
+    ▼           ▼           ▼
+ architect   developer   reviewer
+ (讨论+架构)  (执行任务)   (审查)
+    │           │           │
+    └───────────┼───────────┘
+                │
+                ▼
+         Task Board (状态看板)
+                │
+    ┌───────────┼───────────┐
+    │           │           │
+    ▼           ▼           ▼
+  pending    assigned     running
+                │
+                ▼
+  completed → git commit → push → docs update
+```
+
+**任务来源**（优先级从高到低）：
+1. 用户从 Dashboard 手动创建
+2. 讨论结果自动生成 (action_items → tasks)
+3. GitHub issues 同步 (label: needs-discussion)
+4. 定时触发 (scheduled review)
+5. Daemon 自动发现 (代码健康检查)

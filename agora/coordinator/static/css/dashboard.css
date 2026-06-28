@@ -85,3 +85,31 @@ button.btn-sm { padding: 4px 10px; font-size: 12px; margin-right: 4px; }
   .chart-card-wide { grid-column: 1; }
 }
 
+/* Settings page */
+.settings-category { margin-bottom: 20px; }
+.settings-fields { display: flex; flex-direction: column; gap: 12px; }
+.setting-row { display: flex; align-items: flex-start; gap: 16px; padding: 8px 0; border-bottom: 1px solid #334155; }
+.setting-row:last-child { border-bottom: none; }
+.setting-label { flex: 0 0 240px; }
+.setting-label label { font-weight: 600; display: block; }
+.setting-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; display: block; }
+.setting-control { flex: 1; }
+.setting-input { width: 100%; max-width: 400px; }
+.secret-field { display: flex; gap: 6px; align-items: center; }
+.secret-field .setting-input { flex: 1; }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+.btn-ghost:hover { background: var(--bg-input); color: var(--text); }
+
+/* Toggle switch */
+.toggle { position: relative; display: inline-block; width: 44px; height: 24px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: var(--bg-input); border-radius: 12px; cursor: pointer; transition: 0.2s; }
+.toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+.toggle input:checked + .toggle-slider { background: var(--accent); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+@media (max-width: 768px) {
+  .setting-row { flex-direction: column; gap: 4px; }
+  .setting-label { flex: auto; }
+}
+

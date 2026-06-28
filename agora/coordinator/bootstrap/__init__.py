@@ -2,8 +2,10 @@
 
 BootstrapEngine orchestrates the full pipeline:
   trigger → discussion → approval → task generation
-"""
 
+All task operations go through Agora's own Task API,
+not any external agent framework (Hermes, OpenCode, etc).
+"""
 from __future__ import annotations
 
 import json
@@ -26,19 +28,21 @@ logger = logging.getLogger(__name__)
 class BootstrapConfig:
     """Configuration for the BootstrapEngine."""
     db_path: str
-    coordinator_url: str = "http://localhost:8000"
-    kanban_url: str = "http://localhost:8000"
-    board: str = "default"
+    coordinator_url: str = "http://localhost:8765"
 
 
 class BootstrapEngine:
-    """Self-organizing development engine — coordinates all bootstrap modules."""
+    """Self-organizing development engine — coordinates all bootstrap modules.
+
+    Pipeline: trigger → discussion → approval → task generation.
+    All via Agora's own APIs. No dependency on any specific agent framework.
+    """
 
     def __init__(self, config: BootstrapConfig) -> None:
         self.config = config
         self.trigger_mgr = TriggerManager(config.db_path)
         self.discussion_driver = DiscussionDriver(config.coordinator_url)
-        self.task_generator = TaskGenerator(config.kanban_url, config.board)
+        self.task_generator = TaskGenerator(config.coordinator_url)
         self.approval_flow = ApprovalFlow(config.db_path)
 
     def init_routes(self) -> None:

@@ -321,3 +321,24 @@ Agora 已具备完整功能，但安全基础薄弱——Dashboard 和 API 暴�
 - 通用接入：任何语言/框架的 agent 通过 HTTP + WebSocket 协议即可，不依赖特定 SDK
 
 ## 状态：✅ 已完成（2026-06-19，v0.16.0 已发布）
+
+## Phase 18: 自驱逻辑重构 + Dashboard Settings
+
+### 目标
+让 Agora 真正能自驱运转——不需要外部脚本，不需要手动改配置文件。
+
+### 核心改动
+
+1. **去掉 Kanban 依赖** — TaskGenerator 改用 Agora 自身 Task API，后端无关
+2. **内置 `agora daemon`** — 替代外部 auto_bootstrap.py 脚本
+3. **Dashboard Settings 页面** — 运行时配置 GitHub token、LLM key、agent 模型等
+4. **Settings API** — `GET/PUT/DELETE /api/v1/settings`，secrets 脱敏存储
+
+### 进度
+- ✅ TaskGenerator 重构（去掉 kanban，改用 Agora Task API）
+- ✅ `agora daemon` CLI 子命令（--once / --dry-run / --interval）
+- ✅ Settings API 后端（6 大类 17 个配置项）
+- ✅ Dashboard Settings 前端页面（分组表单 + secret 脱敏）
+- ✅ 文档更新（DESIGN-bootstrap.md 第 7 节）
+- 🟡 daemon auto-commit 实现（占位，待完善）
+- 🟡 daemon auto-docs 更新（待实现）

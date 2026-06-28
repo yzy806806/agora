@@ -1,9 +1,7 @@
 """Tests for BootstrapEngine module."""
-
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -41,8 +39,7 @@ async def db_path(tmp_path_factory):
 async def engine(db_path):
     cfg = BootstrapConfig(
         db_path=db_path,
-        coordinator_url="http://localhost:8000",
-        kanban_url="http://localhost:8000",
+        coordinator_url="http://localhost:8765",
     )
     eng = BootstrapEngine(cfg)
     eng.init_routes()
@@ -52,15 +49,12 @@ async def engine(db_path):
 class TestBootstrapConfig:
     def test_defaults(self):
         cfg = BootstrapConfig(db_path="/tmp/test.db")
-        assert cfg.coordinator_url == "http://localhost:8000"
-        assert cfg.kanban_url == "http://localhost:8000"
-        assert cfg.board == "default"
+        assert cfg.coordinator_url == "http://localhost:8765"
 
 
 class TestBootstrapEngine:
     @pytest.mark.asyncio
     async def test_init_routes(self, engine):
-        # init_routes was called in fixture, should not error
         from agora.coordinator.bootstrap import routes as r
         assert r._trigger_mgr is not None
         assert r._approval_flow is not None
@@ -79,9 +73,9 @@ class TestBootstrapEngine:
         )
         # Mock task generation to avoid real HTTP calls
         mock_resp = AsyncMock()
-        mock_resp.status = 200
+        mock_resp.status = 201
         mock_resp.raise_for_status = MagicMock()
-        mock_resp.json = AsyncMock(return_value={"task_id": "t_mock"})
+        mock_resp.json = AsyncMock(return_value={"id": "t_mock"})
 
         mock_session = AsyncMock()
         mock_session.post = MagicMock(return_value=mock_resp)

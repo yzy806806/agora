@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from .config import settings
 from .models import (
@@ -679,3 +680,68 @@ async def get_execution_slots_api(
         agent_id=agent_id, status=status)
     items = [ExecutionSlotItem(**s) for s in slots]
     return ExecutionSlotsResponse(slots=items, total=len(items))
+
+
+# ---------------------------------------------------------------------------
+# Settings API (Dashboard configuration)
+# ---------------------------------------------------------------------------
+
+from .settings_manager import SettingsManager
+
+_settings_mgr: Optional[SettingsManager] = None
+
+
+def _get_settings() -> SettingsManager:
+    global _settings_mgr
+    if _settings_mgr is None:
+        _settings_mgr = SettingsManager()
+    return _settings_mgr
+
+
+@router.get("/settings")
+async def get_settings_api() -> dict:
+    """Get all settings grouped by category. Secrets are masked."""
+    mgr = _get_settings()
+    return mgr.get_all(reveal_secrets=False)
+
+
+@router.get("/settings/schema")
+async def get_settings_schema_api() -> dict:
+    """Get the settings schema (field definitions for UI rendering)."""
+    mgr = _get_settings()
+    return mgr.get_schema()
+
+
+@router.get("/settings/{key}")
+async def get_setting_api(key: str) -> dict:
+    """Get a single setting value. Secrets are masked."""
+    mgr = _get_settings()
+    value = mgr.get(key)
+    schema = mgr.get_schema()["fields"].get(key)
+    if schema is None:
+        raise HTTPException(404, f"Unknown setting: {key}")
+    if schema["type"] == "secret" and value:
+        s = str(value)
+        value = s[:4] + "***" + s[-3:] if len(s) > 7 else "***"
+    return {"key": key, "value": value, "schema": schema}
+
+
+class SettingsUpdateRequest(BaseModel):
+    """Bulk settings update."""
+    settings: dict
+
+
+@router.put("/settings")
+async def update_settings_api(req: SettingsUpdateRequest) -> dict:
+    """Update multiple settings at once."""
+    mgr = _get_settings()
+    updated = mgr.set_many(req.settings)
+    return {"updated": updated, "count": len(updated)}
+
+
+@router.delete("/settings/{key}")
+async def delete_setting_api(key: str) -> dict:
+    """Delete a setting (reverts to default)."""
+    mgr = _get_settings()
+    mgr.delete(key)
+    return {"deleted": key}
