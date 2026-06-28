@@ -30,10 +30,13 @@ from .models import (
     RegistrationStatusResponse,
     VotingMethod,
 )
+from .task_models import TaskNode
 from .dashboard_models import (
     ExecutionSlotItem,
     ExecutionSlotsResponse,
+    TaskCreateRequest,
     TaskDetailResponse,
+    TaskGraphCreateRequest,
     TaskGraphDetailResponse,
     TaskGraphItem,
     TaskGraphListResponse,
@@ -488,6 +491,87 @@ async def force_vote(
 # ---------------------------------------------------------------------------
 # Phase 11.1a: Task Query API (Dashboard)
 # ---------------------------------------------------------------------------
+
+
+@router.post("/tasks", response_model=TaskDetailResponse, status_code=201)
+@requires(Permission.DISCUSSION_CREATE)
+async def create_task_api(
+    request: TaskCreateRequest,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> TaskDetailResponse:
+    """Manually create a task from Dashboard.
+
+    If graph_id is omitted, a default graph is auto-created.
+    If assigned_to is set, the task starts in 'assigned' status.
+    """
+    storage = _get_storage()
+    graph_id = request.graph_id
+    motion_id = ""
+
+    # Auto-create a graph if none specified
+    if not graph_id:
+        graph_id = f"graph-{uuid.uuid4().hex[:12]}"
+        motion_id = f"manual-{uuid.uuid4().hex[:8]}"
+        await storage.create_task_graph(
+            graph_id=graph_id, motion_id=motion_id,
+        )
+    else:
+        # Fetch existing graph to get motion_id
+        graph = await storage.get_task_graph(graph_id)
+        if graph is None:
+            raise HTTPException(
+                status_code=404, detail=f"Task graph {graph_id} not found")
+        motion_id = graph.get("motion_id", "")
+
+    task_id = f"task-{uuid.uuid4().hex[:12]}"
+    status = "assigned" if request.assigned_to else "pending"
+    task = TaskNode(
+        id=task_id,
+        graph_id=graph_id,
+        motion_id=motion_id,
+        title=request.title,
+        description=request.description,
+        status=status,
+        assigned_to=request.assigned_to,
+        required_capabilities=request.required_capabilities,
+        depends_on=request.depends_on,
+    )
+    result = await storage.create_task(task)
+    # Publish event for dashboard WS
+    from .event_bus import publish
+    await publish("TASK_UPDATE", {
+        "task_id": task_id, "status": status,
+        "graph_id": graph_id,
+    }, channel="tasks")
+    return TaskDetailResponse(**result)
+
+
+@router.post("/task-graphs", response_model=TaskGraphDetailResponse,
+             status_code=201)
+@requires(Permission.DISCUSSION_CREATE)
+async def create_task_graph_api(
+    request: TaskGraphCreateRequest,
+    _rbac_role: Role | None = Depends(get_current_role),
+) -> TaskGraphDetailResponse:
+    """Manually create a task graph from Dashboard."""
+    storage = _get_storage()
+    graph_id = request.id or f"graph-{uuid.uuid4().hex[:12]}"
+    motion_id = request.motion_id or f"manual-{uuid.uuid4().hex[:8]}"
+    result = await storage.create_task_graph(
+        graph_id=graph_id, motion_id=motion_id,
+        parallel_mode=request.parallel_mode,
+        max_parallel_slots=request.max_parallel_slots,
+        resource_conflict_policy=request.resource_conflict_policy,
+    )
+    return TaskGraphDetailResponse(
+        id=result["id"], motion_id=result["motion_id"],
+        parallel_mode=result.get("parallel_mode", "auto"),
+        max_parallel_slots=result.get("max_parallel_slots", 10),
+        resource_conflict_policy=result.get(
+            "resource_conflict_policy", "warn"),
+        created_at=result.get("created_at"),
+        tasks=[],
+    )
 
 
 @router.get("/tasks", response_model=TaskListResponse)

@@ -130,6 +130,26 @@ class AuditQueryResponse(BaseModel):
 
 # --- Task result response model (Phase 14+.E.3) ---
 
+class TaskCreateRequest(BaseModel):
+    """Request body for manually creating a task from Dashboard."""
+    title: str
+    description: str = ""
+    graph_id: Optional[str] = None
+    assigned_to: Optional[str] = None
+    required_capabilities: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)
+    priority: str = "normal"  # low | normal | high | critical
+
+
+class TaskGraphCreateRequest(BaseModel):
+    """Request body for manually creating a task graph from Dashboard."""
+    id: Optional[str] = None  # auto-generated if omitted
+    motion_id: Optional[str] = None  # linked discussion, if any
+    parallel_mode: str = "auto"
+    max_parallel_slots: int = 10
+    resource_conflict_policy: str = "warn"
+
+
 class TaskResultResponse(BaseModel):
     """Structured task result from Protocol v2."""
     task_id: str
