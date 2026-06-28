@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE TABLE IF NOT EXISTS task_graphs (
     id TEXT PRIMARY KEY,
-    motion_id TEXT NOT NULL UNIQUE REFERENCES motions(id) ON DELETE CASCADE,
+    motion_id TEXT UNIQUE REFERENCES motions(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL,
     parallel_mode TEXT DEFAULT 'auto',
     max_parallel_slots INTEGER DEFAULT 10,
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS task_graphs (
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     graph_id TEXT NOT NULL REFERENCES task_graphs(id) ON DELETE CASCADE,
-    motion_id TEXT NOT NULL REFERENCES motions(id) ON DELETE CASCADE,
+    motion_id TEXT REFERENCES motions(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',

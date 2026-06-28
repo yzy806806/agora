@@ -32,7 +32,7 @@ class TaskNode(BaseModel):
     """A single task node in the task graph."""
     id: str
     graph_id: str
-    motion_id: str
+    motion_id: Optional[str] = None
     title: str
     description: str = ""
     status: TaskStatus = TaskStatus.PENDING
@@ -53,7 +53,7 @@ class TaskNode(BaseModel):
 class TaskGraph(BaseModel):
     """DAG of tasks generated from a discussion."""
     id: str
-    motion_id: str
+    motion_id: Optional[str] = None
     tasks: list[TaskNode] = Field(default_factory=list)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)

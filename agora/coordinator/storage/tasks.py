@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def create_task_graph(
     db: Any, dialect: Dialect,
-    graph_id: str, motion_id: str,
+    graph_id: str, motion_id: Optional[str] = None,
     parallel_mode: str = "auto",
     max_parallel_slots: int = 10,
     resource_conflict_policy: str = "warn",

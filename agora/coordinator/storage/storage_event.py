@@ -8,7 +8,7 @@ from . import parallel as _parallel
 
 
 class StorageTaskMixin:
-    async def create_task_graph(self, graph_id: str, motion_id: str,
+    async def create_task_graph(self, graph_id: str, motion_id: Optional[str] = None,
                                 parallel_mode: str = "auto",
                                 max_parallel_slots: int = 10,
                                 resource_conflict_policy: str = "warn") -> dict:

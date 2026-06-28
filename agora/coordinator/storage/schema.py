@@ -1,6 +1,6 @@
 """SQL schema definitions for the Agora Coordinator database."""
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 22
 
 SCHEMA_SQL = """\
 PRAGMA foreign_keys = ON;
@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS agents (
     tpm_limit INTEGER DEFAULT 10000,
     tpm_burst_factor REAL DEFAULT 1.5,
     allowed_discussion_roles TEXT DEFAULT '["participant"]',
-    registration_token TEXT DEFAULT ''
+    registration_token TEXT DEFAULT '',
+    contact_url TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS motions (
@@ -185,7 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 
 CREATE TABLE IF NOT EXISTS task_graphs (
     id TEXT PRIMARY KEY,
-    motion_id TEXT NOT NULL UNIQUE,
+    motion_id TEXT UNIQUE,
     created_at TEXT NOT NULL,
     parallel_mode TEXT DEFAULT 'auto',
     max_parallel_slots INTEGER DEFAULT 10,
@@ -196,7 +197,7 @@ CREATE TABLE IF NOT EXISTS task_graphs (
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     graph_id TEXT NOT NULL,
-    motion_id TEXT NOT NULL,
+    motion_id TEXT,
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
@@ -757,6 +758,59 @@ MIGRATION_19_TO_20 = [
     transport_type TEXT DEFAULT 'streamable-http'
 );""",
     "CREATE INDEX IF NOT EXISTS idx_mcp_sessions_agent ON mcp_sessions(agent_id);",
+]
+
+# Phase 17: Add contact_url column for callback notifications (20 → 21)
+MIGRATION_20_TO_21 = [
+    "ALTER TABLE agents ADD COLUMN contact_url TEXT DEFAULT NULL;",
+]
+
+# Phase 18: Make motion_id nullable in task_graphs and tasks (21 → 22)
+# SQLite doesn't support ALTER COLUMN, so we recreate the tables.
+MIGRATION_21_TO_22 = [
+    # Recreate task_graphs with nullable motion_id
+    "ALTER TABLE task_graphs RENAME TO task_graphs_old;",
+    """CREATE TABLE task_graphs (
+    id TEXT PRIMARY KEY,
+    motion_id TEXT UNIQUE,
+    created_at TEXT NOT NULL,
+    parallel_mode TEXT DEFAULT 'auto',
+    max_parallel_slots INTEGER DEFAULT 10,
+    resource_conflict_policy TEXT DEFAULT 'warn',
+    FOREIGN KEY (motion_id) REFERENCES motions(id) ON DELETE CASCADE
+);""",
+    "INSERT INTO task_graphs SELECT * FROM task_graphs_old;",
+    "DROP TABLE task_graphs_old;",
+    # Recreate tasks with nullable motion_id
+    "ALTER TABLE tasks RENAME TO tasks_old;",
+    """CREATE TABLE tasks (
+    id TEXT PRIMARY KEY,
+    graph_id TEXT NOT NULL,
+    motion_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    assigned_to TEXT,
+    required_capabilities TEXT,
+    depends_on TEXT,
+    artifact_paths TEXT,
+    workspace_paths TEXT DEFAULT '[]',
+    error_message TEXT,
+    task_result TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    FOREIGN KEY (graph_id) REFERENCES task_graphs(id) ON DELETE CASCADE,
+    FOREIGN KEY (motion_id) REFERENCES motions(id) ON DELETE CASCADE,
+    FOREIGN KEY (assigned_to) REFERENCES agents(agent_id)
+);""",
+    "INSERT INTO tasks SELECT * FROM tasks_old;",
+    "DROP TABLE tasks_old;",
+    # Recreate indexes
+    "CREATE INDEX IF NOT EXISTS idx_tasks_graph ON tasks(graph_id);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_motion ON tasks(motion_id);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);",
 ]
 
 # Default RBAC roles to seed on fresh DB
