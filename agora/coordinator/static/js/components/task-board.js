@@ -1,19 +1,21 @@
-/* Reusable Kanban Board Component */
-export class KanbanBoard {
+/* Reusable Task Board Component — columns by status.
+Backend-agnostic: works with Agora's task model, not tied to
+any specific agent framework (Hermes, OpenCode, etc). */
+export class TaskBoard {
   constructor(container, opts = {}) {
     this.container = container;
-    this.columns = opts.columns || ['PENDING', 'READY', 'RUNNING', 'DONE', 'FAILED'];
+    this.columns = opts.columns || ['PENDING', 'ASSIGNED', 'RUNNING', 'DONE', 'FAILED'];
     this.onCardClick = opts.onCardClick || (() => {});
     this.cards = {};
     this.init();
   }
 
   init() {
-    this.container.innerHTML = `<div class="kanban-board"></div>`;
-    this.board = this.container.querySelector('.kanban-board');
+    this.container.innerHTML = `<div class="task-board"></div>`;
+    this.board = this.container.querySelector('.task-board');
     this.columns.forEach(col => {
       const div = document.createElement('div');
-      div.className = 'kanban-col';
+      div.className = 'task-col';
       div.dataset.status = col;
       div.innerHTML = `<h4>${col} <span class="count">(0)</span></h4><div class="cards"></div>`;
       this.board.appendChild(div);
@@ -26,7 +28,7 @@ export class KanbanBoard {
       const list = this.cards[col];
       const colItems = items.filter(i => (i.status || 'PENDING').toUpperCase() === col);
       list.innerHTML = colItems.map(item => this.renderCard(item)).join('');
-      const count = list.closest('.kanban-col').querySelector('.count');
+      const count = list.closest('.task-col').querySelector('.count');
       if (count) count.textContent = `(${colItems.length})`;
     });
     this.bindClicks();
@@ -34,9 +36,9 @@ export class KanbanBoard {
 
   renderCard(item) {
     const deps = item.depends_on?.length ? `dep:${item.depends_on.length}` : '';
-    const agent = item.assigned_to ? `agent:${item.assigned_to.slice(0, 8)}` : '';
+    const agent = item.assigned_to ? `→ ${item.assigned_to}` : '';
     const time = item.started_at ? this.fmtTime(item.started_at) : '';
-    return `<div class="kanban-card" data-id="${item.id}">
+    return `<div class="task-card" data-id="${item.id}">
       <div class="title">${this.escape(item.title || item.id)}</div>
       <div class="meta">${[deps, agent, time].filter(Boolean).join(' · ')}</div>
     </div>`;
@@ -53,7 +55,7 @@ export class KanbanBoard {
   }
 
   bindClicks() {
-    this.board.querySelectorAll('.kanban-card').forEach(card => {
+    this.board.querySelectorAll('.task-card').forEach(card => {
       card.onclick = () => this.onCardClick(card.dataset.id);
     });
   }

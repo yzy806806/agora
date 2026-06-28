@@ -23,21 +23,21 @@
 .event .time { font-size: 12px; color: var(--text-dim); }
 .event .detail { color: var(--text); }
 
-/* Kanban Board */
-.kanban-board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
-.kanban-col {
+/* Task Board — columns by status, backend-agnostic */
+.task-board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.task-col {
   min-width: 220px; flex: 1; background: var(--bg-input);
   border-radius: var(--radius); padding: 12px;
 }
-.kanban-col h4 { color: var(--text-dim); margin-bottom: 8px; font-size: 13px; text-transform: uppercase; }
-.kanban-col h4 .count { color: var(--accent); margin-left: 4px; }
-.kanban-card {
+.task-col h4 { color: var(--text-dim); margin-bottom: 8px; font-size: 13px; text-transform: uppercase; }
+.task-col h4 .count { color: var(--accent); margin-left: 4px; }
+.task-card {
   background: var(--bg-card); border-radius: 6px; padding: 10px;
   margin-bottom: 8px; cursor: pointer; border-left: 3px solid var(--accent);
 }
-.kanban-card:hover { background: #253449; }
-.kanban-card .title { font-weight: 600; font-size: 13px; }
-.kanban-card .meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.task-card:hover { background: #253449; }
+.task-card .title { font-weight: 600; font-size: 13px; }
+.task-card .meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
 
 /* Modal */
 .modal-overlay {
@@ -73,8 +73,8 @@
   nav { padding: 8px 12px; gap: 4px; }
   nav a { padding: 4px 8px; font-size: 12px; }
   .page { padding: 12px; }
-  .kanban-board { flex-direction: column; }
-  .kanban-col { min-width: auto; }
+  .task-board { flex-direction: column; }
+  .task-col { min-width: auto; }
 }
 
 

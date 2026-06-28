@@ -4,7 +4,7 @@ Phase 13.2b: uses TASK_UPDATE canonical type
 + Dashboard task creation: New Task / New Graph buttons. */
 import { api } from '../api.js';
 import { ws } from '../ws-client.js';
-import { KanbanBoard } from '../components/kanban-board.js';
+import { TaskBoard } from '../components/task-board.js';
 
 let board = null, unsubTask = null, currentGraphId = null;
 const $ = id => document.getElementById(id);
@@ -18,7 +18,7 @@ export function mount(container) {
       <button id="btn-new-graph" class="primary" style="margin-left:auto">+ New Graph</button>
       <button id="btn-new-task" class="primary">+ New Task</button>
     </div>
-    <div id="kanban-container"></div>
+    <div id="task-board-container"></div>
     <div id="task-modal" class="modal-overlay hidden"><div class="modal" id="task-detail"></div></div>
     <!-- New Task Form Modal -->
     <div id="new-task-modal" class="modal-overlay hidden">
@@ -106,7 +106,7 @@ export function mount(container) {
   $('ng-cancel').onclick = () => $('new-graph-modal').classList.add('hidden');
   $('new-task-form').onsubmit = onCreateTask;
   $('new-graph-form').onsubmit = onCreateGraph;
-  board = new KanbanBoard(document.getElementById('kanban-container'), {onCardClick: showDetail});
+  board = new TaskBoard(document.getElementById('task-board-container'), {onCardClick: showDetail});
   loadGraphs(); loadTasks(); subscribeWS();
 }
 
@@ -147,7 +147,7 @@ async function loadTasks() {
     const data = await api.get(`/tasks${params}`);
     if (board) board.setCards(data.tasks || data || []);
   } catch (e) {
-    const c = document.getElementById('kanban-container');
+    const c = document.getElementById('task-board-container');
     if (c) c.innerHTML = `<div class="card">Error: ${e.message}</div>`;
   }
 }
