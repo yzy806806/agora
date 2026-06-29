@@ -374,6 +374,39 @@ async def list_motions(
     }
 
 
+@mcp_server.tool()
+async def list_agents(
+    online_only: bool = False,
+) -> dict:
+    """List registered agents and their capabilities.
+
+    Used by the coordinator to find available agents for task assignment.
+
+    Args:
+        online_only: If true, only return agents currently online
+
+    Returns:
+        List of agents with id, name, capabilities, and online status
+    """
+    storage = get_storage()
+
+    agents = await storage.list_agents(online_only=online_only)
+
+    return {
+        "agents": [
+            {
+                "agent_id": a.get("agent_id", ""),
+                "name": a.get("name", ""),
+                "capabilities": a.get("capabilities", "[]"),
+                "is_online": bool(a.get("is_online", 0)),
+                "agent_type": a.get("agent_type", "hermes"),
+            }
+            for a in agents
+        ],
+        "total": len(agents),
+    }
+
+
 # --- Helpers ---
 
 def _get_current_agent_id() -> str:
