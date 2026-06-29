@@ -26,6 +26,7 @@ dependencies = [
 [project.optional-dependencies]
 redis = ["redis>=5.0"]
 postgres = ["asyncpg>=0.29"]
+matrix = ["matrix-nio>=0.24"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

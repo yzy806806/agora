@@ -10,7 +10,8 @@ from .schema import (
     MIGRATION_12_TO_13_PIPELINES, MIGRATION_14_TO_15,
     MIGRATION_15_TO_16, MIGRATION_16_TO_17, MIGRATION_17_TO_18,
     MIGRATION_18_TO_19, MIGRATION_19_TO_20, MIGRATION_20_TO_21,
-    MIGRATION_21_TO_22, MIGRATION_6_TO_7, MIGRATION_7_TO_8,
+    MIGRATION_21_TO_22, MIGRATION_22_TO_23, MIGRATION_23_TO_24,
+    MIGRATION_6_TO_7, MIGRATION_7_TO_8,
     MIGRATION_8_TO_9, MIGRATION_9_TO_10, SCHEMA_VERSION,
 )
 
@@ -51,6 +52,8 @@ async def run_migrations(
         (20, MIGRATION_19_TO_20, "Phase 16.4 MCP sessions table"),
         (21, MIGRATION_20_TO_21, "Phase 17 contact_url column"),
         (22, MIGRATION_21_TO_22, "Phase 18 nullable motion_id"),
+        (23, MIGRATION_22_TO_23, "Phase 19 pending notifications + telegram"),
+        (24, MIGRATION_23_TO_24, "Phase 19+ matrix_user_id column"),
     ]
     for target_ver, stmts, label in migrations:
         if current_ver < target_ver:

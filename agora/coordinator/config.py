@@ -166,6 +166,18 @@ class Settings(BaseSettings):
     vote_timeout_seconds: int = 120
     discussion_timeout_seconds: int = 1800
 
+    # Phase 19: Task timeout config
+    task_timeout_minutes: int = 10      # env: AGORA_TASK_TIMEOUT_MINUTES
+    task_timeout_check_seconds: int = 60  # env: AGORA_TASK_TIMEOUT_CHECK_SECONDS
+
+    # Phase 19: Telegram wakeup
+    telegram_bot_token: str = ""        # env: AGORA_TELEGRAM_BOT_TOKEN
+
+    # Phase 19+: Matrix wakeup
+    matrix_homeserver_url: str = ""     # env: AGORA_MATRIX_HOMESERVER_URL
+    matrix_access_token: str = ""       # env: AGORA_MATRIX_ACCESS_TOKEN
+    matrix_wakeup_room_id: str = ""     # env: AGORA_MATRIX_WAKEUP_ROOM_ID
+
     model_config = SettingsConfigDict(env_prefix="AGORA_")
 
     def get_db_path(self) -> str:

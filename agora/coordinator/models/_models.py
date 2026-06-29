@@ -202,6 +202,8 @@ class AgentRegisterRequest(BaseModel):
     # Phase 15.C: optional fields for self-registration
     public_key: str | None = None
     contact_url: str | None = None
+    telegram_chat_id: str | None = None
+    matrix_user_id: str | None = None
 
 
 class AgentInfo(BaseModel):

@@ -140,6 +140,7 @@ async def register_agent(
         is_approved=is_approved,
         approval_status=approval_status,
         registration_token=reg_token or "",
+        matrix_user_id=request.matrix_user_id or "",
     )
 
     message = (

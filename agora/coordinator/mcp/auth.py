@@ -245,23 +245,59 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     async def _resolve_identity(self, request: Request) -> None:
-        """Best-effort identity resolution (none auth mode)."""
+        """Best-effort identity resolution (none auth mode).
+
+        In none-auth mode, we resolve agent_id via two paths:
+        1. Bearer token (if present and valid) → set request.state
+        2. MCP session ID header → look up session_map (registered
+           during register_agent tool call)
+
+        Path 2 is the primary mechanism for Hermes agents: they call
+        register_agent first, which registers the MCP session → agent_id
+        mapping. Subsequent tool calls carry the same mcp-session-id
+        header, so we can resolve the agent_id without a valid token.
+        """
+        # Path 1: Try Bearer token resolution
         token = _extract_bearer_token(request)
-        if not token:
-            return
-        token_mgr = self._get_token_mgr()
-        admin_token = self._get_admin_token()
-        result = _validate_token(token, token_mgr, admin_token)
-        if result:
-            agent_id, role = result
-            if agent_id.startswith("ag-"):
-                storage = self._get_storage()
-                if storage:
-                    agent = await storage.get_agent_by_token(agent_id)
-                    if agent:
-                        agent_id = agent.get("agent_id", agent_id)
-            setattr(request.state, _MCP_AGENT_ID, agent_id)
-            setattr(request.state, _MCP_ROLE, role)
+        if token:
+            token_mgr = self._get_token_mgr()
+            admin_token = self._get_admin_token()
+            result = _validate_token(token, token_mgr, admin_token)
+            if result:
+                agent_id, role = result
+                if agent_id.startswith("ag-"):
+                    storage = self._get_storage()
+                    if storage:
+                        agent = await storage.get_agent_by_token(agent_id)
+                        if agent:
+                            agent_id = agent.get("agent_id", agent_id)
+                            setattr(request.state, _MCP_AGENT_ID, agent_id)
+                            setattr(request.state, _MCP_ROLE, role)
+                            return  # Token resolved successfully
+                    # ag-* token not found in DB — don't use token as agent_id
+                    # Fall through to Path 2 (session_map lookup)
+                else:
+                    setattr(request.state, _MCP_AGENT_ID, agent_id)
+                    setattr(request.state, _MCP_ROLE, role)
+                    return  # Token resolved successfully (admin or JWT)
+
+        # Path 2: Try MCP session ID lookup (critical for none-auth mode)
+        mcp_sid = request.headers.get("mcp-session-id")
+        if mcp_sid:
+            try:
+                from .deps import get_session_map
+                sm = get_session_map()
+                agent_id = sm.get_agent_id(mcp_sid)
+                if agent_id:
+                    setattr(request.state, _MCP_AGENT_ID, agent_id)
+                    from ..rbac import Role
+                    setattr(request.state, _MCP_ROLE, Role.AGENT)
+                    logger.debug(
+                        "Resolved agent_id=%s from session=%s (none-auth)",
+                        agent_id, mcp_sid[:12] + "..." if len(mcp_sid) > 12 else mcp_sid,
+                    )
+            except RuntimeError:
+                pass  # session_map not initialized
 
 
 # --- Helper functions for tool handlers ---

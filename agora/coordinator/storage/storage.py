@@ -93,6 +93,7 @@ class Storage(
                              tpm_limit: int = 10000,
                              tpm_burst_factor: float = 1.5,
                              registration_token: str = "",
+                             matrix_user_id: str = "",
                              **kwargs) -> dict:
         async with self._connection() as db:
             return await _agents.register_agent(
@@ -106,6 +107,7 @@ class Storage(
                 tpm_limit=tpm_limit,
                 tpm_burst_factor=tpm_burst_factor,
                 registration_token=registration_token,
+                matrix_user_id=matrix_user_id,
             )
 
     async def get_agent(self, agent_id: str) -> Optional[dict]:
@@ -115,6 +117,11 @@ class Storage(
     async def get_agent_by_token(self, token: str) -> Optional[dict]:
         async with self._connection() as db:
             return await _agents.get_agent_by_token(db, self.dialect, token)
+
+    async def find_agent_by_name(self, name: str) -> Optional[dict]:
+        """Find an agent by name (for idempotent re-registration)."""
+        async with self._connection() as db:
+            return await _agents.find_agent_by_name(db, self.dialect, name)
 
     async def get_agent_by_registration_token(
         self, token: str,
@@ -159,8 +166,24 @@ class Storage(
         max_concurrent_tasks: int | None = None,
         role: str | None = None,
         allowed_discussion_roles: list[str] | None = None,
+        capabilities: list[str] | None = None,
+        matrix_user_id: str | None = None,
     ) -> None:
         async with self._connection() as db:
+            if capabilities is not None:
+                import json
+                caps_json = json.dumps(capabilities)
+                sql, params = self.dialect.render(
+                    "UPDATE agents SET capabilities = ? WHERE agent_id = ?",
+                    [caps_json, agent_id])
+                await db.execute(sql, params)
+                await db.commit()
+            if matrix_user_id is not None:
+                sql, params = self.dialect.render(
+                    "UPDATE agents SET matrix_user_id = ? WHERE agent_id = ?",
+                    [matrix_user_id, agent_id])
+                await db.execute(sql, params)
+                await db.commit()
             await _agents.update_agent_config(
                 db, self.dialect, agent_id,
                 tpm_limit=tpm_limit,

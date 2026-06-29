@@ -20,6 +20,7 @@ async def get_pending_tasks(
     """Get tasks assigned to or available for this agent."""
     storage = get_storage()
     agent_id = _get_current_agent_id()
+    logger.info("get_pending_tasks: resolved agent_id=%s", agent_id)
 
     status_map = {
         "pending": "pending",
@@ -139,12 +140,28 @@ async def submit_task_result(
 
 
 def _get_current_agent_id() -> str | None:
-    """Extract agent_id from MCP context."""
+    """Extract agent_id from MCP context.
+
+    Tries request.state first (set by auth middleware).
+    Falls back to session_map lookup by MCP session ID
+    (for none-auth mode where register_agent set the mapping).
+    """
     try:
         ctx = mcp_server.get_context()
         request = ctx.request_context.request
         aid = getattr(request.state, "mcp_agent_id", None)
-        return aid
+        if aid:
+            return aid
+        # Fallback: look up by MCP session ID
+        mcp_sid = request.headers.get("mcp-session-id")
+        if mcp_sid:
+            try:
+                from ..deps import get_session_map
+                sm = get_session_map()
+                return sm.get_agent_id(mcp_sid)
+            except RuntimeError:
+                pass
+        return None
     except Exception:
         return None
 

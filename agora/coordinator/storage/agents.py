@@ -34,6 +34,7 @@ async def register_agent(
     is_approved: bool = False, approval_status: str = "pending",
     tpm_limit: int = 10000, tpm_burst_factor: float = 1.5,
     registration_token: str = "",
+    matrix_user_id: str = "",
 ) -> dict:
     caps_json = json.dumps(capabilities or [])
     active_tasks_json = json.dumps([])
@@ -44,13 +45,13 @@ async def register_agent(
             agent_type, max_concurrent_tasks, agent_token,
             is_approved, approval_status, load, active_tasks,
             registered_at, is_online, tpm_limit, tpm_burst_factor,
-            registration_token)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            registration_token, matrix_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [agent_id, name, model, caps_json, role,
          agent_type, max_concurrent_tasks, agent_token,
          1 if is_approved else 0, approval_status, 0.0,
          active_tasks_json, now, 1, tpm_limit, tpm_burst_factor,
-         registration_token],
+         registration_token, matrix_user_id],
     )
     await db.execute(sql, params)
     await db.commit()
@@ -68,6 +69,7 @@ async def register_agent(
         "tpm_limit": tpm_limit,
         "tpm_burst_factor": tpm_burst_factor,
         "registration_token": registration_token,
+        "matrix_user_id": matrix_user_id,
     }
 
 
@@ -75,6 +77,18 @@ async def get_agent(db: Any, dialect: Dialect, agent_id: str
                     ) -> Optional[dict]:
     sql, params = dialect.render(
         "SELECT * FROM agents WHERE agent_id = ?", [agent_id])
+    async with db.execute(sql, params) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    return _normalize_agent(dict(row))
+
+
+async def find_agent_by_name(db: Any, dialect: Dialect, name: str
+                             ) -> Optional[dict]:
+    """Find an agent by name (for idempotent re-registration)."""
+    sql, params = dialect.render(
+        "SELECT * FROM agents WHERE name = ? ORDER BY registered_at DESC LIMIT 1", [name])
     async with db.execute(sql, params) as cursor:
         row = await cursor.fetchone()
     if not row:
@@ -191,6 +205,7 @@ async def update_agent_config(
     max_concurrent_tasks: int | None = None,
     role: str | None = None,
     allowed_discussion_roles: list[str] | None = None,
+    matrix_user_id: str | None = None,
 ) -> None:
     parts, params = [], []
     if tpm_limit is not None:
@@ -204,6 +219,8 @@ async def update_agent_config(
     if allowed_discussion_roles is not None:
         parts.append("allowed_discussion_roles = ?")
         params.append(json.dumps(allowed_discussion_roles))
+    if matrix_user_id is not None:
+        parts.append("matrix_user_id = ?"); params.append(matrix_user_id)
     if not parts:
         return
     params.append(agent_id)

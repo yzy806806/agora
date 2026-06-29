@@ -179,6 +179,36 @@ async def lifespan(app: FastAPI):
     _mcp_session_map = MCPSessionMap()
     _mcp_bridge = MCPNotificationBridge(_mcp_session_map, storage)
     init_mcp_bridge(_mcp_bridge)
+    # Phase 19: Telegram wakeup configuration
+    telegram_bot_token = getattr(settings, "telegram_bot_token", "") or os.environ.get("AGORA_TELEGRAM_BOT_TOKEN", "")
+    if telegram_bot_token:
+        from .telegram_wakeup import configure_telegram
+        configure_telegram(telegram_bot_token)
+        logger.info("Telegram wakeup enabled")
+    else:
+        logger.info("Telegram wakeup disabled (no AGORA_TELEGRAM_BOT_TOKEN)")
+
+    # Phase 19+: Matrix wakeup configuration
+    matrix_homeserver = getattr(settings, "matrix_homeserver_url", "") or os.environ.get("AGORA_MATRIX_HOMESERVER_URL", "")
+    matrix_token = getattr(settings, "matrix_access_token", "") or os.environ.get("AGORA_MATRIX_ACCESS_TOKEN", "")
+    matrix_room = getattr(settings, "matrix_wakeup_room_id", "") or os.environ.get("AGORA_MATRIX_WAKEUP_ROOM_ID", "")
+    if matrix_homeserver and matrix_token and matrix_room:
+        from .matrix_wakeup import configure_matrix
+        configure_matrix(
+            homeserver_url=matrix_homeserver,
+            access_token=matrix_token,
+            room_id=matrix_room,
+        )
+        logger.info("Matrix wakeup enabled (homeserver=%s room=%s)", matrix_homeserver, matrix_room)
+    else:
+        logger.info(
+            "Matrix wakeup disabled (need AGORA_MATRIX_HOMESERVER_URL + "
+            "AGORA_MATRIX_ACCESS_TOKEN + AGORA_MATRIX_WAKEUP_ROOM_ID)"
+        )
+    # Phase 19: Task timeout checker
+    task_timeout_task = asyncio.create_task(
+        _start_task_timeout_checker(storage)
+    )
     # Agent config deps
     init_agent_config_deps(storage, token_mgr)
     # Notification router deps
@@ -198,7 +228,7 @@ async def lifespan(app: FastAPI):
     init_workspace_router_deps(ws_manager)
     app.state.ws_manager = ws_manager
     # Phase 16.1: MCP Server deps
-    init_mcp_deps(storage, token_mgr=token_mgr, ws_manager=ws_manager)
+    init_mcp_deps(storage, token_mgr=token_mgr, ws_manager=ws_manager, session_map=_mcp_session_map)
     # Metrics history deps
     init_metrics_history_deps(storage)
     # Parallel execution coordinator (hub=None: MCP replaces WS)
@@ -233,12 +263,32 @@ async def lifespan(app: FastAPI):
             pass
         logger.info("Heartbeat timeout checker stopped")
     await heartbeat_mgr.stop()
+    # Phase 19: Stop task timeout checker
+    if task_timeout_task is not None:
+        task_timeout_task.cancel()
+        try:
+            await task_timeout_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Task timeout checker stopped")
     # Stop MCP session manager
     try:
         await mcp_cm.__aexit__(None, None, None)
     except Exception:
         pass
+    # Phase 19+: Close Matrix wakeup client
+    try:
+        from .matrix_wakeup import close as close_matrix
+        await close_matrix()
+    except Exception:
+        pass
     logger.info("Coordinator shutting down")
+
+
+async def _start_task_timeout_checker(storage: Any) -> None:
+    """Wrapper to start the task timeout checker background task."""
+    from .task_timeout import check_task_timeouts
+    await check_task_timeouts(storage)
 
 
 def create_app() -> FastAPI:

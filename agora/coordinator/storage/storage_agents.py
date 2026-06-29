@@ -42,6 +42,11 @@ class StorageAgentMixin:
         async with self._connection() as db:
             return await _agents.get_agent_by_token(db, self.dialect, token)
 
+    async def find_agent_by_name(self, name: str) -> Optional[dict]:
+        """Find an agent by name (for idempotent re-registration)."""
+        async with self._connection() as db:
+            return await _agents.find_agent_by_name(db, self.dialect, name)
+
     async def list_agents(self, online_only: bool = False) -> list[dict]:
         async with self._connection() as db:
             return await _agents.list_agents(db, self.dialect, online_only)
@@ -77,8 +82,24 @@ class StorageAgentMixin:
         max_concurrent_tasks: int | None = None,
         role: str | None = None,
         allowed_discussion_roles: list[str] | None = None,
+        capabilities: list[str] | None = None,
+        matrix_user_id: str | None = None,
     ) -> None:
         async with self._connection() as db:
+            if capabilities is not None:
+                import json
+                caps_json = json.dumps(capabilities)
+                sql, params = self.dialect.render(
+                    "UPDATE agents SET capabilities = ? WHERE agent_id = ?",
+                    [caps_json, agent_id])
+                await db.execute(sql, params)
+                await db.commit()
+            if matrix_user_id is not None:
+                sql, params = self.dialect.render(
+                    "UPDATE agents SET matrix_user_id = ? WHERE agent_id = ?",
+                    [matrix_user_id, agent_id])
+                await db.execute(sql, params)
+                await db.commit()
             await _agents.update_agent_config(
                 db, self.dialect, agent_id,
                 tpm_limit=tpm_limit,

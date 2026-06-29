@@ -127,30 +127,58 @@ class MCPNotificationBridge:
     ) -> bool:
         """Send a notification to an agent's MCP session.
 
-        Returns True if sent, False if skipped or failed.
+        If the agent is online, pushes via SSE.
+        If offline, queues the notification in DB and tries Telegram wakeup.
+
+        Returns True if sent or queued, False if completely failed.
         """
         session_id = self._find_session_id(agent_id)
-        if session_id is None:
-            logger.debug(
-                "No MCP session for agent %s, skip %s",
-                agent_id, method,
-            )
-            return False
-        if self._mcp_server is None:
-            return False
+        if session_id is not None and self._mcp_server is not None:
+            try:
+                await self._send_notification(session_id, method, params)
+                logger.debug(
+                    "Sent %s to agent %s (session %s)",
+                    method, agent_id, session_id,
+                )
+                return True
+            except Exception:
+                logger.warning(
+                    "Failed to send %s to agent %s via SSE, falling back to queue",
+                    method, agent_id, exc_info=True,
+                )
+                # Fall through to queue
+
+        # Agent offline or push failed — queue in DB
         try:
-            await self._send_notification(session_id, method, params)
-            logger.debug(
-                "Sent %s to agent %s (session %s)",
-                method, agent_id, session_id,
-            )
-            return True
+            async with self._storage._connection() as db:
+                from ..storage.pending_notifications import add_pending_notification
+                notif_id = await add_pending_notification(
+                    db, self._storage.dialect,
+                    agent_id=agent_id,
+                    notification_type=method,
+                    payload=params,
+                )
+                logger.info(
+                    "Queued notification %s for offline agent %s (type=%s)",
+                    notif_id, agent_id, method,
+                )
         except Exception:
-            logger.warning(
-                "Failed to send %s to agent %s",
-                method, agent_id, exc_info=True,
+            logger.error(
+                "Failed to queue notification for agent %s",
+                agent_id, exc_info=True,
             )
             return False
+
+        # Try wakeup via configured channels (Telegram and/or Matrix)
+        try:
+            import asyncio
+            asyncio.create_task(
+                _try_all_wakeups(self._storage, agent_id, method, params)
+            )
+        except Exception:
+            logger.debug("Wakeup attempt failed for %s", agent_id)
+
+        return True
 
     async def _send_notification(
         self, session_id: str, method: str, params: dict,
@@ -193,3 +221,28 @@ class MCPNotificationBridge:
                 conv_id, exc_info=True,
             )
             return []
+
+
+async def _try_all_wakeups(
+    storage: Any,
+    agent_id: str,
+    notification_type: str,
+    payload: dict,
+) -> None:
+    """Try all configured wakeup channels (Telegram + Matrix).
+
+    Fire-and-forget — failures in one channel don't block others.
+    """
+    # Try Telegram wakeup
+    try:
+        from ..telegram_wakeup import try_wakeup_agent as try_telegram
+        await try_telegram(storage, agent_id, notification_type, payload)
+    except Exception:
+        logger.debug("Telegram wakeup failed for %s", agent_id, exc_info=True)
+
+    # Try Matrix wakeup
+    try:
+        from ..matrix_wakeup import try_wakeup_agent as try_matrix
+        await try_matrix(storage, agent_id, notification_type, payload)
+    except Exception:
+        logger.debug("Matrix wakeup failed for %s", agent_id, exc_info=True)

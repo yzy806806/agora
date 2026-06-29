@@ -1,6 +1,6 @@
 """SQL schema definitions for the Agora Coordinator database."""
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 24
 
 SCHEMA_SQL = """\
 PRAGMA foreign_keys = ON;
@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS agents (
     tpm_burst_factor REAL DEFAULT 1.5,
     allowed_discussion_roles TEXT DEFAULT '["participant"]',
     registration_token TEXT DEFAULT '',
-    contact_url TEXT DEFAULT NULL
+    contact_url TEXT DEFAULT NULL,
+    telegram_chat_id TEXT DEFAULT NULL,
+    matrix_user_id TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS motions (
@@ -473,6 +475,26 @@ CREATE TABLE IF NOT EXISTS mcp_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_mcp_sessions_agent ON mcp_sessions(agent_id);
+
+-- Phase 19: Pending notifications queue (for offline agent wakeup)
+
+CREATE TABLE IF NOT EXISTS pending_notifications (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    notification_type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    delivered_at TEXT,
+    acked_at TEXT,
+    expires_at TEXT,
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    FOREIGN KEY (agent_id) REFERENCES agents(agent_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pend_notif_agent ON pending_notifications(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_pend_notif_status ON pending_notifications(status);
 """
 MIGRATION_6_TO_7 = [
     "ALTER TABLE agents ADD COLUMN agent_type TEXT DEFAULT 'hermes';",
@@ -811,6 +833,32 @@ MIGRATION_21_TO_22 = [
     "CREATE INDEX IF NOT EXISTS idx_tasks_motion ON tasks(motion_id);",
     "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);",
     "CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);",
+]
+
+# Phase 19: Pending notifications queue + telegram_chat_id (22 → 23)
+MIGRATION_22_TO_23 = [
+    """CREATE TABLE IF NOT EXISTS pending_notifications (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    notification_type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    delivered_at TEXT,
+    acked_at TEXT,
+    expires_at TEXT,
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    FOREIGN KEY (agent_id) REFERENCES agents(agent_id)
+);""",
+    "CREATE INDEX IF NOT EXISTS idx_pend_notif_agent ON pending_notifications(agent_id, status);",
+    "CREATE INDEX IF NOT EXISTS idx_pend_notif_status ON pending_notifications(status);",
+    "ALTER TABLE agents ADD COLUMN telegram_chat_id TEXT DEFAULT NULL;",
+]
+
+# Phase 19+: Matrix wakeup — matrix_user_id (23 → 24)
+MIGRATION_23_TO_24 = [
+    "ALTER TABLE agents ADD COLUMN matrix_user_id TEXT DEFAULT NULL;",
 ]
 
 # Default RBAC roles to seed on fresh DB

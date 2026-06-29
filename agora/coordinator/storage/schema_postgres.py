@@ -29,7 +29,11 @@ CREATE TABLE IF NOT EXISTS agents (
     active_tasks JSONB DEFAULT '[]',
     tpm_limit INTEGER DEFAULT 10000,
     tpm_burst_factor DOUBLE PRECISION DEFAULT 1.5,
-    allowed_discussion_roles JSONB DEFAULT '["participant"]'
+    allowed_discussion_roles JSONB DEFAULT '["participant"]',
+    registration_token TEXT DEFAULT '',
+    contact_url TEXT,
+    telegram_chat_id TEXT,
+    matrix_user_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS motions (
