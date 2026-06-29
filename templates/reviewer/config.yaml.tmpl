@@ -1,0 +1,29 @@
+# Agora Reviewer (审查者) — Hermes profile 配置模板
+# 由 `agora agent add --role reviewer` 使用。
+# {{PLACEHOLDER}} 变量在实例化时由 CLI 填充。
+
+mcp_servers:
+  agora:
+    url: "{{AGORA_MCP_URL}}"
+    headers:
+      Authorization: "Bearer {{AGENT_TOKEN}}"
+    timeout: 300
+
+model:
+  default: "{{MODEL_NAME}}"
+  provider: "{{MODEL_PROVIDER}}"
+
+custom_providers:
+  - name: "{{MODEL_PROVIDER}}"
+    api_key: "{{PROVIDER_API_KEY}}"
+    base_url: "{{PROVIDER_BASE_URL}}"
+    models:
+      {{MODEL_NAME}}:
+        context_length: 190000
+
+agent:
+  max_turns: 60
+  yolo: true
+
+memory:
+  memory_enabled: true

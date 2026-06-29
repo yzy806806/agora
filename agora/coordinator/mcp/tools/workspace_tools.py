@@ -81,11 +81,59 @@ async def put_workspace_file(
         return {"error": str(exc), "code": 500}
 
 
+@mcp_server.tool()
+async def list_workspace_files(
+    project_id: str,
+    prefix: str = "",
+) -> dict:
+    """List files in the shared workspace for a project.
+
+    Args:
+        project_id: The project ID
+        prefix: Optional path prefix to filter (e.g. "src/")
+
+    Returns:
+        List of files with path, size, and version
+    """
+    try:
+        ws_manager = get_ws_manager()
+        nodes = await ws_manager.list_dir(project_id, path=prefix, recursive=True)
+        return {
+            "project_id": project_id,
+            "files": [
+                {
+                    "path": n.path,
+                    "size": n.size or 0,
+                    "version": n.version or 1,
+                    "content_type": n.content_type or "text/plain",
+                }
+                for n in nodes
+                if not n.is_dir  # only files, not directories
+            ],
+            "total": len([n for n in nodes if not n.is_dir]),
+        }
+    except Exception as exc:
+        logger.error("list_workspace_files error: %s", exc)
+        return {"error": str(exc), "code": 500}
+
+
 def _get_current_agent_id() -> str | None:
     """Extract agent_id from MCP context."""
     try:
         ctx = mcp_server.get_context()
         request = ctx.request_context.request
-        return getattr(request.state, "mcp_agent_id", None)
+        aid = getattr(request.state, "mcp_agent_id", None)
+        if aid:
+            return aid
+        # Fallback: session_map lookup
+        mcp_sid = request.headers.get("mcp-session-id")
+        if mcp_sid:
+            try:
+                from ..deps import get_session_map
+                sm = get_session_map()
+                return sm.get_agent_id(mcp_sid)
+            except RuntimeError:
+                pass
+        return None
     except Exception:
         return None
