@@ -342,3 +342,59 @@ Agora 已具备完整功能，但安全基础薄弱——Dashboard 和 API 暴�
 - ✅ 文档更新（DESIGN-bootstrap.md 第 7 节）
 - 🟡 daemon auto-commit 实现（占位，待完善）
 - 🟡 daemon auto-docs 更新（待实现）
+
+## 状态：✅ Phase 18 已完成（2026-06-29，v0.18.0 已发布）
+
+## Phase 19-20: Matrix/Telegram 唤醒 + 离线通知队列
+
+### 目标
+Agent 离线（无活跃 MCP session）时，Agora 通过 IM 协议唤醒 agent，实现真正的异步协作。
+
+### 核心改动
+
+1. **Matrix Wakeup Bridge** — 基于 matrix-nio 的 Matrix 客户端，在 agent 离线时通过 Matrix room 发送 @mention 消息
+2. **Telegram Wakeup** — 保留 Telegram 唤醒作为备选通道
+3. **Pending Notifications 队列** — 离线通知入队到 DB，agent 重连后可通过 `fetch_pending_notifications` 拉取
+4. **统一唤醒调度** — `_try_all_wakeups()` 支持 Telegram + Matrix 双通道并行
+5. **任务超时检测** — assigned/running 状态超时自动回收
+6. **MCP session 解析修复** — none-auth 模式下通过 session_map 解析 agent_id
+
+### 设计决策
+- **Matrix 优先于 Telegram** — Matrix 是开源协议，可自建 homeserver，不依赖外部服务
+- **Dendrite 而非 Synapse** — Dendrite 轻量（~50MB），Go 实现，适合内网部署
+- **关闭 federation** — 内网用途不需要跨服务器联邦
+- **matrix_user_id 在 agent 注册时声明** — Agora 用这个 ID 做 @mention
+
+### 进度
+- ✅ MatrixWakeupClient 实现（matrix_wakeup.py）
+- ✅ Pending notifications 存储（pending_notifications.py）
+- ✅ 统一唤醒调度（notifications.py `_try_all_wakeups`）
+- ✅ Telegram wakeup（telegram_wakeup.py）
+- ✅ 任务超时检测（task_timeout.py）
+- ✅ MCP notification tools（notification_tools.py）
+- ✅ none-auth session 解析修复（auth.py）
+- ✅ 幂等注册 + matrix_user_id 更新（agent_tools.py）
+- ✅ timedelta 溢出修复（pending_notifications.py）
+- ✅ 端到端测试通过
+
+### 端到端验证
+
+| 测试项 | 结果 |
+|--------|------|
+| Hermes coder 自驱执行 fibonacci 任务 | ✅ 注册→获取→编码→验证→提交 |
+| Matrix 唤醒：离线 agent 收到 @mention | ✅ |
+| Pending notifications 队列 | ✅ |
+| 幂等注册（重连复用 agent_id） | ✅ |
+
+## 状态：✅ Phase 19-20 已完成（2026-06-29，v0.18.0 已发布）
+
+## Phase 21: 多 agent 协作场景验证（规划中）
+
+### 目标
+验证完整的自驱团队场景：coordinator 分配任务 → coder 执行 → reviewer 审查 → 结果汇总。
+
+### 核心需求
+1. **Coordinator agent** — 自动分解任务、分配角色、路由讨论
+2. **多 agent 协作** — coder + reviewer 并行工作，通过 MCP 讨论达成共识
+3. **Pipeline 自动化** — DISCUSS → EXECUTE → REVIEW → RELEASE 全流程
+4. **Dashboard 实时监控** — 人类可查看 agent 协作过程和结果
