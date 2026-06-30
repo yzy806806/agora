@@ -82,6 +82,63 @@ class DiscussionDriver:
         self.role_models = role_models or {}
         # Per-role profile overrides, e.g. {"architect": "architect", ...}
         self.role_profiles = role_profiles or {}
+        # Cache for custom role prompts loaded from config
+        self._custom_prompts: dict[str, str] | None = None
+
+    def _get_role_prompt(self, role: str) -> str:
+        """Get the system prompt for a role.
+
+        Checks custom prompts from config first, then falls back to
+        built-in prompts (including EXTRA_ROLE_PROMPTS), then to architect.
+        """
+        # Lazy-load custom prompts from config
+        if self._custom_prompts is None:
+            self._custom_prompts = self._load_custom_role_prompts()
+
+        # Custom prompt from config takes priority
+        if role in self._custom_prompts:
+            return self._custom_prompts[role]
+
+        # Built-in prompts
+        all_prompts = {**ROLE_PROMPTS}
+        try:
+            from .roles import EXTRA_ROLE_PROMPTS
+            all_prompts.update(EXTRA_ROLE_PROMPTS)
+        except ImportError:
+            pass
+
+        return all_prompts.get(role, all_prompts.get("architect", ""))
+
+    def _load_custom_role_prompts(self) -> dict[str, str]:
+        """Load custom role prompts from Hermes config.
+
+        Config shape::
+
+            plugins:
+              entries:
+                agora:
+                  agora:
+                    custom_roles:
+                      pm: |
+                        You are a Product Manager...
+                      tester: |
+                        You are a Test Engineer...
+        """
+        try:
+            from hermes_cli.config import load_config
+            config = load_config() or {}
+            agora_cfg = (
+                config.get("plugins", {})
+                .get("entries", {})
+                .get("agora", {})
+                .get("agora", {})
+            )
+            custom = agora_cfg.get("custom_roles", {})
+            if isinstance(custom, dict):
+                return {k: v for k, v in custom.items() if isinstance(v, str)}
+        except Exception:
+            pass
+        return {}
 
     async def run(self, motion_id: str) -> DiscussionResult:
         """Run the full discussion for a motion.
@@ -104,6 +161,9 @@ class DiscussionDriver:
         participants = motion.get("participants") or DEFAULT_ROLES
         max_rounds = motion.get("max_rounds", self.max_rounds)
 
+        # Fetch source task body for context injection
+        task_context = self._fetch_task_context(motion.get("source_task_id"))
+
         logger.info(
             "Starting discussion: motion=%s title='%s' roles=%s rounds=%d",
             motion_id, title, participants, max_rounds,
@@ -123,6 +183,7 @@ class DiscussionDriver:
                         title=title,
                         description=description,
                         participants=participants,
+                        task_context=task_context,
                     )
                 except Exception as exc:
                     logger.error("Role %s failed in round %d: %s", role, round_num, exc)
@@ -155,6 +216,7 @@ class DiscussionDriver:
         title: str,
         description: str,
         participants: list[str],
+        task_context: str = "",
     ) -> None:
         """Have a single role generate and store a discussion message."""
         # Build conversation history
@@ -167,12 +229,13 @@ class DiscussionDriver:
             title=title,
             description=description,
             participants=participants,
+            task_context=task_context,
         )
 
         messages = history + [{"role": "user", "content": user_prompt}]
 
         # Get the system prompt for this role
-        system_prompt = ROLE_PROMPTS.get(role, ROLE_PROMPTS["architect"])
+        system_prompt = self._get_role_prompt(role)
 
         # Call LLM via ctx.llm — with per-role model/profile override
         llm_kwargs: dict[str, Any] = {
@@ -225,6 +288,23 @@ class DiscussionDriver:
             })
         return history
 
+    def _fetch_task_context(self, source_task_id: str | None) -> str:
+        """Fetch the source kanban task body for context injection."""
+        if not source_task_id:
+            return ""
+        try:
+            from hermes_cli import kanban_db
+            conn = kanban_db.connect()
+            try:
+                task = kanban_db.get_task(conn, source_task_id)
+                if task and task.body:
+                    return f"Source task: {task.title}\n{task.body[:2000]}"
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.debug("Failed to fetch task context: %s", exc)
+        return ""
+
     def _build_prompt(
         self,
         role: str,
@@ -232,11 +312,14 @@ class DiscussionDriver:
         title: str,
         description: str,
         participants: list[str],
+        task_context: str = "",
     ) -> str:
         """Build the prompt that triggers the role's response."""
         parts = [f"## Motion: {title}"]
         if description:
             parts.append(f"## Description\n{description}")
+        if task_context:
+            parts.append(f"## Task Context\n{task_context[:2000]}")
         parts.append(f"## Round {round_num}")
         if round_num == 1:
             parts.append(
@@ -352,6 +435,10 @@ class DiscussionDriver:
             action_items=action_item_strings,
         )
 
+        # Record per-role votes based on their stances in the discussion
+        participants = motion.get("participants") or DEFAULT_ROLES
+        self._record_votes(motion_id, decision, participants, messages)
+
         # Create kanban tasks from action items
         created_tasks: list[str] = []
         if self.auto_create_tasks and action_items:
@@ -371,6 +458,18 @@ class DiscussionDriver:
                 motion_id=motion_id,
                 title=motion["title"],
                 rationale=summary_data.get("summary", ""),
+                action_items=action_item_strings,
+            )
+
+        # Write discussion result back to the source task body so the
+        # worker sees the decision immediately when it starts.
+        source_task_id = motion.get("source_task_id")
+        if source_task_id:
+            self._update_source_task_body(
+                source_task_id=source_task_id,
+                motion_id=motion_id,
+                decision=decision,
+                summary=summary_data.get("summary", ""),
                 action_items=action_item_strings,
             )
 
@@ -479,6 +578,87 @@ class DiscussionDriver:
             conn.close()
 
         return list(created.values())
+
+    def _record_votes(
+        self,
+        motion_id: str,
+        decision: str,
+        participants: list[str],
+        messages: list[dict],
+    ) -> None:
+        """Record per-role votes based on their last stance in the discussion."""
+        # Find each role's last message and infer their vote
+        last_by_role: dict[str, dict] = {}
+        for msg in messages:
+            role = msg.get("role", "")
+            last_by_role[role] = msg
+
+        for role in participants:
+            msg = last_by_role.get(role)
+            if not msg:
+                continue
+            stance = msg.get("stance", "neutral")
+            # Map stance to vote
+            if stance == "support":
+                vote = "adopt"
+                confidence = 0.8
+            elif stance == "oppose":
+                vote = "reject"
+                confidence = 0.7
+            else:
+                vote = "abstain"
+                confidence = 0.5
+            try:
+                db.add_vote(
+                    motion_id=motion_id,
+                    role=role,
+                    vote=vote,
+                    reason=f"Stance: {stance}",
+                    confidence=confidence,
+                )
+            except Exception as exc:
+                logger.debug("Failed to record vote for %s: %s", role, exc)
+
+    def _update_source_task_body(
+        self,
+        source_task_id: str,
+        motion_id: str,
+        decision: str,
+        summary: str,
+        action_items: list[str],
+    ) -> None:
+        """Append discussion result to the source kanban task body."""
+        try:
+            from hermes_cli import kanban_db
+        except ImportError:
+            return
+
+        try:
+            conn = kanban_db.connect()
+            try:
+                task = kanban_db.get_task(conn, source_task_id)
+                if not task:
+                    return
+                append = (
+                    f"\n\n--- Agora Discussion Result ---\n"
+                    f"Motion: {motion_id}\n"
+                    f"Decision: {decision}\n"
+                    f"Summary: {summary}\n"
+                )
+                if action_items:
+                    append += "Action items:\n"
+                    for ai in action_items:
+                        append += f"  - {ai}\n"
+                # Update task body via add_comment (body is immutable in some versions)
+                try:
+                    kanban_db.add_comment(conn, source_task_id, append)
+                    conn.commit()
+                except Exception:
+                    logger.debug("add_comment failed for source task")
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.debug("Failed to update source task body: %s", exc)
 
     def _write_motion_memory(
         self,

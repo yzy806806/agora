@@ -106,11 +106,22 @@
     if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
 
     return React.createElement("div", { className: "agora-profiles" },
-      // Create button
+      // Action buttons
       React.createElement("div", { className: "agora-actions" },
         React.createElement(Button, { onClick: () => setShowCreate(!showCreate) },
           showCreate ? "Cancel" : "+ Create Profile"
         ),
+        React.createElement(Button, {
+          variant: "outline",
+          onClick: async () => {
+            if (!confirm("Create a full Agora team (architect + developer + reviewer)?")) return;
+            try {
+              const result = await apiPost("/team", { clone_from: "default" });
+              alert(result.message);
+              load();
+            } catch (e) { alert("Failed: " + e.message); }
+          },
+        }, "⚡ Create Agora Team"),
       ),
       // Create form
       showCreate && React.createElement(CreateProfileForm, {
@@ -478,6 +489,18 @@
     return React.createElement("div", { className: "agora-motions" },
       React.createElement("div", { className: "agora-actions" },
         React.createElement(Button, { onClick: load }, "↻ Refresh"),
+        React.createElement(Button, {
+          variant: "outline",
+          onClick: async () => {
+            const title = prompt("Discussion topic:");
+            if (!title) return;
+            try {
+              const result = await apiPost("/motions", { title: title, rounds: 3 });
+              alert("Motion created: " + result.motion_id + "\nUse /agora discuss in chat to start the LLM discussion.");
+              load();
+            } catch (e) { alert("Failed: " + e.message); }
+          },
+        }, "+ New Discussion"),
       ),
       React.createElement("div", { className: "agora-motion-list" },
         motions.length === 0 && React.createElement("p", null, "No discussions yet. Use /agora discuss to start one."),

@@ -53,6 +53,11 @@ _RAISE_MOTION_SCHEMA = {
             "default": 3,
             "description": "Maximum discussion rounds",
         },
+        "template": {
+            "type": "string",
+            "enum": ["tech_choice", "bug_analysis", "architecture_review", "security_audit"],
+            "description": "Use a discussion template to pre-configure participants, rounds, and focus areas",
+        },
     },
     "required": ["title"],
 }
@@ -240,6 +245,22 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     blocking = args.get("blocking", False)
     participants = args.get("participants")
     rounds = args.get("rounds", 3)
+    template_name = args.get("template")
+
+    # Apply discussion template if specified
+    if template_name:
+        try:
+            from ..agora.discussion.roles import DISCUSSION_TEMPLATES
+            template = DISCUSSION_TEMPLATES.get(template_name)
+            if template:
+                if not participants:
+                    participants = template.get("participants")
+                rounds = template.get("rounds", rounds)
+                suffix = template.get("prompt_suffix", "")
+                if suffix:
+                    description = f"{description}\n\n{suffix}".strip()
+        except ImportError:
+            pass
 
     # Detect source: if running inside a kanban task, attribute to agent
     source_task_id = os.environ.get("HERMES_KANBAN_TASK", "")

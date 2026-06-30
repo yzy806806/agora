@@ -455,3 +455,91 @@ def list_presets():
             for k, v in _PRESETS.items()
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# Create Agora team — one-click setup
+# ---------------------------------------------------------------------------
+
+class CreateTeamRequest(BaseModel):
+    clone_from: str = Field("default", description="Source profile to clone from")
+    models: Optional[dict[str, str]] = Field(None, description="Per-role model override, e.g. {architect: deepseekv4pro}")
+
+@router.post("/team")
+def create_agora_team(req: CreateTeamRequest):
+    """Create a full Agora team (architect + developer + reviewer profiles)."""
+    results = []
+    for preset_name in _PRESETS:
+        try:
+            profiles_mod = _get_profiles_module()
+            profile_dir = profiles_mod.create_profile(
+                name=preset_name,
+                clone_from=req.clone_from,
+                clone_config=True,
+                description=_PRESETS[preset_name]["description"],
+            )
+            _apply_preset(profile_dir, preset_name)
+
+            # Apply model override if provided
+            if req.models and preset_name in req.models:
+                config_path = profile_dir / "config.yaml"
+                import yaml
+                config = {}
+                if config_path.exists():
+                    with open(config_path) as f:
+                        config = yaml.safe_load(f) or {}
+                model_cfg = config.get("model", {})
+                if not isinstance(model_cfg, dict):
+                    model_cfg = {"default": model_cfg} if model_cfg else {}
+                model_cfg["default"] = req.models[preset_name]
+                config["model"] = model_cfg
+                with open(config_path, "w") as f:
+                    yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+            results.append({
+                "name": preset_name,
+                "path": str(profile_dir),
+                "model": req.models.get(preset_name) if req.models else None,
+                "created": True,
+            })
+        except FileExistsError:
+            results.append({"name": preset_name, "created": False, "error": "already exists"})
+        except Exception as exc:
+            results.append({"name": preset_name, "created": False, "error": str(exc)})
+
+    return {"team": results, "message": f"Created {sum(1 for r in results if r.get('created'))} profiles"}
+
+
+# ---------------------------------------------------------------------------
+# Start a discussion from dashboard
+# ---------------------------------------------------------------------------
+
+class StartDiscussionRequest(BaseModel):
+    title: str = Field(..., description="Discussion topic")
+    description: str = Field("", description="Detailed description")
+    rounds: int = Field(3, description="Max rounds")
+
+@router.post("/motions")
+def start_discussion(req: StartDiscussionRequest):
+    """Create a motion. The actual discussion runs in agent context only
+    (needs ctx.llm), so this just creates the motion record and returns
+    instructions for starting it."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.storage import motions as db
+        motion = db.create_motion(
+            title=req.title,
+            description=req.description,
+            max_rounds=req.rounds,
+            source="user",
+        )
+        return {
+            "motion_id": motion["id"],
+            "title": req.title,
+            "status": "discussing",
+            "message": f"Motion created. Use /agora discuss or agora_raise_motion to start the discussion.",
+        }
+    except Exception as exc:
+        logger.error("start_discussion failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
