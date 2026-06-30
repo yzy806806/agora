@@ -1,5 +1,5 @@
 name: agora
-version: 0.2.0
+version: 0.3.0
 description: "Multi-role deliberation — architect/developer/reviewer discuss via LLM, reach consensus, dispatch tasks to kanban."
 author: yzy806806
 kind: backend
