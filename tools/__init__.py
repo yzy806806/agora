@@ -306,15 +306,43 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         role_profiles=_load_role_profiles(ctx),
     )
 
-    # For non-blocking, run in background with error handling
+    # For non-blocking, run in background with error handling.
+    # In CLI/chat mode the event loop exits after the tool returns,
+    # so background tasks are silently dropped. Detect this by checking
+    # if the running loop is the _run_async bridge (transient).
     if not blocking:
-        _start_background_discussion(driver, motion_id)
+        _run_in_background = False
+        try:
+            loop = asyncio.get_running_loop()
+            # Gateway runs a persistent asyncio loop. CLI chat -q uses
+            # _run_async which creates a throwaway loop. Detect by checking
+            # if there are other pending tasks (gateway has many).
+            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+            _run_in_background = len(pending) > 3  # gateway has many tasks
+        except RuntimeError:
+            pass  # no running loop at all
+
+        if _run_in_background:
+            _start_background_discussion(driver, motion_id)
+            return {
+                "motion_id": motion_id,
+                "title": title,
+                "status": "discussing",
+                "message": "Discussion started in background. Use agora_get_result to check outcome.",
+                "participants": participants or ["architect", "developer", "reviewer"],
+            }
+        # CLI mode — run synchronously (blocking) to completion
+        result = await driver.run(motion_id)
         return {
             "motion_id": motion_id,
             "title": title,
-            "status": "discussing",
-            "message": "Discussion started in background. Use agora_get_result to check outcome.",
-            "participants": participants or ["architect", "developer", "reviewer"],
+            "status": "closed",
+            "decision": result.decision,
+            "summary": result.summary,
+            "action_items": result.action_items,
+            "confidence": result.confidence,
+            "created_tasks": result.created_tasks,
+            "rounds_completed": result.rounds_completed,
         }
 
     # For blocking, run synchronously and return the result
@@ -361,7 +389,7 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         if not arg:
             return "Usage: `/agora discuss <topic>`"
 
-        # Create motion and run discussion in background
+        # Create motion and run discussion
         motion = db.create_motion(
             title=arg,
             description="",
@@ -370,22 +398,15 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         )
         motion_id = motion["id"]
 
-        # Start discussion in background with error handling
-        driver = DiscussionDriver(
-            ctx,
-            max_rounds=3,
-            role_models=_load_role_models(ctx),
-            role_profiles=_load_role_profiles(ctx),
-        )
-        _start_background_discussion(driver, motion_id)
-
+        # In slash command context, we can't run async discussion directly.
+        # Create the motion and instruct the user to start it.
         return (
-            f"🏛️ Discussion started: **{arg}**\n"
+            f"🏛️ Discussion created: **{arg}**\n"
             f"Motion ID: `{motion_id}`\n"
             f"Participants: architect, developer, reviewer\n"
             f"Rounds: 3\n\n"
-            f"The discussion is running in the background. "
-            f"Use `/agora show {motion_id}` to see progress."
+            f"To start the discussion, ask the agent:\n"
+            f"  \"Use agora_raise_motion to discuss: {arg}\""
         )
 
     elif sub == "list":
