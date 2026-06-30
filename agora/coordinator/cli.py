@@ -243,76 +243,144 @@ def _cmd_version(args: argparse.Namespace) -> None:
 
 
 def _cmd_agent_add(args: argparse.Namespace) -> None:
-    """Register a new agent — generates Hermes profile config."""
-    _ensure_dirs()
+    """Register a new agent via the Agora API and generate MCP client config.
+
+    This calls POST /api/v1/agents/register on a running Agora server,
+    so the agent is actually written to the database — not just a local file.
+    The generated config works with any MCP client (Hermes, Claude Code, etc).
+    """
+    import httpx
 
     name = args.name
-    role = args.role
-
-    # Generate a token
-    token = secrets.token_urlsafe(32)
+    agent_id = args.agent_id or f"agent-{secrets.token_hex(4)}"
 
     # Determine coordinator URL
     host = args.host or "localhost"
     port = args.port or 8765
     base_url = f"http://{host}:{port}"
 
-    # Agent record
-    agent_record = {
+    # Call the Agora API to register the agent in the database
+    register_url = f"{base_url}/api/v1/agents/register"
+    payload = {
+        "agent_id": agent_id,
         "name": name,
-        "role": role,
+        "capabilities": args.capabilities.split(",") if args.capabilities else [],
+        "agent_type": args.agent_type,
+        "model": args.model or "unknown",
+        "max_concurrent_tasks": args.max_concurrent_tasks,
+    }
+
+    try:
+        r = httpx.post(register_url, json=payload, timeout=10.0)
+    except httpx.ConnectError:
+        _err(f"Cannot connect to Agora at {base_url}. Is the server running?")
+        _warn("Start it with: agora serve")
+        sys.exit(1)
+
+    if r.status_code == 409:
+        _warn(f"Agent '{agent_id}' is already registered.")
+        data = r.json()
+        token = data.get("agent_token", "")
+        if not token:
+            _info("Existing agent token is not retrievable. Re-register with a new agent_id.")
+            sys.exit(0)
+    elif r.status_code != 201:
+        _err(f"Registration failed (HTTP {r.status_code}): {r.text}")
+        sys.exit(1)
+    else:
+        data = r.json()
+        token = data.get("agent_token", "")
+
+    if not token:
+        _warn("Agent registered but requires approval. No token returned.")
+        _info(f"Registration token: {data.get('registration_token', '')}")
+        _info("Ask the admin to approve, then poll status.")
+        sys.exit(0)
+
+    # Save agent record locally for reference
+    _ensure_dirs()
+    agent_record = {
+        "agent_id": agent_id,
+        "name": name,
+        "agent_type": args.agent_type,
+        "model": args.model or "unknown",
         "token": token,
         "coordinator_url": base_url,
         "mcp_url": f"{base_url}/mcp",
     }
-
-    # Save agent record
     agent_file = AGORA_AGENTS_DIR / f"{name}.json"
     agent_file.write_text(
         json.dumps(agent_record, indent=2) + "\n",
         encoding="utf-8",
     )
 
-    # Generate Hermes profile config snippet
-    hermes_config = f"""# Hermes profile config for agent: {name}
-# Add this to ~/.hermes/config.yaml under mcp_servers:
-#
-# mcp_servers:
-#   agora:
-#     url: "{base_url}/mcp"
-#     headers:
-#       Authorization: "Bearer {token}"
-#     timeout: 300
+    mcp_url = f"{base_url}/mcp"
 
-# Or save as a standalone profile:
-#   mkdir -p ~/.hermes/profiles/{name}
-#   cp this file to ~/.hermes/profiles/{name}/config.yaml
-
-mcp_servers:
+    _info(f"Agent '{name}' registered (agent_id: {agent_id})")
+    print(f"  Token: {token[:16]}...{token[-8:]}")
+    print(f"  MCP URL: {mcp_url}")
+    print()
+    print(f"{BOLD('MCP Client Configuration:')}")
+    print()
+    print(f"{CYAN('# Hermes (~/.hermes/config.yaml)')}")
+    print(f"""mcp_servers:
   agora:
-    url: "{base_url}/mcp"
+    url: "{mcp_url}"
     headers:
       Authorization: "Bearer {token}"
-    timeout: 300
-"""
-
-    hermes_file = AGORA_AGENTS_DIR / f"{name}-hermes.yaml"
-    hermes_file.write_text(hermes_config, encoding="utf-8")
-
-    _info(f"Agent '{name}' registered (role: {role})")
-    print(f"  Token: {token[:16]}...{token[-8:]}")
-    print(f"  Agent record: {agent_file}")
-    print(f"  Hermes config: {hermes_file}")
-    print(f"  MCP URL: {base_url}/mcp")
+    timeout: 300""")
+    print()
+    print(f"{CYAN('# Claude Code')}")
+    print(f"""claude mcp add --transport http agora {mcp_url} \\
+  --header "Authorization: Bearer {token}\"""")
+    print()
+    print(f"{CYAN('# Generic MCP (any client)')}")
+    print(f"""URL:   {mcp_url}
+Token: {token}
+Header: Authorization: Bearer {token}""")
     print()
     print(f"{CYAN('Next steps:')}")
-    print(f"  1. Start the server:  agora serve")
-    print(f"  2. Configure Hermes:  cp {hermes_file} ~/.hermes/config.yaml")
-    print(f"  3. Agent connects via MCP and auto-registers\n")
+    print(f"  1. Configure your MCP client with the URL + token above")
+    print(f"  2. The agent will auto-register via MCP on first connection")
+    print(f"  3. Assign tasks via the Dashboard or API\n")
 
 
 def _cmd_agent_list(args: argparse.Namespace) -> None:
-    """List registered agents."""
+    """List registered agents from the running Agora server."""
+    import httpx
+
+    host = args.host or "localhost"
+    port = args.port or 8765
+    base_url = f"http://{host}:{port}"
+
+    # Try the API first (authoritative source)
+    try:
+        r = httpx.get(f"{base_url}/api/v1/agents", timeout=5.0)
+        if r.status_code == 200:
+            agents = r.json()
+            if isinstance(agents, dict) and "agents" in agents:
+                agents = agents["agents"]
+            if not agents:
+                _warn("No agents registered on the server.")
+                return
+            print(f"\n{BOLD('Registered Agents')} (from server at {base_url})")
+            print(f"{'─' * 72}")
+            print(f"{'Agent ID':<20} {'Name':<16} {'Type':<10} {'Online':<8} {'Model'}")
+            print(f"{'─' * 72}")
+            for a in agents:
+                aid = a.get("agent_id", "?")
+                nm = a.get("name", "?")
+                tp = a.get("agent_type", "?")
+                online = "✓" if a.get("is_online") else "—"
+                model = a.get("model", "?")
+                print(f"{aid:<20} {nm:<16} {tp:<10} {online:<8} {model}")
+            print(f"{'─' * 72}")
+            print(f"Total: {len(agents)} agent(s)\n")
+            return
+    except httpx.ConnectError:
+        pass  # fall through to local files
+
+    # Fallback: read local agent records (server not running)
     if not AGORA_AGENTS_DIR.exists():
         _warn("No agents directory found. Run 'agora agent add' first.")
         return
@@ -322,19 +390,19 @@ def _cmd_agent_list(args: argparse.Namespace) -> None:
         _warn("No agents registered.")
         return
 
-    print(f"\n{BOLD('Registered Agents')}")
+    print(f"\n{BOLD('Registered Agents')} (local records — server not running)")
     print(f"{'─' * 60}")
-    print(f"{'Name':<20} {'Role':<12} {'Token (truncated)':<28}")
+    print(f"{'Name':<20} {'Agent ID':<20} {'Token (truncated)'}")
     print(f"{'─' * 60}")
 
     for f in agents:
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
-            name = data.get("name", f.stem)
-            role = data.get("role", "?")
+            nm = data.get("name", f.stem)
+            aid = data.get("agent_id", "?")
             token = data.get("token", "")
             tok_display = f"{token[:12]}...{token[-6:]}" if len(token) > 20 else token
-            print(f"{name:<20} {role:<12} {tok_display:<28}")
+            print(f"{nm:<20} {aid:<20} {tok_display}")
         except (json.JSONDecodeError, KeyError):
             _warn(f"  Skipping malformed: {f.name}")
 
@@ -404,8 +472,16 @@ def build_parser() -> argparse.ArgumentParser:
     # agent add
     sp_add = sp_agent_sub.add_parser("add", help="Register a new agent")
     sp_add.add_argument("--name", required=True, help="Agent name")
-    sp_add.add_argument("--role", choices=["moderator", "worker"],
-                        default="worker", help="Agent role (default: worker)")
+    sp_add.add_argument("--agent-id", default=None,
+                        help="Agent ID (default: auto-generated)")
+    sp_add.add_argument("--agent-type", default="hermes",
+                        help="Agent type: hermes, claude_code, openclaw, custom (default: hermes)")
+    sp_add.add_argument("--model", default=None,
+                        help="Model identifier (e.g. claude-sonnet-4)")
+    sp_add.add_argument("--capabilities", default=None,
+                        help="Comma-separated capabilities (e.g. coding,review)")
+    sp_add.add_argument("--max-concurrent-tasks", type=int, default=2,
+                        help="Max concurrent tasks (default: 2)")
     sp_add.add_argument("--host", default=None,
                         help="Coordinator host (default: localhost)")
     sp_add.add_argument("--port", type=int, default=None,

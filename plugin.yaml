@@ -1,0 +1,10 @@
+name: agora
+version: 0.1.0
+description: "Multi-role deliberation — architect/developer/reviewer discuss via LLM, reach consensus, dispatch tasks to kanban."
+author: yzy806806
+kind: backend
+provides_tools:
+  - agora_raise_motion
+  - agora_get_messages
+  - agora_get_result
+  - agora_list_motions

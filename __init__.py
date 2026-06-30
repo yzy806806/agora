@@ -1,0 +1,29 @@
+"""Agora — Multi-role deliberation plugin for Hermes.
+
+Registers tools that let agents raise motions, an LLM-driven discussion
+engine that simulates architect/developer/reviewer debate, and bridges
+discussion outcomes to the Hermes kanban board for task dispatch.
+
+Install:
+    hermes plugins install yzy806806/agora
+
+Usage:
+    /agora discuss "Should we use PostgreSQL instead of SQLite?"
+    # or agent calls agora_raise_motion() during task execution
+"""
+from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+__version__ = "0.1.0"
+
+
+def register(ctx) -> None:
+    """Plugin entry point — called once by Hermes plugin loader."""
+    from .tools import register_all_tools
+
+    logger.info("Agora plugin v%s registering...", __version__)
+    register_all_tools(ctx)
+    logger.info("Agora plugin registered (4 tools + /agora command)")
