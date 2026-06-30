@@ -98,7 +98,7 @@ def register_all_tools(ctx: Any) -> None:
     from ..agora.discussion.driver import DiscussionDriver
 
     # --- Tool: agora_raise_motion ---
-    async def _raise_motion_handler(args: dict) -> dict:
+    async def _raise_motion_handler(args: dict, **kwargs) -> dict:
         return await _handle_raise_motion(ctx, args)
 
     ctx.register_tool(
@@ -112,7 +112,7 @@ def register_all_tools(ctx: Any) -> None:
     )
 
     # --- Tool: agora_get_messages ---
-    def _get_messages_handler(args: dict) -> dict:
+    def _get_messages_handler(args: dict, **kwargs) -> dict:
         motion_id = args.get("motion_id", "")
         round_num = args.get("round")
 
@@ -151,7 +151,7 @@ def register_all_tools(ctx: Any) -> None:
     )
 
     # --- Tool: agora_get_result ---
-    def _get_result_handler(args: dict) -> dict:
+    def _get_result_handler(args: dict, **kwargs) -> dict:
         motion_id = args.get("motion_id", "")
         motion = db.get_motion(motion_id)
         if motion is None:
@@ -186,7 +186,7 @@ def register_all_tools(ctx: Any) -> None:
     )
 
     # --- Tool: agora_list_motions ---
-    def _list_motions_handler(args: dict) -> dict:
+    def _list_motions_handler(args: dict, **kwargs) -> dict:
         status_filter = args.get("status", "active")
         limit = args.get("limit", 20)
         motions = db.list_motions(status_filter=status_filter, limit=limit)
