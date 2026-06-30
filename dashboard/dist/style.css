@@ -1,0 +1,40 @@
+/* Agora Dashboard Styles */
+
+.agora-container { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+.agora-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.agora-header h1 { font-size: 1.5rem; font-weight: 600; margin: 0; }
+.agora-stats { display: flex; gap: 1rem; }
+.agora-stat { text-align: center; padding: 0.5rem 1rem; border-radius: 0.5rem; background: var(--bg-secondary, #1a1a2e); }
+.agora-stat .num { font-size: 1.5rem; font-weight: 700; }
+.agora-stat .label { font-size: 0.75rem; opacity: 0.7; text-transform: uppercase; }
+
+.agora-motion-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.agora-motion-card { padding: 1rem; border-radius: 0.5rem; background: var(--bg-secondary, #1a1a2e); cursor: pointer; transition: border-color 0.2s; border: 1px solid transparent; }
+.agora-motion-card:hover { border-color: var(--accent, #6366f1); }
+.agora-motion-card .title { font-weight: 600; margin-bottom: 0.25rem; }
+.agora-motion-card .meta { font-size: 0.75rem; opacity: 0.7; display: flex; gap: 0.75rem; align-items: center; }
+.agora-badge { padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; }
+.agora-badge.discussing { background: #3b82f620; color: #60a5fa; }
+.agora-badge.adopted { background: #22c55e20; color: #4ade80; }
+.agora-badge.rejected { background: #ef444420; color: #f87171; }
+.agora-badge.no_consensus { background: #f59e0b20; color: #fbbf24; }
+
+.agora-motion-detail { padding: 1rem; }
+.agora-message { padding: 0.75rem; margin: 0.5rem 0; border-radius: 0.5rem; background: var(--bg-tertiary, #16162a); }
+.agora-message .role { font-weight: 700; font-size: 0.85rem; }
+.agora-message .stance { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 9999px; margin-left: 0.5rem; }
+.agora-message .stance.support { background: #22c55e20; color: #4ade80; }
+.agora-message .stance.oppose { background: #ef444420; color: #f87171; }
+.agora-message .stance.neutral { background: #6b728020; color: #9ca3af; }
+.agora-message .content { margin-top: 0.5rem; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+.agora-message .round-tag { font-size: 0.7rem; opacity: 0.5; margin-left: 0.5rem; }
+
+.agora-new-form { display: flex; flex-direction: column; gap: 0.5rem; max-width: 500px; }
+.agora-new-form input, .agora-new-form textarea { padding: 0.5rem; border-radius: 0.375rem; background: var(--bg-tertiary, #16162a); border: 1px solid var(--border, #333); color: inherit; }
+.agora-new-form button { padding: 0.5rem 1rem; border-radius: 0.375rem; background: var(--accent, #6366f1); color: white; border: none; cursor: pointer; font-weight: 600; }
+.agora-new-form button:hover { opacity: 0.9; }
+
+.agora-back { cursor: pointer; color: var(--accent, #6366f1); font-size: 0.85rem; margin-bottom: 1rem; }
+.agora-empty { text-align: center; padding: 3rem; opacity: 0.5; }
+.agora-action-items { margin-top: 1rem; }
+.agora-action-item { padding: 0.5rem; border-left: 3px solid var(--accent, #6366f1); margin: 0.25rem 0; background: var(--bg-tertiary, #16162a); }

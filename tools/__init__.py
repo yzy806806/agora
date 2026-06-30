@@ -278,7 +278,12 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
             logger.warning("Failed to block source task: %s", exc)
 
     # Run the discussion asynchronously
-    driver = DiscussionDriver(ctx, max_rounds=rounds)
+    driver = DiscussionDriver(
+        ctx,
+        max_rounds=rounds,
+        role_models=_load_role_models(ctx),
+        role_profiles=_load_role_profiles(ctx),
+    )
 
     # For non-blocking, run in background and return immediately
     if not blocking:
@@ -345,7 +350,12 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         motion_id = motion["id"]
 
         # Start discussion in background
-        driver = DiscussionDriver(ctx, max_rounds=3)
+        driver = DiscussionDriver(
+            ctx,
+            max_rounds=3,
+            role_models=_load_role_models(ctx),
+            role_profiles=_load_role_profiles(ctx),
+        )
         asyncio.create_task(driver.run(motion_id))
 
         return (
@@ -421,3 +431,75 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
 
     else:
         return f"Unknown subcommand: `{sub}`. Try: discuss, list, show, result"
+
+
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+
+def _load_role_models(ctx: Any) -> dict[str, str]:
+    """Read per-role model overrides from Hermes config.
+
+    Config shape::
+
+        plugins:
+          entries:
+            agora:
+              agora:
+                roles:
+                  architect:
+                    model: deepseekv4pro
+                  developer:
+                    model: astron-code-latest
+    """
+    try:
+        from hermes_cli.config import load_config
+        config = load_config() or {}
+        agora_cfg = (
+            config.get("plugins", {})
+            .get("entries", {})
+            .get("agora", {})
+            .get("agora", {})
+        )
+        roles = agora_cfg.get("roles", {})
+        return {
+            role: cfg["model"]
+            for role, cfg in roles.items()
+            if isinstance(cfg, dict) and cfg.get("model")
+        }
+    except Exception:
+        return {}
+
+
+def _load_role_profiles(ctx: Any) -> dict[str, str]:
+    """Read per-role profile overrides from Hermes config.
+
+    Config shape::
+
+        plugins:
+          entries:
+            agora:
+              agora:
+                roles:
+                  architect:
+                    profile: architect
+                  developer:
+                    profile: developer
+    """
+    try:
+        from hermes_cli.config import load_config
+        config = load_config() or {}
+        agora_cfg = (
+            config.get("plugins", {})
+            .get("entries", {})
+            .get("agora", {})
+            .get("agora", {})
+        )
+        roles = agora_cfg.get("roles", {})
+        return {
+            role: cfg["profile"]
+            for role, cfg in roles.items()
+            if isinstance(cfg, dict) and cfg.get("profile")
+        }
+    except Exception:
+        return {}

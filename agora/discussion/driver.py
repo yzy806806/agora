@@ -52,6 +52,17 @@ class DiscussionDriver:
 
         driver = DiscussionDriver(ctx)
         result = await driver.run(motion_id)
+
+    Per-role model/profile:
+        Set ``role_models`` or ``role_profiles`` to use different models
+        for each role. This requires the Hermes config to allow overrides::
+
+            plugins:
+              entries:
+                agora:
+                  llm:
+                    allow_model_override: true
+                    allow_profile_override: true
     """
 
     def __init__(
@@ -60,11 +71,17 @@ class DiscussionDriver:
         max_rounds: int = 3,
         consensus_threshold: float = 0.7,
         auto_create_tasks: bool = True,
+        role_models: dict[str, str] | None = None,
+        role_profiles: dict[str, str] | None = None,
     ) -> None:
         self.ctx = ctx
         self.max_rounds = max_rounds
         self.consensus_threshold = consensus_threshold
         self.auto_create_tasks = auto_create_tasks
+        # Per-role model overrides, e.g. {"architect": "deepseekv4pro", ...}
+        self.role_models = role_models or {}
+        # Per-role profile overrides, e.g. {"architect": "architect", ...}
+        self.role_profiles = role_profiles or {}
 
     async def run(self, motion_id: str) -> DiscussionResult:
         """Run the full discussion for a motion.
@@ -157,15 +174,23 @@ class DiscussionDriver:
         # Get the system prompt for this role
         system_prompt = ROLE_PROMPTS.get(role, ROLE_PROMPTS["architect"])
 
-        # Call LLM via ctx.llm
+        # Call LLM via ctx.llm — with per-role model/profile override
+        llm_kwargs: dict[str, Any] = {
+            "temperature": 0.4,
+            "max_tokens": 1024,
+            "purpose": f"agora-discussion-{role}-r{round_num}",
+        }
+        if role in self.role_models:
+            llm_kwargs["model"] = self.role_models[role]
+        if role in self.role_profiles:
+            llm_kwargs["profile"] = self.role_profiles[role]
+
         result = self.ctx.llm.complete(
             messages=[
                 {"role": "system", "content": system_prompt},
                 *messages,
             ],
-            temperature=0.4,
-            max_tokens=1024,
-            purpose=f"agora-discussion-{role}-r{round_num}",
+            **llm_kwargs,
         )
 
         response_text = result.text.strip()

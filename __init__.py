@@ -23,7 +23,17 @@ __version__ = "0.1.0"
 def register(ctx) -> None:
     """Plugin entry point — called once by Hermes plugin loader."""
     from .tools import register_all_tools
+    from .cli import setup_agora_cli
 
     logger.info("Agora plugin v%s registering...", __version__)
     register_all_tools(ctx)
-    logger.info("Agora plugin registered (4 tools + /agora command)")
+
+    # Register `hermes agora` CLI subcommand
+    ctx.register_cli_command(
+        "agora",
+        help="Agora — multi-role deliberation",
+        setup_fn=setup_agora_cli,
+        description="Manage Agora discussions: list, show, discuss, result",
+    )
+
+    logger.info("Agora plugin registered (4 tools + /agora command + hermes agora CLI)")
