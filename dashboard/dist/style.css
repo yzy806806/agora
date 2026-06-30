@@ -1,0 +1,283 @@
+/* Agora Dashboard Styles */
+
+.agora-dashboard {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.agora-header {
+  margin-bottom: 1.5rem;
+}
+
+.agora-header h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+}
+
+.agora-subtitle {
+  color: var(--muted-foreground, #6b7280);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.agora-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.agora-error {
+  color: #ef4444;
+  font-size: 0.875rem;
+}
+
+/* Profile cards */
+.agora-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.agora-profile-card {
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.agora-profile-card.selected {
+  border-color: var(--primary, #3b82f6);
+}
+
+.agora-profile-card .agora-profile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.agora-profile-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.agora-profile-meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted-foreground, #6b7280);
+}
+
+.agora-profile-desc {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted-foreground, #6b7280);
+  font-style: italic;
+}
+
+.agora-badge {
+  margin-left: 0.25rem;
+}
+
+.agora-badge-green {
+  background-color: #22c55e;
+  color: white;
+}
+
+.agora-badge-red {
+  background-color: #ef4444;
+  color: white;
+}
+
+/* Create form */
+.agora-create-form {
+  margin-bottom: 1rem;
+}
+
+.agora-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+.agora-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+/* Profile detail */
+.agora-profile-detail {
+  margin-top: 1rem;
+}
+
+.agora-config-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.agora-save-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* SOUL editor */
+.agora-soul-editor {
+  margin-top: 0.5rem;
+}
+
+.agora-textarea {
+  width: 100%;
+  min-height: 400px;
+  padding: 0.75rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 0.375rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  background: var(--background, white);
+  color: var(--foreground, #111827);
+}
+
+.agora-textarea:focus {
+  outline: none;
+  border-color: var(--primary, #3b82f6);
+}
+
+/* Skills */
+.agora-skills-count {
+  font-size: 0.875rem;
+  color: var(--muted-foreground, #6b7280);
+  margin: 0.5rem 0;
+}
+
+.agora-skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.agora-skill-item {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.agora-skill-item:hover {
+  background: var(--accent, #f3f4f6);
+}
+
+/* Motion cards */
+.agora-motion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.agora-motion-card {
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.agora-motion-card.selected {
+  border-color: var(--primary, #3b82f6);
+}
+
+.agora-motion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 500;
+}
+
+.agora-motion-meta {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground, #6b7280);
+}
+
+/* Motion detail */
+.agora-motion-detail {
+  margin-top: 1rem;
+}
+
+.agora-motion-info {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.agora-rationale {
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: var(--accent, #f3f4f6);
+  border-radius: 0.375rem;
+}
+
+.agora-action-items {
+  margin: 0.75rem 0;
+}
+
+.agora-action-items h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+}
+
+.agora-action-item {
+  font-size: 0.85rem;
+  padding: 0.125rem 0;
+}
+
+.agora-messages {
+  margin-top: 1rem;
+}
+
+.agora-messages h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+}
+
+.agora-message {
+  padding: 0.5rem;
+  border-left: 3px solid var(--border, #e5e7eb);
+  margin-bottom: 0.5rem;
+  background: var(--accent, #f9fafb);
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.agora-message-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.agora-message-round {
+  color: var(--muted-foreground, #6b7280);
+  font-size: 0.75rem;
+}
+
+.agora-message-content {
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}

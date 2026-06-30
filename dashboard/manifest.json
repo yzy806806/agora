@@ -1,0 +1,14 @@
+{
+  "name": "agora",
+  "label": "Agora",
+  "description": "Multi-role deliberation — manage agent profiles, start discussions, dispatch tasks to kanban",
+  "icon": "Landmark",
+  "version": "0.2.0",
+  "tab": {
+    "path": "/agora",
+    "position": "after:kanban"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}
