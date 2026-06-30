@@ -24,9 +24,11 @@ def register(ctx) -> None:
     """Plugin entry point — called once by Hermes plugin loader."""
     from .tools import register_all_tools
     from .cli import setup_agora_cli
+    from .hooks import register_hooks
 
     logger.info("Agora plugin v%s registering...", __version__)
     register_all_tools(ctx)
+    register_hooks(ctx)
 
     # Register `hermes agora` CLI subcommand
     ctx.register_cli_command(
@@ -36,4 +38,4 @@ def register(ctx) -> None:
         description="Manage Agora discussions: list, show, discuss, result",
     )
 
-    logger.info("Agora plugin registered (4 tools + /agora command + hermes agora CLI)")
+    logger.info("Agora plugin registered (4 tools + /agora command + hermes agora CLI + hooks)")

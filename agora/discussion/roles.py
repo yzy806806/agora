@@ -87,10 +87,12 @@ Output format (JSON only, no markdown):
   "summary": "<2-3 sentence summary of the discussion>",
   "consensus_points": ["<point 1>", "<point 2>"],
   "disagreements": ["<point 1>"],
-  "action_items": [{"item": "<description>", "owner": "<architect|developer|reviewer>"}],
+  "action_items": [{"item": "<description>", "owner": "<architect|developer|reviewer>", "depends_on": [<1-based indices of other action items this depends on>]}],
   "confidence": 0.0,
   "unresolved": ["<issue 1>"]
 }
+
+In action_items, depends_on is a list of 1-based indices (into the action_items array) for items that must complete BEFORE this item can start. Use [] if there is no ordering constraint. Example: if item 2 depends on item 1 finishing first, set depends_on: [1] on item 2. The kanban dispatcher will automatically block the child task until its parent completes.
 """
 
 CONSENSUS_CHECKER_PROMPT = """\

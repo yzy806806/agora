@@ -359,6 +359,18 @@ class DiscussionDriver:
                 source_task_id=motion.get("source_task_id"),
             )
 
+        # Write decision to Hermes memory so future sessions remember it.
+        # The kanban_task_completed hook also writes memory when a task
+        # finishes, but this ensures the decision is recorded even if
+        # no kanban tasks are created (e.g. motion rejected or no action items).
+        if decision == "adopted":
+            self._write_motion_memory(
+                motion_id=motion_id,
+                title=motion["title"],
+                rationale=summary_data.get("summary", ""),
+                action_items=action_item_strings,
+            )
+
         # Unblock source task if blocking
         if motion.get("blocking") and motion.get("source_task_id"):
             self._unblock_source_task(
@@ -393,26 +405,52 @@ class DiscussionDriver:
         action_items: list[Any],
         source_task_id: str | None = None,
     ) -> list[str]:
-        """Create kanban tasks from discussion action items."""
+        """Create kanban tasks from discussion action items.
+
+        Action items may carry a ``depends_on`` field (list of 1-based
+        indices into the action_items list) that establishes parent-child
+        dependencies between tasks. A child task will be in ``todo`` status
+        until its parent (dependency) completes — the kanban dispatcher
+        handles this automatically.
+
+        If the summarizer didn't emit depends_on, all tasks are created
+        as siblings (no inter-task dependencies), which is the original
+        behavior.
+        """
         try:
             from hermes_cli import kanban_db
         except ImportError:
             logger.warning("kanban_db not available — skipping task creation")
             return []
 
-        created: list[str] = []
+        created: dict[int, str] = {}  # index → task_id
         conn = kanban_db.connect()
         try:
-            for ai in action_items:
+            for idx, ai in enumerate(action_items):
                 if isinstance(ai, dict):
                     item_title = ai.get("item", str(ai))
                     owner = ai.get("owner", "")
+                    depends_on = ai.get("depends_on", [])
                 else:
                     item_title = str(ai)
                     owner = ""
+                    depends_on = []
 
                 # Map owner role to kanban assignee (profile name)
                 assignee = owner if owner else None
+
+                # Resolve dependencies to previously-created task IDs.
+                # depends_on uses 1-based indices into action_items.
+                parent_ids: list[str] = []
+                for dep in depends_on:
+                    dep_idx = dep - 1 if isinstance(dep, int) else None
+                    if dep_idx is not None and dep_idx in created:
+                        parent_ids.append(created[dep_idx])
+
+                # If no intra-action-item deps, link to the source task
+                # (if any) so the motion's originating task is the parent.
+                if not parent_ids and source_task_id:
+                    parent_ids = [source_task_id]
 
                 task_id = kanban_db.create_task(
                     conn,
@@ -420,20 +458,68 @@ class DiscussionDriver:
                     body=(
                         f"From Agora discussion: {title}\n"
                         f"Motion: {motion_id}\n"
-                        f"Action item: {item_title}"
+                        f"Action item {idx + 1}/{len(action_items)}: {item_title}"
+                        + (f"\nDepends on: {parent_ids}" if parent_ids else "")
                     ),
                     assignee=assignee,
                     workspace_kind="dir",
-                    parents=[source_task_id] if source_task_id else [],
+                    parents=parent_ids,
                 )
-                created.append(task_id)
-                logger.info("Created kanban task %s for action item: %s", task_id, item_title[:80])
+                created[idx] = task_id
+                logger.info(
+                    "Created kanban task %s for action item %d: %s (deps=%s)",
+                    task_id, idx + 1, item_title[:80], parent_ids,
+                )
         except Exception as exc:
             logger.error("Failed to create kanban tasks: %s", exc)
         finally:
             conn.close()
 
-        return created
+        return list(created.values())
+
+    def _write_motion_memory(
+        self,
+        motion_id: str,
+        title: str,
+        rationale: str,
+        action_items: list[str],
+    ) -> None:
+        """Write the discussion outcome to Hermes MEMORY.md.
+
+        This runs at finalize time so the decision is recorded immediately,
+        not waiting for kanban task completion. Uses MemoryStore.add()
+        directly — the same internal path as the memory tool.
+        """
+        try:
+            from tools.memory_tool import MemoryStore
+        except ImportError:
+            logger.debug("MemoryStore not available — skipping memory write")
+            return
+
+        try:
+            store = MemoryStore()
+            store.load_from_disk()
+
+            # Build a concise declarative memory entry.
+            items_str = ""
+            if action_items:
+                short_items = [ai[:80] for ai in action_items[:3]]
+                items_str = " | " + " ; ".join(short_items)
+
+            entry = f"Agora decision ({motion_id}): {title} → {rationale[:120]}{items_str}"
+            if len(entry) > 250:
+                entry = entry[:247] + "..."
+
+            result = store.add("memory", entry)
+            if result.get("success"):
+                logger.info("Agora memory entry written for motion %s", motion_id)
+            else:
+                logger.debug(
+                    "Memory write skipped for motion %s: %s",
+                    motion_id, result.get("error", ""),
+                )
+        except Exception as exc:
+            logger.debug("Failed to write memory for motion %s: %s", motion_id, exc)
 
     def _unblock_source_task(
         self,
