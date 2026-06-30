@@ -49,7 +49,12 @@ def handle_agora_cli(args: argparse.Namespace) -> int:
         print("Usage: hermes agora {list|show|result|discuss|stats}")
         return 1
 
-    from .agora.storage import motions as db
+    try:
+        from .agora.storage import motions as db
+    except ImportError:
+        import sys, pathlib
+        sys.path.insert(0, str(pathlib.Path(__file__).parent))
+        from agora.storage import motions as db
 
     if cmd == "list":
         motions = db.list_motions(status_filter=args.status, limit=args.limit)
