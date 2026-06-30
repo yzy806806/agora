@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +307,19 @@ class Motion(BaseModel):
     focus_areas: list[str] = Field(default_factory=list)
     early_vote_triggered: bool = False
 
+    @field_validator("action_items", "focus_areas", mode="before")
+    @classmethod
+    def _parse_json_list(cls, v):
+        """DB stores lists as JSON strings; parse them back to lists."""
+        if isinstance(v, str):
+            import json
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return v or []
+
 
 # ---------------------------------------------------------------------------
 # Speak & Vote Models
@@ -400,6 +413,19 @@ class MotionResultResponse(BaseModel):
     votes: dict[str, int]
     rationale: str
     action_items: list[str]
+
+    @field_validator("action_items", mode="before")
+    @classmethod
+    def _parse_json_list(cls, v):
+        """DB stores lists as JSON strings; parse them back to lists."""
+        if isinstance(v, str):
+            import json
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return v or []
 
 
 class ErrorResponse(BaseModel):

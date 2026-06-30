@@ -14,8 +14,8 @@ class TaskItem(BaseModel):
     """Lightweight task item for list responses."""
 
     id: str
-    graph_id: str
-    motion_id: str
+    graph_id: Optional[str] = None
+    motion_id: Optional[str] = None
     title: str
     status: TaskStatus
     assigned_to: Optional[str] = None
@@ -39,8 +39,8 @@ class TaskDetailResponse(BaseModel):
     """Full task detail with subtask (dependency) info."""
 
     id: str
-    graph_id: str
-    motion_id: str
+    graph_id: Optional[str] = None
+    motion_id: Optional[str] = None
     title: str
     description: str = ""
     status: TaskStatus
@@ -59,7 +59,7 @@ class TaskGraphItem(BaseModel):
     """Lightweight graph item for list responses."""
 
     id: str
-    motion_id: str
+    motion_id: Optional[str] = None
     parallel_mode: str = "auto"
     max_parallel_slots: int = 10
     created_at: Optional[datetime] = None
@@ -69,7 +69,7 @@ class TaskGraphDetailResponse(BaseModel):
     """Graph with all tasks included."""
 
     id: str
-    motion_id: str
+    motion_id: Optional[str] = None
     parallel_mode: str = "auto"
     max_parallel_slots: int = 10
     resource_conflict_policy: str = "warn"

@@ -4,7 +4,7 @@
 
 Agora 是一个 MCP (Model Context Protocol) 服务器，让任何支持 MCP 的 AI agent 一行配置即可接入，协同完成项目开发。
 
-人类通过 Dashboard 下任务，AI agent 通过 MCP 分解、讨论、执行，过程和结果汇总到 Dashboard 供人类查看。离线 agent 通过 Matrix 协议自动唤醒。
+人类通过 Dashboard 下任务，AI 通过 MCP 分解、讨论、执行，过程和结果汇总到 Dashboard 供人类查看。
 
 ## 定位
 
@@ -31,9 +31,6 @@ Agora 自身不包含任何 agent。它是一个纯调度层——分配角色�
               │                       │
               ▼                       ▼
          Workspace (本地文件系统)
-
-    Agent 离线时:
-     Agora ──► Matrix Room (@mention) ──► Hermes Matrix Gateway ──► MCP 重连
 ```
 
 ## 一行配置接入
@@ -46,16 +43,15 @@ Agora 自身不包含任何 agent。它是一个纯调度层——分配角色�
 # ~/.hermes/config.yaml
 mcp_servers:
   agora:
-    url: "http://agora.example.com:8765/mcp"
+    url: "https://agora.example.com/mcp"
     headers:
       Authorization: "Bearer <agent-token>"
-    timeout: 300
 ```
 
 ### Claude Code
 
 ```bash
-claude mcp add --transport http agora http://agora.example.com:8765/mcp
+claude mcp add --transport http agora https://agora.example.com/mcp
 ```
 
 ### OpenCode / QwenPaw / 其他
@@ -68,7 +64,7 @@ claude mcp add --transport http agora http://agora.example.com:8765/mcp
 
 | Tool | 描述 |
 |------|------|
-| `register_agent` | 注册 agent，声明能力（幂等，重连复用 agent_id） |
+| `register_agent` | 注册 agent，声明能力 |
 | `get_pending_tasks` | 获取待处理任务 |
 | `accept_task` | 接受任务分配 |
 | `submit_task_result` | 提交任务结果 |
@@ -77,8 +73,6 @@ claude mcp add --transport http agora http://agora.example.com:8765/mcp
 | `list_conversations` | 列出参与的讨论 |
 | `get_workspace_file` | 读取共享工作区文件 |
 | `put_workspace_file` | 写入共享工作区文件 |
-| `fetch_pending_notifications` | 拉取离线期间的待处理通知 |
-| `ack_notification` | 确认通知已处理 |
 
 ### Resources（agent 可读取的上下文）
 
@@ -88,9 +82,8 @@ claude mcp add --transport http agora http://agora.example.com:8765/mcp
 | `agora://conversations/{id}/messages` | 讨论消息历史 |
 | `agora://agents/{id}/status` | Agent 状态 |
 | `agora://projects/{id}/overview` | 项目概览 |
-| `agora://project_context` | 轻量级 session 恢复上下文 |
 
-### Notifications（Agora 主动推送）
+### Notifications（Agora 主动推送，SSE）
 
 | Notification | 触发条件 |
 |-------------|---------|
@@ -99,26 +92,11 @@ claude mcp add --transport http agora http://agora.example.com:8765/mcp
 | `notifications/task_updated` | 任务状态变更 |
 | `notifications/pipeline_event` | Pipeline 阶段推进 |
 
-## 唤醒机制
-
-Agent 离线（无活跃 MCP session）时，Agora 通过 Matrix 协议唤醒：
-
-1. Agora 把通知入队到 `pending_notifications` 表
-2. Agora 的 `MatrixWakeupClient` 在 Matrix room 发 @mention 消息
-3. Agent 的 Hermes（已配置 Matrix gateway）收到消息
-4. Hermes 被触发，agent 通过 MCP 连上 Agora，拉取任务
-
-支持 Matrix（开源，自建 homeserver）和 Telegram（闭源，外部服务）双通道。
-
-详见 [docs/DEPLOYMENT-matrix.md](docs/DEPLOYMENT-matrix.md)。
-
 ## 工作流
 
 ```
 1. 人类 → Dashboard 提交任务（"开发认证模块"）
 2. Agora → 通过 MCP 推送任务给合适的 agent
-   ├─ Agent 在线 → SSE 实时推送
-   └─ Agent 离线 → Matrix @mention 唤醒
 3. Agent → 接受任务，分解为子任务，发起讨论
 4. Agents → 通过 MCP 多轮讨论，达成共识
 5. Agent → 执行开发，写入 Workspace
@@ -139,41 +117,31 @@ Dashboard 访问 `http://localhost:8765/dashboard`，MCP 端点 `http://localhos
 
 ```bash
 # 认证
-AGORA_AUTH_MODE=none              # none | token | rbac
-AGORA_REQUIRE_APPROVAL=false      # 自动批准 agent 注册
+AGORA_AUTH_MODE=rbac          # rbac | token | none
+AGORA_ADMIN_TOKEN=<token>     # 管理员 token
+AGORA_DASHBOARD_USERS=admin:<password>  # Dashboard 登录
 
 # 数据库
-AGORA_DB_PATH=data/agora.db       # SQLite（默认）
+AGORA_DB_PATH=data/agora.db   # SQLite（默认）
 # AGORA_DATABASE_URL=postgresql://...  # Postgres
 
 # Workspace
-AGORA_WORKSPACE_ROOT=./workspace
-
-# Matrix 唤醒（可选）
-AGORA_MATRIX_HOMESERVER_URL=http://localhost:8008
-AGORA_MATRIX_ACCESS_TOKEN=<bot-token>
-AGORA_MATRIX_WAKEUP_ROOM_ID=<room-id>
-
-# Telegram 唤醒（可选）
-AGORA_TELEGRAM_BOT_TOKEN=<bot-token>
+AGORA_WORKSPACE_ROOT=./workspace  # 工作区根目录
 ```
 
 ## 项目状态
 
-📦 v0.18.0 — 自驱团队 + Matrix 唤醒 + MCP 稳定化
+📦 v0.16.0 — 安全加固 + Dashboard 认证
 
-✅ 已验证：Hermes agent 自驱闭环（注册 → 获取任务 → 执行 → 提交）
+🚧 Phase 16: MCP Server — 标准协议接入（开发中）
 
 ## 路线图
 
 详见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 - ✅ Phase 9-14: 平台核心功能
-- ✅ Phase 15: 安全加固 + Dogfooding
-- ✅ Phase 16: MCP Server — 标准协议接入
-- ✅ Phase 18: 自驱逻辑重构 + Dashboard Settings
-- ✅ Phase 19-20: Matrix/Telegram 唤醒 + 离线通知队列
-- 🔮 Phase 21: 多 agent 协作场景验证（coordinator 分配 + coder 执行 + reviewer 审查）
+- ✅ Phase 15: 安全加固 + Dogfooding (v0.16.0)
+- 🔮 Phase 16: MCP Server — 标准协议接入
 
 ## License
 
