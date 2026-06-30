@@ -285,9 +285,9 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         role_profiles=_load_role_profiles(ctx),
     )
 
-    # For non-blocking, run in background and return immediately
+    # For non-blocking, run in background with error handling
     if not blocking:
-        asyncio.create_task(driver.run(motion_id))
+        _start_background_discussion(driver, motion_id)
         return {
             "motion_id": motion_id,
             "title": title,
@@ -349,14 +349,14 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         )
         motion_id = motion["id"]
 
-        # Start discussion in background
+        # Start discussion in background with error handling
         driver = DiscussionDriver(
             ctx,
             max_rounds=3,
             role_models=_load_role_models(ctx),
             role_profiles=_load_role_profiles(ctx),
         )
-        asyncio.create_task(driver.run(motion_id))
+        _start_background_discussion(driver, motion_id)
 
         return (
             f"🏛️ Discussion started: **{arg}**\n"
@@ -503,3 +503,54 @@ def _load_role_profiles(ctx: Any) -> dict[str, str]:
         }
     except Exception:
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Background discussion runner — error callback + timeout
+# ---------------------------------------------------------------------------
+
+_DISCUSSION_TIMEOUT_SECONDS = 300  # 5 minutes max per discussion
+
+
+def _start_background_discussion(driver: Any, motion_id: str) -> None:
+    """Start a background discussion task with error handling and timeout.
+
+    Errors are logged and the motion is marked as closed with an error
+    status so the user can see something went wrong instead of polling
+    forever.
+    """
+    async def _run_with_guard():
+        from ..agora.storage import motions as db
+        try:
+            await asyncio.wait_for(
+                driver.run(motion_id),
+                timeout=_DISCUSSION_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Discussion %s timed out after %ds", motion_id, _DISCUSSION_TIMEOUT_SECONDS)
+            try:
+                db.update_motion_status(
+                    motion_id,
+                    status="closed",
+                    decision="no_consensus",
+                    rationale=f"Discussion timed out after {_DISCUSSION_TIMEOUT_SECONDS}s.",
+                )
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.error("Background discussion %s failed: %s", motion_id, exc, exc_info=True)
+            try:
+                db.update_motion_status(
+                    motion_id,
+                    status="closed",
+                    decision="no_consensus",
+                    rationale=f"Discussion failed with error: {exc}",
+                )
+            except Exception:
+                pass
+
+    task = asyncio.create_task(_run_with_guard())
+    task.set_name(f"agora-discussion-{motion_id}")
+    # Prevent the task from being garbage-collected if the event loop
+    # doesn't hold a strong reference (rare but happens in some frameworks).
+    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)

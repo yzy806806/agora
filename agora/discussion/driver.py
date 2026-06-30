@@ -185,7 +185,8 @@ class DiscussionDriver:
         if role in self.role_profiles:
             llm_kwargs["profile"] = self.role_profiles[role]
 
-        result = self.ctx.llm.complete(
+        result = await asyncio.to_thread(
+            self.ctx.llm.complete,
             messages=[
                 {"role": "system", "content": system_prompt},
                 *messages,
@@ -273,7 +274,8 @@ class DiscussionDriver:
         )
 
         try:
-            result = self.ctx.llm.complete(
+            result = await asyncio.to_thread(
+                self.ctx.llm.complete,
                 messages=[
                     {"role": "system", "content": CONSENSUS_CHECKER_PROMPT},
                     {"role": "user", "content": discussion_text},
@@ -305,7 +307,8 @@ class DiscussionDriver:
         # Generate structured summary via LLM
         summary_data: dict[str, Any] = {}
         try:
-            result = self.ctx.llm.complete(
+            result = await asyncio.to_thread(
+                self.ctx.llm.complete,
                 messages=[
                     {"role": "system", "content": SUMMARIZER_PROMPT},
                     {"role": "user", "content": discussion_text},
