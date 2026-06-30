@@ -20,7 +20,7 @@ except ImportError:
     APIRouter = None  # type: ignore
 
 if APIRouter:
-    router = APIRouter(prefix="/agora", tags=["agora"])
+    router = APIRouter(tags=["agora"])
 else:
     router = None  # type: ignore
 
