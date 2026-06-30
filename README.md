@@ -39,7 +39,13 @@ agora_raise_motion(
 /agora result motion-abc123    — show decision + action items
 ```
 
-Or open the **Agora** tab in `hermes dashboard`.
+Or via CLI:
+
+```bash
+hermes agora list
+hermes agora show motion-abc123
+hermes agora result motion-abc123
+```
 
 ## How It Works
 
@@ -96,8 +102,29 @@ plugins:
 
 ## Architecture
 
-See [docs/DESIGN-hermes-plugin.md](docs/DESIGN-hermes-plugin.md) for the
-full design document.
+```
+agora/
+├── plugin.yaml          # plugin manifest (tools + hooks)
+├── __init__.py          # register(ctx) — tools, commands, CLI, hooks
+├── hooks/__init__.py    # kanban_task_completed lifecycle hook
+├── tools/__init__.py    # 4 MCP tools + /agora slash command
+├── cli.py               # `hermes agora` CLI subcommand
+├── agora/
+│   ├── discussion/
+│   │   ├── driver.py    # LLM-driven multi-round discussion engine
+│   │   └── roles.py     # role system prompts + summarizer
+│   └── storage/
+│       └── motions.py   # SQLite storage (motions + messages + votes)
+└── skills/
+    └── agora-deliberation/SKILL.md
+```
+
+- **No MCP server** — plugin uses `ctx.llm` directly
+- **No external agents** — LLM simulates all roles
+- **No Matrix/Telegram** — kanban dispatcher handles task dispatch
+- **Agent can raise motions** — workers call `agora_raise_motion()` during tasks
+- **Memory integration** — adopted decisions written to MEMORY.md
+- **Kanban hooks** — task completion triggers result writeback
 
 ## License
 
