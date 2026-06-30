@@ -27,6 +27,7 @@ dependencies = [
 redis = ["redis>=5.0"]
 postgres = ["asyncpg>=0.29"]
 matrix = ["matrix-nio>=0.24"]
+cli = ["typer>=0.12", "rich>=13.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -37,7 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-agora = "agora.cli:main"
+agora = "agora.coordinator.cli:main"
 agora-coordinator = "agora.coordinator.main:main"
 
 [build-system]
