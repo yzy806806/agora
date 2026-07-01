@@ -539,7 +539,7 @@
             var title = prompt("Discussion topic for project '" + projectName + "':");
             if (!title) return;
             try {
-              await apiPost("/motions", { title: title, source: projectName, rounds: 3 });
+              await apiPost("/motions", { title: title, source: projectName, project: projectName, max_steps: 30 });
               load();
             } catch (e) { alert("Failed: " + e.message); }
           },
@@ -657,7 +657,7 @@
       React.createElement("div", { className: "agora-discussion-header" },
         React.createElement("h4", null, data.title),
         React.createElement("div", { className: "agora-discussion-info" },
-          React.createElement(Badge, null, data.status),
+          React.createElement(Badge, null, data.state || data.status),
           data.decision && React.createElement(Badge, {
             className: cn(
               data.decision === "adopted" && "agora-badge-green",
@@ -665,26 +665,49 @@
             )
           }, data.decision),
           React.createElement("span", { className: "agora-discussion-round" },
-            "Round ", data.current_round || 0, "/", data.max_rounds || "?"
+            "Step ", data.step_count || 0, "/", data.max_steps || "?"
+          ),
+          data.chair && React.createElement("span", { className: "agora-discussion-round" },
+            "Chair: ", data.chair
           ),
         ),
       ),
       data.rationale && React.createElement("p", { className: "agora-rationale" }, data.rationale),
-      // Messages
+      // Messages — event-driven flow: chair opening, speaker turns, guidance, votes
       React.createElement("div", { className: "agora-discussion-messages", ref: messagesEndRef },
         messages.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
-          "No messages yet. Start the discussion below."
+          "No messages yet. The chair will open the discussion shortly."
         ),
         messages.map(function (msg) {
           var isUser = msg.role === "user";
+          var isChair = msg.is_chair;
+          var stepType = msg.step_type || "speak";
+          var stepIcon = {
+            opening: "\xF0\x9F\x93\xA2",     // 📢
+            speak: "\xF0\x9F\x92\xAC",        // 💬
+            guidance: "\xF0\x9F\x8E\xAF",     // 🎯
+            vote_call: "\xF0\x9F\x97\xB3\xEF\xB8\x8F", // 🗳️
+            vote: "\xF0\x9F\x97\xB3\xEF\xB8\x8F",      // 🗳️
+            summary: "\xF0\x9F\x93\x8B",      // 📋
+            human_input: "\xF0\x9F\x91\xA4",  // 👤
+          }[stepType] || "\xF0\x9F\x92\xAC";
           return React.createElement("div", {
-            key: msg.id || (msg.role + "-" + msg.round + "-" + messages.indexOf(msg)),
-            className: cn("agora-message", isUser && "agora-message-user"),
+            key: msg.id || (msg.role + "-" + msg.round_num + "-" + messages.indexOf(msg)),
+            className: cn(
+              "agora-message",
+              isUser && "agora-message-user",
+              isChair && "agora-message-chair",
+              stepType === "vote" && "agora-message-vote",
+            ),
           },
             React.createElement("div", { className: "agora-message-header" },
-              React.createElement("strong", null, isUser ? "👤 " + (msg.role) : msg.role),
-              msg.round && React.createElement("span", { className: "agora-message-round" }, "R" + msg.round),
-              msg.stance && React.createElement(Badge, null, msg.stance),
+              React.createElement("strong", null,
+                stepIcon + " ",
+                isChair ? "[Chair] " + msg.role : isUser ? msg.role : msg.role
+              ),
+              msg.round_num > 0 && React.createElement("span", { className: "agora-message-round" }, "S" + msg.round_num),
+              msg.stance && stepType === "speak" && React.createElement(Badge, null, msg.stance),
+              stepType !== "speak" && React.createElement(Badge, null, stepType),
             ),
             React.createElement("div", { className: "agora-message-content" }, msg.content),
           );

@@ -51,7 +51,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist, and migrate existing ones."""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS motions (
             id              TEXT PRIMARY KEY,
@@ -94,9 +94,53 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (motion_id) REFERENCES motions(id)
         );
 
+        CREATE TABLE IF NOT EXISTS discussion_state (
+            motion_id      TEXT PRIMARY KEY,
+            current_state  TEXT DEFAULT 'discussing',
+            next_speaker   TEXT,
+            last_guidance  TEXT,
+            last_action    TEXT,
+            updated_at     TEXT,
+            FOREIGN KEY (motion_id) REFERENCES motions(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_messages_motion ON messages(motion_id);
         CREATE INDEX IF NOT EXISTS idx_votes_motion ON votes(motion_id);
     """)
+    conn.commit()
+
+    # --- Schema migration: add new columns if they don't exist ---
+    _migrate_add_columns(conn)
+
+
+def _migrate_add_columns(conn: sqlite3.Connection) -> None:
+    """Safely add new columns to existing tables (idempotent)."""
+
+    def _has_column(table: str, col: str) -> bool:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(r[1] == col for r in rows)
+
+    # motions: event-driven fields
+    motion_cols = {
+        "chair": "TEXT",
+        "state": "TEXT DEFAULT 'discussing'",
+        "step_count": "INTEGER DEFAULT 0",
+        "max_steps": "INTEGER DEFAULT 30",
+    }
+    for col, typedef in motion_cols.items():
+        if not _has_column("motions", col):
+            conn.execute(f"ALTER TABLE motions ADD COLUMN {col} {typedef}")
+
+    # messages: event-driven fields
+    msg_cols = {
+        "target_role": "TEXT",
+        "is_chair": "INTEGER DEFAULT 0",
+        "step_type": "TEXT DEFAULT 'speak'",
+    }
+    for col, typedef in msg_cols.items():
+        if not _has_column("messages", col):
+            conn.execute(f"ALTER TABLE messages ADD COLUMN {col} {typedef}")
+
     conn.commit()
 
 
@@ -113,6 +157,8 @@ def create_motion(
     source_profile: str = "",
     blocking: bool = False,
     participants: list[str] | None = None,
+    chair: str = "",
+    max_steps: int = 30,
 ) -> dict:
     """Create a new motion record. Returns the motion dict."""
     motion_id = f"motion-{uuid.uuid4().hex[:12]}"
@@ -124,11 +170,13 @@ def create_motion(
         conn.execute(
             """INSERT INTO motions
                (id, title, description, max_rounds, source, source_task_id,
-                source_profile, blocking, participants, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                source_profile, blocking, participants, created_at,
+                chair, state, step_count, max_steps)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (motion_id, title, description, max_rounds, source,
              source_task_id or None, source_profile or None,
-             1 if blocking else 0, json.dumps(participants), now),
+             1 if blocking else 0, json.dumps(participants), now,
+             chair, "discussing", 0, max_steps),
         )
         conn.commit()
     finally:
@@ -234,33 +282,8 @@ def increment_round(motion_id: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Messages
+# Messages — see bottom of file for extended add_message with event-driven fields
 # ---------------------------------------------------------------------------
-
-def add_message(
-    motion_id: str,
-    role: str,
-    round_num: int,
-    stance: str,
-    content: str,
-) -> str:
-    """Add a discussion message. Returns the message ID."""
-    msg_id = f"msg-{uuid.uuid4().hex[:8]}"
-    now = datetime.now(timezone.utc).isoformat()
-
-    conn = _connect()
-    try:
-        conn.execute(
-            """INSERT INTO messages
-               (id, motion_id, role, round_num, stance, content, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (msg_id, motion_id, role, round_num, stance, content, now),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    return msg_id
-
 
 def get_messages(motion_id: str, round_num: int | None = None) -> list[dict]:
     """Fetch messages for a motion, optionally filtered by round."""
@@ -348,4 +371,121 @@ def _row_to_motion(row: dict) -> dict:
         "participants": json.loads(row.get("participants", "[]")),
         "created_at": row.get("created_at"),
         "closed_at": row.get("closed_at"),
+        # Event-driven fields
+        "chair": row.get("chair", ""),
+        "state": row.get("state", "discussing"),
+        "step_count": row.get("step_count", 0),
+        "max_steps": row.get("max_steps", 30),
     }
+
+
+# --------------------------------------------------------------------------- #
+#  Event-driven state (discussion_state table)                                #
+# --------------------------------------------------------------------------- #
+
+def get_discussion_state(motion_id: str) -> dict | None:
+    """Get the current event-driven discussion state for a motion."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM discussion_state WHERE motion_id = ?",
+            (motion_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def save_discussion_state(
+    motion_id: str,
+    current_state: str,
+    next_speaker: str | None = None,
+    last_guidance: str | None = None,
+    last_action: str | None = None,
+) -> None:
+    """Insert or update the discussion state for a motion."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    try:
+        conn.execute(
+            """INSERT INTO discussion_state
+               (motion_id, current_state, next_speaker, last_guidance, last_action, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(motion_id) DO UPDATE SET
+                 current_state = excluded.current_state,
+                 next_speaker  = excluded.next_speaker,
+                 last_guidance = excluded.last_guidance,
+                 last_action   = excluded.last_action,
+                 updated_at    = excluded.updated_at
+            """,
+            (motion_id, current_state, next_speaker, last_guidance, last_action, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def increment_step_count(motion_id: str) -> int:
+    """Increment and return the step_count for a motion."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE motions SET step_count = step_count + 1 WHERE id = ?",
+            (motion_id,),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT step_count FROM motions WHERE id = ?", (motion_id,)
+        ).fetchone()
+        return dict(row)["step_count"] if row else 0
+    finally:
+        conn.close()
+
+
+def update_motion_state(motion_id: str, state: str) -> None:
+    """Update a motion's event-driven state (discussing/voting/summarizing/closed)."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE motions SET state = ? WHERE id = ?",
+            (state, motion_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --------------------------------------------------------------------------- #
+#  Messages (extended for event-driven fields)                               #
+# --------------------------------------------------------------------------- #
+
+def add_message(
+    motion_id: str,
+    role: str,
+    round_num: int,
+    stance: str,
+    content: str,
+    step_type: str = "speak",
+    target_role: str = "",
+    is_chair: bool = False,
+) -> str:
+    """Add a discussion message. Returns the message ID."""
+    msg_id = f"msg-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    conn = _connect()
+    try:
+        conn.execute(
+            """INSERT INTO messages
+               (id, motion_id, role, round_num, stance, content, timestamp,
+                step_type, target_role, is_chair)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (msg_id, motion_id, role, round_num, stance, content, now,
+             step_type, target_role or None, 1 if is_chair else 0),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return msg_id

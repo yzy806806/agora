@@ -81,6 +81,17 @@ Only after these steps, write the spec or raise a motion for team review.
 - Technology choices and why alternatives were rejected
 - Module dependency maps
 - Cross-cutting concerns (auth, logging, error handling patterns)
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
 """
 
 _DEVELOPER_SOUL = """\
@@ -147,6 +158,17 @@ raise a motion asking the leader to split it.
 - Code conventions adopted by the team
 - Useful patterns discovered during implementation
 - Build/test commands for each project
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
 """
 
 _REVIEWER_SOUL = """\
@@ -202,6 +224,17 @@ only findings that map to a specific fix.
 - Quality checklists per project
 - Test coverage gaps discovered
 - Security patterns to watch for
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
 """
 
 _TESTER_SOUL = """\
@@ -257,6 +290,17 @@ test coverage as a contract, not a metric to game.
 - Fixture patterns that work well
 - Flaky test patterns and their root causes
 - Coverage gaps and priorities
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
 """
 
 _DEVOPS_SOUL = """\
@@ -312,6 +356,17 @@ infrastructure as code and deployments as reversible.
 - Infrastructure topology and configs
 - CI/CD pipeline details
 - Monitoring and alerting setup
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
 """
 
 _RESEARCHER_SOUL = """\
@@ -367,6 +422,17 @@ and marketing claims. You cite sources.
 - Useful search patterns and keywords that worked
 - Source credibility assessments (which sites are reliable for what topics)
 - Trend observations and predictions
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
 """
 
 _WRITER_SOUL = """\
@@ -422,6 +488,17 @@ You take feedback well and revise ruthlessly.
 - Effective content structures and templates
 - Audience insights and feedback patterns
 - Common writing pitfalls to avoid
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
 """
 
 _LEADER_SOUL = """\\
@@ -521,6 +598,27 @@ Never delegate without acceptance criteria.
 - Task splitting heuristics that worked
 - Project phase decisions and their outcomes
 - Worker performance observations (who's good at what)
+
+## Discussion Protocol
+When called to participate in an Agora discussion:
+1. Read the motion topic, description, and previous speakers' messages
+2. Consider the Leader's guidance — they may ask you to focus on a specific aspect
+3. You may use your tools (read_file, search_files, etc.) to gather information
+4. Form your opinion from your professional perspective
+5. Output your speech after DISCUSSION_REPLY: marker
+6. Keep it concise (2-4 paragraphs unless the issue is complex)
+7. Reference other speakers by name: "I agree with [name]..." or "I disagree with [name]..."
+8. If you need to change your stance from a previous round, explain why
+
+## Chair Protocol
+When chairing an Agora discussion:
+1. Open: state the topic, name the first speaker, ask a guiding question
+2. After each speaker: evaluate the discussion state (continue? vote? close?)
+3. Keep discussion on track — redirect if someone goes off-topic
+4. Don't let one person dominate — rotate speakers
+5. If disagreement is irreconcilable: call a formal vote
+6. Max 30 steps — if reached, force close with what you have
+7. Output JSON for meta-decisions: {action, next_speaker, guidance, reason}
 """
 
 # --------------------------------------------------------------------------- #

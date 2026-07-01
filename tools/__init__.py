@@ -8,7 +8,6 @@ Tools:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from typing import Any
@@ -45,8 +44,18 @@ _RAISE_MOTION_SCHEMA = {
         },
         "participants": {
             "type": "array",
-            "items": {"type": "string", "enum": ["architect", "developer", "reviewer"]},
-            "description": "Which roles participate (default: all three)",
+            "items": { "type": "string" },
+            "description": "Worker profile names to participate (auto-detected from team if empty)",
+        },
+        "chair": {
+            "type": "string",
+            "description": "Worker profile name to act as chair (leader). If omitted, the system will auto-resolve from the project team.",
+            "default": "",
+        },
+        "max_steps": {
+            "type": "integer",
+            "default": 30,
+            "description": "Maximum discussion steps before the chair forces consensus",
         },
         "rounds": {
             "type": "integer",
@@ -95,7 +104,6 @@ _LIST_MOTIONS_SCHEMA = {
 def register_all_tools(ctx: Any) -> None:
     """Register all Agora tools and the /agora slash command."""
     from ..agora.storage import motions as db
-    from ..agora.discussion.driver import DiscussionDriver
 
     # --- Tool: agora_raise_motion ---
     async def _raise_motion_handler(args: dict, **kwargs) -> dict:
@@ -107,7 +115,7 @@ def register_all_tools(ctx: Any) -> None:
         schema=_RAISE_MOTION_SCHEMA,
         handler=_raise_motion_handler,
         is_async=True,
-        description="Raise a motion for team discussion. The LLM-driven discussion engine will simulate architect/developer/reviewer debate and produce action items.",
+        description="Raise a motion for team discussion. Creates the motion and returns the motion_id. The discussion is triggered by the leader heartbeat or the plugin API.",
         emoji="🏛️",
     )
 
@@ -245,14 +253,21 @@ def register_all_tools(ctx: Any) -> None:
 # ---------------------------------------------------------------------------
 
 async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
-    """Handle agora_raise_motion — create motion and run discussion."""
+    """Handle agora_raise_motion — create a motion for team discussion.
+
+    In v2.0, this tool only CREATES the motion. The discussion driver is
+    spawned separately (by the Leader heartbeat or the Dashboard API).
+    The calling agent can continue working — it will see the discussion
+    result in its MEMORY.md when the discussion completes.
+    """
     from ..agora.storage import motions as db
-    from ..agora.discussion.driver import DiscussionDriver
     title = args.get("title", "")
     description = args.get("description", "")
     context = args.get("context", "")
     blocking = args.get("blocking", False)
     participants = args.get("participants")
+    chair = args.get("chair", "")
+    max_steps = args.get("max_steps", 30)
     rounds = args.get("rounds", 3)
     template_name = args.get("template")
 
@@ -264,7 +279,6 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
             if template:
                 if not participants:
                     participants = template.get("participants")
-                rounds = template.get("rounds", rounds)
                 suffix = template.get("prompt_suffix", "")
                 if suffix:
                     description = f"{description}\n\n{suffix}".strip()
@@ -276,6 +290,31 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     source_profile = ctx.profile_name if hasattr(ctx, "profile_name") else "default"
     source = "agent" if source_task_id else "user"
 
+    # Try to auto-resolve participants and chair from the project team
+    if not participants or not chair:
+        try:
+            from ..agora.team_manager import get_team_for_project
+            # Try to find the project from the source task
+            from hermes_cli import kanban_db
+            conn = kanban_db.connect()
+            try:
+                if source_task_id:
+                    task = kanban_db.get_task(conn, source_task_id)
+                    if task and task.tenant:
+                        team = get_team_for_project(task.tenant)
+                        if team:
+                            if not participants:
+                                participants = [w["name"] for w in team.get("workers", [])]
+                            if not chair:
+                                for w in team.get("workers", []):
+                                    if w.get("role") == "leader":
+                                        chair = w["name"]
+                                        break
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
     # Create the motion
     motion = db.create_motion(
         title=title,
@@ -286,6 +325,8 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         source_profile=source_profile,
         blocking=blocking,
         participants=participants,
+        chair=chair,
+        max_steps=max_steps,
     )
 
     motion_id = motion["id"]
@@ -307,65 +348,17 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         except Exception as exc:
             logger.warning("Failed to block source task: %s", exc)
 
-    # Run the discussion asynchronously
-    driver = DiscussionDriver(
-        ctx,
-        max_rounds=rounds,
-        role_models=_load_role_models(ctx),
-        role_profiles=_load_role_profiles(ctx),
-    )
-
-    # For non-blocking, run in background with error handling.
-    # In CLI/chat mode the event loop exits after the tool returns,
-    # so background tasks are silently dropped. Detect this by checking
-    # if the running loop is the _run_async bridge (transient).
-    if not blocking:
-        _run_in_background = False
-        try:
-            loop = asyncio.get_running_loop()
-            # Gateway runs a persistent asyncio loop. CLI chat -q uses
-            # _run_async which creates a throwaway loop. Detect by checking
-            # if there are other pending tasks (gateway has many).
-            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
-            _run_in_background = len(pending) > 3  # gateway has many tasks
-        except RuntimeError:
-            pass  # no running loop at all
-
-        if _run_in_background:
-            _start_background_discussion(driver, motion_id)
-            return {
-                "motion_id": motion_id,
-                "title": title,
-                "status": "discussing",
-                "message": "Discussion started in background. Use agora_get_result to check outcome.",
-                "participants": participants or ["architect", "developer", "reviewer"],
-            }
-        # CLI mode — run synchronously (blocking) to completion
-        result = await driver.run(motion_id)
-        return {
-            "motion_id": motion_id,
-            "title": title,
-            "status": "closed",
-            "decision": result.decision,
-            "summary": result.summary,
-            "action_items": result.action_items,
-            "confidence": result.confidence,
-            "created_tasks": result.created_tasks,
-            "rounds_completed": result.rounds_completed,
-        }
-
-    # For blocking, run synchronously and return the result
-    result = await driver.run(motion_id)
     return {
         "motion_id": motion_id,
         "title": title,
-        "status": "closed",
-        "decision": result.decision,
-        "summary": result.summary,
-        "action_items": result.action_items,
-        "confidence": result.confidence,
-        "created_tasks": result.created_tasks,
-        "rounds_completed": result.rounds_completed,
+        "status": "discussing",
+        "chair": chair or "(unassigned — will be resolved by leader heartbeat)",
+        "participants": participants or ["architect", "developer", "reviewer"],
+        "max_steps": max_steps,
+        "message": (
+            "Motion created. The discussion will be triggered by the leader "
+            "heartbeat or the plugin API. Use agora_get_result to check the outcome."
+        ),
     }
 
 
@@ -379,7 +372,6 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         /agora result <motion_id>    — show discussion result
     """
     from ..agora.storage import motions as db
-    from ..agora.discussion.driver import DiscussionDriver
     parts = raw_args.strip().split(None, 1)
     if not parts:
         return (
@@ -398,7 +390,8 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         if not arg:
             return "Usage: `/agora discuss <topic>`"
 
-        # Create motion and run discussion
+        # Create motion — discussion will be triggered by leader heartbeat
+        # or plugin API, not here.
         motion = db.create_motion(
             title=arg,
             description="",
@@ -407,15 +400,17 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         )
         motion_id = motion["id"]
 
-        # In slash command context, we can't run async discussion directly.
-        # Create the motion and instruct the user to start it.
+        chair = motion.get("chair", "")
+        participants = motion.get("participants", ["architect", "developer", "reviewer"])
+
         return (
             f"🏛️ Discussion created: **{arg}**\n"
             f"Motion ID: `{motion_id}`\n"
-            f"Participants: architect, developer, reviewer\n"
-            f"Rounds: 3\n\n"
+            f"Chair: {chair or '(unassigned)'}\n"
+            f"Participants: {', '.join(participants)}\n\n"
             f"To start the discussion, ask the agent:\n"
-            f"  \"Use agora_raise_motion to discuss: {arg}\""
+            f"  \"Use agora_raise_motion to discuss: {arg}\"\n"
+            f"Or trigger via the Dashboard API."
         )
 
     elif sub == "list":
@@ -482,129 +477,6 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
 
     else:
         return f"Unknown subcommand: `{sub}`. Try: discuss, list, show, result"
-
-
-# ---------------------------------------------------------------------------
-# Config helpers
-# ---------------------------------------------------------------------------
-
-def _load_role_models(ctx: Any) -> dict[str, str]:
-    """Read per-role model overrides from Hermes config.
-
-    Config shape::
-
-        plugins:
-          entries:
-            agora:
-              agora:
-                roles:
-                  architect:
-                    model: deepseekv4pro
-                  developer:
-                    model: astron-code-latest
-    """
-    try:
-        from hermes_cli.config import load_config
-        config = load_config() or {}
-        agora_cfg = (
-            config.get("plugins", {})
-            .get("entries", {})
-            .get("agora", {})
-            .get("agora", {})
-        )
-        roles = agora_cfg.get("roles", {})
-        return {
-            role: cfg["model"]
-            for role, cfg in roles.items()
-            if isinstance(cfg, dict) and cfg.get("model")
-        }
-    except Exception:
-        return {}
-
-
-def _load_role_profiles(ctx: Any) -> dict[str, str]:
-    """Read per-role profile overrides from Hermes config.
-
-    Config shape::
-
-        plugins:
-          entries:
-            agora:
-              agora:
-                roles:
-                  architect:
-                    profile: architect
-                  developer:
-                    profile: developer
-    """
-    try:
-        from hermes_cli.config import load_config
-        config = load_config() or {}
-        agora_cfg = (
-            config.get("plugins", {})
-            .get("entries", {})
-            .get("agora", {})
-            .get("agora", {})
-        )
-        roles = agora_cfg.get("roles", {})
-        return {
-            role: cfg["profile"]
-            for role, cfg in roles.items()
-            if isinstance(cfg, dict) and cfg.get("profile")
-        }
-    except Exception:
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# Background discussion runner — error callback + timeout
-# ---------------------------------------------------------------------------
-
-_DISCUSSION_TIMEOUT_SECONDS = 300  # 5 minutes max per discussion
-
-
-def _start_background_discussion(driver: Any, motion_id: str) -> None:
-    """Start a background discussion task with error handling and timeout.
-
-    Errors are logged and the motion is marked as closed with an error
-    status so the user can see something went wrong instead of polling
-    forever.
-    """
-    async def _run_with_guard():
-        from ..agora.storage import motions as db
-        try:
-            await asyncio.wait_for(
-                driver.run(motion_id),
-                timeout=_DISCUSSION_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            logger.error("Discussion %s timed out after %ds", motion_id, _DISCUSSION_TIMEOUT_SECONDS)
-            try:
-                db.update_motion_status(
-                    motion_id,
-                    status="closed",
-                    decision="no_consensus",
-                    rationale=f"Discussion timed out after {_DISCUSSION_TIMEOUT_SECONDS}s.",
-                )
-            except Exception:
-                pass
-        except Exception as exc:
-            logger.error("Background discussion %s failed: %s", motion_id, exc, exc_info=True)
-            try:
-                db.update_motion_status(
-                    motion_id,
-                    status="closed",
-                    decision="no_consensus",
-                    rationale=f"Discussion failed with error: {exc}",
-                )
-            except Exception:
-                pass
-
-    task = asyncio.create_task(_run_with_guard())
-    task.set_name(f"agora-discussion-{motion_id}")
-    # Prevent the task from being garbage-collected if the event loop
-    # doesn't hold a strong reference (rare but happens in some frameworks).
-    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
 
 # ---------------------------------------------------------------------------

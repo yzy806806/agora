@@ -121,6 +121,19 @@ def create_worker(
     except Exception as exc:
         return {"error": f"Failed to clone profile: {exc}"}
 
+    # Step 1b: Ensure config.yaml exists in the profile directory.
+    # Profiles without config.yaml fall back to DEFAULT_CONFIG (compression
+    # threshold=0.50, target_ratio=0.20 — too aggressive). Copy from root
+    # config so the profile inherits the user's actual settings.
+    profile_config = profile_dir / "config.yaml"
+    if not profile_config.exists():
+        try:
+            root_config = profiles_root.parent / "config.yaml"
+            if root_config.exists():
+                shutil.copy2(root_config, profile_config)
+        except Exception as exc:
+            logger.warning("Failed to copy config.yaml to profile %s: %s", name, exc)
+
     # Step 2: Write SOUL.md
     if template is not None:
         soul_path = profile_dir / "SOUL.md"
@@ -174,6 +187,7 @@ def create_worker(
         "profile_dir": str(profile_dir),
         "created_at": now_iso(),
         "projects": [],  # list of project names this worker participates in
+        "session_id": None,  # filled after first agent spawn, for --resume
     }
     _worker_file(name).write_text(json.dumps(worker_data, indent=2))
 
@@ -259,3 +273,26 @@ def list_workers() -> list[dict]:
 def list_available_templates() -> list[dict]:
     """List all role templates that can be used to create workers."""
     return list_templates()
+
+
+def update_worker_session(name: str, session_id: str) -> None:
+    """Update a worker's session_id for future --resume calls.
+
+    Called after each agent spawn so the next spawn reuses the same
+    conversation context (kanban tasks + discussion share one session).
+    """
+    wf = _worker_file(name)
+    if not wf.exists():
+        return
+    data = json.loads(wf.read_text())
+    data["session_id"] = session_id
+    wf.write_text(json.dumps(data, indent=2))
+
+
+def get_worker_session(name: str) -> str | None:
+    """Get a worker's current session_id (or None if never spawned)."""
+    wf = _worker_file(name)
+    if not wf.exists():
+        return None
+    data = json.loads(wf.read_text())
+    return data.get("session_id")

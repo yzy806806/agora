@@ -519,29 +519,154 @@ def create_agora_team(req: CreateTeamRequest):
 class StartDiscussionRequest(BaseModel):
     title: str = Field(..., description="Discussion topic")
     description: str = Field("", description="Detailed description")
-    rounds: int = Field(3, description="Max rounds")
+    participants: list[str] = Field(default=[], description="Worker profile names to participate")
+    chair: str = Field("", description="Leader profile name as chair (auto-detected if empty)")
+    project: str = Field("", description="Project name for team lookup")
+    max_steps: int = Field(30, description="Max discussion steps")
 
 @router.post("/motions")
 def start_discussion(req: StartDiscussionRequest):
-    """Create a motion. The actual discussion runs in agent context only
-    (needs ctx.llm), so this just creates the motion record and returns
-    instructions for starting it."""
+    """Create a motion and spawn the discussion driver as a background process.
+
+    The driver runs event-driven: chair opens → speakers speak → chair evaluates → repeat.
+    Each speaker is a real Hermes agent subprocess with full SOUL.md + MEMORY.md + tools.
+    """
     try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.storage import motions as db
+
+        # Auto-resolve participants from team if not specified
+        participants = req.participants
+        chair = req.chair
+        if not participants and req.project:
+            try:
+                from agora.team_manager import get_team_for_project
+                team = get_team_for_project(req.project)
+                if team:
+                    participants = [w["name"] for w in team.get("workers", [])]
+                    if not chair:
+                        # Find the leader in the team
+                        for w in team.get("workers", []):
+                            if w.get("role") == "leader":
+                                chair = w["name"]
+                                break
+            except Exception as exc:
+                logger.warning("Team lookup failed: %s", exc)
+
+        if not participants:
+            raise HTTPException(status_code=400, detail="No participants. Specify participants or provide a valid project with a team.")
+        if not chair:
+            raise HTTPException(status_code=400, detail="No chair specified. Provide chair or a project with a leader.")
+
+        # Get workdir from project
+        workdir = ""
+        if req.project:
+            try:
+                from agora.utils import get_registry_dir, safe_name
+                proj_file = get_registry_dir("projects") / f"{safe_name(req.project)}.json"
+                if proj_file.exists():
+                    import json as _json
+                    proj = _json.loads(proj_file.read_text())
+                    workdir = proj.get("workdir", "")
+            except Exception:
+                pass
+
         motion = db.create_motion(
             title=req.title,
             description=req.description,
-            max_rounds=req.rounds,
             source="user",
+            participants=participants,
+            chair=chair,
+            max_steps=req.max_steps,
         )
+
+        # Spawn the discussion driver as a background process
+        # The driver is a Python script that imports DiscussionDriver and runs it
+        try:
+            import subprocess as _sp
+            import os as _os
+            hermes_bin = None
+            try:
+                from agora.utils import find_hermes_binary
+                hermes_bin = find_hermes_binary()
+            except Exception:
+                pass
+
+            # Write a small runner script
+            runner_path = Path(_os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "agora" / "run_discussion.py"
+            runner_path.parent.mkdir(parents=True, exist_ok=True)
+            runner_path.write_text(f'''\
+#!/usr/bin/env python3
+"""Auto-generated discussion runner."""
+import sys
+sys.path.insert(0, "{str(Path(__file__).parent.parent)}")
+from agora.discussion.driver import DiscussionDriver
+driver = DiscussionDriver(
+    motion_id="{motion["id"]}",
+    chair_profile="{chair}",
+    participants={participants!r},
+    workdir="{workdir}",
+    project_name="{req.project}",
+    max_steps={req.max_steps},
+)
+result = driver.run()
+print(f"Discussion result: {{result.decision}} ({{result.steps_completed}} steps)")
+''')
+
+            # Spawn it in the background
+            log_path = Path(_os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "agora" / f"discussion_{motion['id']}.log"
+            log_fd = open(log_path, "a")
+            _sp.Popen(
+                ["python3", str(runner_path)],
+                stdout=log_fd,
+                stderr=log_fd,
+                start_new_session=True,
+                cwd=workdir or None,
+            )
+            logger.info("Discussion driver spawned for motion %s (log=%s)", motion["id"], log_path)
+        except Exception as exc:
+            logger.warning("Failed to spawn driver: %s (motion created, run manually)", exc)
+
         return {
             "motion_id": motion["id"],
             "title": req.title,
+            "chair": chair,
+            "participants": participants,
             "status": "discussing",
-            "message": f"Motion created. Use /agora discuss or agora_raise_motion to start the discussion.",
+            "state": motion.get("state", "discussing"),
+            "message": f"Motion created and discussion driver spawned. Chair: {chair}",
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("start_discussion failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/motions/{motion_id}/state")
+def get_discussion_state_endpoint(motion_id: str):
+    """Get the current event-driven discussion state."""
+    try:
+        from agora.storage import motions as db
+        motion = db.get_motion(motion_id)
+        if motion is None:
+            raise HTTPException(status_code=404, detail="Motion not found")
+        state = db.get_discussion_state(motion_id)
+        return {
+            "motion_id": motion_id,
+            "status": motion["status"],
+            "state": motion.get("state", "discussing"),
+            "step_count": motion.get("step_count", 0),
+            "max_steps": motion.get("max_steps", 30),
+            "chair": motion.get("chair", ""),
+            "next_speaker": state.get("next_speaker") if state else None,
+            "last_guidance": state.get("last_guidance") if state else None,
+            "last_action": state.get("last_action") if state else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -978,7 +1103,7 @@ class AddMessageRequest(BaseModel):
 
 @router.post("/motions/{motion_id}/messages")
 def add_motion_message(motion_id: str, req: AddMessageRequest):
-    """Add a human message to a discussion."""
+    """Add a human message to a discussion (human participation)."""
     try:
         from agora.storage import motions as db
         motion = db.get_motion(motion_id)
@@ -990,9 +1115,10 @@ def add_motion_message(motion_id: str, req: AddMessageRequest):
         db.add_message(
             motion_id=motion_id,
             role=req.role,
-            content=req.content,
-            round_num=motion.get("current_round", 0),
+            round_num=motion.get("step_count", 0),
             stance="neutral",
+            content=req.content,
+            step_type="human_input",
         )
         return {"status": "added", "motion_id": motion_id, "role": req.role}
     except HTTPException:

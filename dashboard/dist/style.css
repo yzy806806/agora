@@ -890,6 +890,16 @@
   background: rgba(59, 130, 246, 0.05);
 }
 
+.agora-message-chair {
+  border-left: 3px solid #8b5cf6;
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.agora-message-vote {
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.05);
+}
+
 .agora-discussion-input {
   margin-top: 0.5rem;
   display: flex;

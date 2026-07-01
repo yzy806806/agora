@@ -1,29 +1,39 @@
-"""LLM-driven discussion driver — the heart of Agora.
+"""Event-driven discussion driver for Agora v2.0.
 
-Uses ctx.llm (Hermes plugin LLM facade) to simulate a multi-role
-discussion. Each round, every participant role generates a response
-via the LLM. After max_rounds or early consensus, the discussion is
-closed with a structured summary and action items.
+Replaces the old round-robin ctx.llm.complete approach with:
+  - Real agent subprocess spawns (hermes -p <profile> chat -q)
+  - Leader as chair: opens, evaluates, redirects, calls votes, summarizes
+  - Event-driven flow: Leader picks next speaker dynamically
+  --resume preserves conversation context across kanban tasks and discussions
+  - Memory persistence: results written to each participant's MEMORY.md
 
-Action items are dispatched to the Hermes kanban board for execution
-by worker profiles.
+Flow:
+  1. Chair (Leader) opens → names first speaker + guidance
+  2. Speaker speaks (spawn agent with --resume) → message stored
+  3. Chair evaluates → continue? vote? close?
+  4. Repeat 2-3 until close or max_steps
+  5. (Optional) Vote: each participant votes → chair decides
+  6. Summary: chair generates action items + writes memory
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from ..storage import motions as db
-from .roles import (
-    CONSENSUS_CHECKER_PROMPT,
-    DEFAULT_ROLES,
-    ROLE_PROMPTS,
-    SUMMARIZER_PROMPT,
+from ..utils import get_global_root
+from .agent_spawn import spawn_agent_speak, spawn_chair_speak
+from .chair import (
+    CHAIR_EVALUATE_PROMPT,
+    CHAIR_OPENING_PROMPT,
+    CHAIR_SUMMARY_PROMPT,
+    CHAIR_VOTE_CALL_PROMPT,
+    build_speaker_prompt,
+    build_vote_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,264 +42,442 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DiscussionResult:
     """Outcome of a completed discussion."""
-
     motion_id: str
-    decision: str  # adopted / rejected / no_consensus
+    decision: str = ""
     summary: str = ""
-    consensus_points: list[str] = field(default_factory=list)
-    disagreements: list[str] = field(default_factory=list)
     action_items: list[dict] = field(default_factory=list)
     confidence: float = 0.0
-    unresolved: list[str] = field(default_factory=list)
-    rounds_completed: int = 0
-    created_tasks: list[str] = field(default_factory=list)  # kanban task IDs
+    steps_completed: int = 0
+    votes: list[dict] = field(default_factory=list)
+    created_tasks: list[str] = field(default_factory=list)
 
 
 class DiscussionDriver:
-    """Drive a multi-round LLM discussion for a motion.
+    """Drive an event-driven discussion using real agent subprocesses.
 
-    Usage::
-
-        driver = DiscussionDriver(ctx)
-        result = await driver.run(motion_id)
-
-    Per-role model/profile:
-        Set ``role_models`` or ``role_profiles`` to use different models
-        for each role. This requires the Hermes config to allow overrides::
-
-            plugins:
-              entries:
-                agora:
-                  llm:
-                    allow_model_override: true
-                    allow_profile_override: true
+    Each "speak" is a `hermes -p <profile> --yolo chat -q` subprocess.
+    Workers use --resume to keep conversation context across sessions.
+    The chair (Leader) makes meta-decisions as a stateless caller.
     """
 
     def __init__(
         self,
-        ctx: Any,  # PluginContext
-        max_rounds: int = 3,
-        consensus_threshold: float = 0.7,
-        auto_create_tasks: bool = True,
-        role_models: dict[str, str] | None = None,
-        role_profiles: dict[str, str] | None = None,
+        motion_id: str,
+        chair_profile: str,
+        participants: list[str],
+        workdir: str = "",
+        project_name: str = "",
+        max_steps: int = 30,
+        speak_timeout: int = 300,
+        chair_timeout: int = 120,
     ) -> None:
-        self.ctx = ctx
-        self.max_rounds = max_rounds
-        self.consensus_threshold = consensus_threshold
-        self.auto_create_tasks = auto_create_tasks
-        # Per-role model overrides, e.g. {"architect": "deepseekv4pro", ...}
-        self.role_models = role_models or {}
-        # Per-role profile overrides, e.g. {"architect": "architect", ...}
-        self.role_profiles = role_profiles or {}
-        # Cache for custom role prompts loaded from config
-        self._custom_prompts: dict[str, str] | None = None
+        self.motion_id = motion_id
+        self.chair_profile = chair_profile
+        self.participants = participants
+        self.workdir = workdir or None
+        self.project_name = project_name
+        self.max_steps = max_steps
+        self.speak_timeout = speak_timeout
+        self.chair_timeout = chair_timeout
 
-    def _get_role_prompt(self, role: str) -> str:
-        """Get the system prompt for a role.
+    def run(self) -> DiscussionResult:
+        """Run the full event-driven discussion.
 
-        Checks custom prompts from config first, then falls back to
-        built-in prompts (including EXTRA_ROLE_PROMPTS), then to architect.
+        Returns a DiscussionResult with the final state.
         """
-        # Lazy-load custom prompts from config
-        if self._custom_prompts is None:
-            self._custom_prompts = self._load_custom_role_prompts()
-
-        # Custom prompt from config takes priority
-        if role in self._custom_prompts:
-            return self._custom_prompts[role]
-
-        # Built-in prompts
-        all_prompts = {**ROLE_PROMPTS}
-        try:
-            from .roles import EXTRA_ROLE_PROMPTS
-            all_prompts.update(EXTRA_ROLE_PROMPTS)
-        except ImportError:
-            pass
-
-        return all_prompts.get(role, all_prompts.get("architect", ""))
-
-    def _load_custom_role_prompts(self) -> dict[str, str]:
-        """Load custom role prompts from Hermes config.
-
-        Config shape::
-
-            plugins:
-              entries:
-                agora:
-                  agora:
-                    custom_roles:
-                      pm: |
-                        You are a Product Manager...
-                      tester: |
-                        You are a Test Engineer...
-        """
-        try:
-            from hermes_cli.config import load_config
-            config = load_config() or {}
-            agora_cfg = (
-                config.get("plugins", {})
-                .get("entries", {})
-                .get("agora", {})
-                .get("agora", {})
-            )
-            custom = agora_cfg.get("custom_roles", {})
-            if isinstance(custom, dict):
-                return {k: v for k, v in custom.items() if isinstance(v, str)}
-        except Exception:
-            pass
-        return {}
-
-    async def run(self, motion_id: str) -> DiscussionResult:
-        """Run the full discussion for a motion.
-
-        This is the main entry point. It:
-        1. Fetches the motion
-        2. Runs N rounds of multi-role discussion via ctx.llm
-        3. Checks for early consensus
-        4. Generates a structured summary
-        5. Closes the motion
-        6. Creates kanban tasks from action items
-        7. Unblocks source task if blocking=True
-        """
-        motion = db.get_motion(motion_id)
+        motion = db.get_motion(self.motion_id)
         if motion is None:
-            raise ValueError(f"Motion {motion_id} not found")
+            raise ValueError(f"Motion {self.motion_id} not found")
 
         title = motion["title"]
         description = motion.get("description", "")
-        participants = motion.get("participants") or DEFAULT_ROLES
-        max_rounds = motion.get("max_rounds", self.max_rounds)
-
-        # Fetch source task body for context injection
         task_context = self._fetch_task_context(motion.get("source_task_id"))
 
         logger.info(
-            "Starting discussion: motion=%s title='%s' roles=%s rounds=%d",
-            motion_id, title, participants, max_rounds,
+            "Starting discussion: motion=%s title='%s' chair=%s participants=%s",
+            self.motion_id, title, self.chair_profile, self.participants,
         )
 
-        for round_num in range(1, max_rounds + 1):
-            db.increment_round(motion_id)
-            logger.info("Round %d/%d for motion=%s", round_num, max_rounds, motion_id)
+        db.update_motion_state(self.motion_id, "discussing")
 
-            # Each role speaks in order
-            for role in participants:
-                try:
-                    await self._role_speak(
-                        motion_id=motion_id,
-                        role=role,
-                        round_num=round_num,
-                        title=title,
-                        description=description,
-                        participants=participants,
-                        task_context=task_context,
-                    )
-                except Exception as exc:
-                    logger.error("Role %s failed in round %d: %s", role, round_num, exc)
-                    db.add_message(
-                        motion_id=motion_id,
-                        role=role,
-                        round_num=round_num,
-                        stance="neutral",
-                        content=f"[Error generating response: {exc}]",
-                    )
+        # --- Step 1: Chair opens ---
+        opening = self._chair_open(title, description, task_context)
+        if opening is None:
+            return self._abort("Chair failed to open")
 
-            # Check for early consensus (skip on last round)
-            if round_num < max_rounds:
-                consensus = await self._check_consensus(motion_id)
-                if consensus and consensus.get("confidence", 0) >= self.consensus_threshold:
-                    logger.info(
-                        "Early consensus at round %d (confidence=%.2f)",
-                        round_num, consensus["confidence"],
-                    )
-                    return await self._finalize(motion_id, round_num, decision="adopted")
+        db.save_discussion_state(
+            self.motion_id, "discussing",
+            next_speaker=opening.get("next_speaker"),
+            last_guidance=opening.get("guidance"),
+            last_action="continue",
+        )
 
-        # Max rounds reached
-        return await self._finalize(motion_id, max_rounds)
+        # --- Steps 2-N: speak → evaluate → repeat ---
+        step = 0
+        while step < self.max_steps:
+            step += 1
+            db.increment_step_count(self.motion_id)
 
-    async def _role_speak(
-        self,
-        motion_id: str,
-        role: str,
-        round_num: int,
-        title: str,
-        description: str,
-        participants: list[str],
-        task_context: str = "",
-    ) -> None:
-        """Have a single role generate and store a discussion message."""
-        # Build conversation history
-        history = self._build_history(motion_id)
+            state = db.get_discussion_state(self.motion_id)
+            if state is None:
+                break
 
-        # Build the user prompt
-        user_prompt = self._build_prompt(
-            role=role,
-            round_num=round_num,
+            speaker = state.get("next_speaker")
+            guidance = state.get("last_guidance", "")
+
+            if not speaker or speaker not in self.participants:
+                # Chair didn't name a valid speaker; try to recover
+                speaker = self.participants[step % len(self.participants)]
+
+            # 2a: Speaker speaks
+            logger.info("Step %d: %s speaks", step, speaker)
+            reply = self._speaker_speak(
+                speaker, title, description, guidance, task_context,
+            )
+            if not reply:
+                reply = f"[{speaker} could not respond]"
+
+            db.add_message(
+                motion_id=self.motion_id,
+                role=speaker,
+                round_num=step,
+                stance=self._infer_stance(reply),
+                content=reply,
+                step_type="speak",
+            )
+
+            # Check for human input injected mid-discussion
+            human_msgs = self._consume_human_inputs()
+            if human_msgs:
+                # Human messages are already in the DB; the chair will see them
+                logger.info("Human input injected at step %d", step)
+
+            # 2b: Chair evaluates
+            action = self._chair_evaluate(title)
+            if action is None:
+                # Chair failed; force close
+                logger.warning("Chair evaluation failed at step %d, forcing close", step)
+                break
+
+            db.add_message(
+                motion_id=self.motion_id,
+                role=self.chair_profile,
+                round_num=step,
+                stance="neutral",
+                content=action.get("reason", ""),
+                step_type="guidance",
+                is_chair=True,
+            )
+
+            next_action = action.get("action", "continue")
+            if next_action == "close":
+                logger.info("Chair called close at step %d", step)
+                break
+            elif next_action == "vote":
+                logger.info("Chair called vote at step %d", step)
+                self._run_voting(title)
+                break
+            else:  # continue
+                db.save_discussion_state(
+                    self.motion_id, "discussing",
+                    next_speaker=action.get("next_speaker"),
+                    last_guidance=action.get("guidance"),
+                    last_action="continue",
+                )
+
+        # --- Finalize: summary + memory ---
+        return self._finalize(title, motion)
+
+    # ------------------------------------------------------------------ #
+    #  Chair calls                                                       #
+    # ------------------------------------------------------------------ #
+
+    def _chair_open(
+        self, title: str, description: str, task_context: str,
+    ) -> dict | None:
+        """Chair opens the discussion."""
+        prompt = CHAIR_OPENING_PROMPT.format(
             title=title,
             description=description,
-            participants=participants,
+            participants=", ".join(self.participants),
+            task_context=task_context or "(none)",
+        )
+        result = spawn_chair_speak(
+            self.chair_profile, prompt,
+            workdir=self.workdir,
+            timeout=self.chair_timeout,
+        )
+        if result.get("error"):
+            logger.error("Chair open failed: %s", result["error"])
+            return None
+
+        data = _parse_json(result["reply"])
+        if data is None:
+            logger.error("Chair open returned non-JSON: %s", result["reply"][:200])
+            return None
+
+        # Store the opening as a chair message
+        db.add_message(
+            motion_id=self.motion_id,
+            role=self.chair_profile,
+            round_num=0,
+            stance="neutral",
+            content=data.get("opening", ""),
+            step_type="opening",
+            is_chair=True,
+        )
+        return data
+
+    def _chair_evaluate(self, title: str) -> dict | None:
+        """Chair evaluates the discussion after each speaker."""
+        history = self._build_history()
+        prompt = CHAIR_EVALUATE_PROMPT.format(
+            title=title,
+            participants=", ".join(self.participants),
+            discussion_history=history,
+        )
+        result = spawn_chair_speak(
+            self.chair_profile, prompt,
+            workdir=self.workdir,
+            timeout=self.chair_timeout,
+        )
+        if result.get("error"):
+            logger.error("Chair evaluate failed: %s", result["error"])
+            return None
+
+        data = _parse_json(result["reply"])
+        if data is None:
+            logger.warning("Chair evaluate returned non-JSON, defaulting to close")
+            return {"action": "close", "reason": "Chair returned non-JSON, forcing close"}
+        return data
+
+    # ------------------------------------------------------------------ #
+    #  Speaker calls                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _speaker_speak(
+        self, speaker: str, title: str, description: str,
+        guidance: str, task_context: str,
+    ) -> str:
+        """Spawn a worker agent to speak in the discussion."""
+        history = self._build_history()
+        prompt = build_speaker_prompt(
+            role=speaker,
+            title=title,
+            description=description,
+            discussion_history=history,
+            guidance=guidance,
             task_context=task_context,
         )
 
-        messages = history + [{"role": "user", "content": user_prompt}]
+        # Get the worker's session_id for --resume
+        session_id = self._get_worker_session(speaker)
 
-        # Get the system prompt for this role
-        system_prompt = self._get_role_prompt(role)
-
-        # Call LLM via ctx.llm — with per-role model/profile override
-        llm_kwargs: dict[str, Any] = {
-            "temperature": 0.4,
-            "max_tokens": 1024,
-            "purpose": f"agora-discussion-{role}-r{round_num}",
-        }
-        if role in self.role_models:
-            llm_kwargs["model"] = self.role_models[role]
-        if role in self.role_profiles:
-            llm_kwargs["profile"] = self.role_profiles[role]
-
-        result = await asyncio.to_thread(
-            self.ctx.llm.complete,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                *messages,
-            ],
-            **llm_kwargs,
+        result = spawn_agent_speak(
+            profile_name=speaker,
+            prompt=prompt,
+            session_id=session_id,
+            workdir=self.workdir,
+            timeout=self.speak_timeout,
         )
 
-        response_text = result.text.strip()
-        stance = self._infer_stance(response_text)
+        # Save the new session_id for future --resume
+        if result.get("session_id"):
+            self._update_worker_session(speaker, result["session_id"])
 
-        # Store the message
-        db.add_message(
-            motion_id=motion_id,
-            role=role,
-            round_num=round_num,
-            stance=stance,
-            content=response_text,
+        return result.get("reply", "")
+
+    # ------------------------------------------------------------------ #
+    #  Voting                                                            #
+    # ------------------------------------------------------------------ #
+
+    def _run_voting(self, title: str) -> list[dict]:
+        """Run a formal vote. Each participant votes, then chair decides."""
+        db.update_motion_state(self.motion_id, "voting")
+
+        # Chair announces the vote
+        history = self._build_history()
+        vote_call = CHAIR_VOTE_CALL_PROMPT.format(
+            title=title,
+            discussion_history=history[:3000],
         )
+        call_result = spawn_chair_speak(
+            self.chair_profile, vote_call,
+            workdir=self.workdir,
+            timeout=self.chair_timeout,
+        )
+        if call_result.get("reply"):
+            db.add_message(
+                motion_id=self.motion_id,
+                role=self.chair_profile,
+                round_num=0,
+                stance="neutral",
+                content=call_result["reply"],
+                step_type="vote_call",
+                is_chair=True,
+            )
+
+        # Each participant votes (serial)
+        votes = []
+        for participant in self.participants:
+            vote_prompt = build_vote_prompt(participant, title, history)
+            session_id = self._get_worker_session(participant)
+
+            result = spawn_agent_speak(
+                profile_name=participant,
+                prompt=vote_prompt,
+                session_id=session_id,
+                workdir=self.workdir,
+                timeout=min(self.speak_timeout, 120),
+            )
+
+            if result.get("session_id"):
+                self._update_worker_session(participant, result["session_id"])
+
+            vote_data = _parse_json(result.get("reply", ""))
+            if vote_data is None:
+                vote_data = {"vote": "abstain", "reason": "No clear vote"}
+
+            vote = vote_data.get("vote", "abstain")
+            reason = vote_data.get("reason", "")
+
+            db.add_vote(
+                motion_id=self.motion_id,
+                role=participant,
+                vote=vote,
+                reason=reason,
+            )
+            votes.append({"role": participant, "vote": vote, "reason": reason})
+
+            db.add_message(
+                motion_id=self.motion_id,
+                role=participant,
+                round_num=0,
+                stance=vote,
+                content=f"Vote: {vote} — {reason}",
+                step_type="vote",
+            )
+
+        logger.info("Voting complete: %s", votes)
+        return votes
+
+    # ------------------------------------------------------------------ #
+    #  Finalize                                                          #
+    # ------------------------------------------------------------------ #
+
+    def _finalize(self, title: str, motion: dict) -> DiscussionResult:
+        """Generate summary, create tasks, write memory, close motion."""
+        db.update_motion_state(self.motion_id, "summarizing")
+
+        history = self._build_history()
+        votes = db.get_votes(self.motion_id)
+        vote_summary = ""
+        if votes:
+            vote_lines = [f"  {v['role']}: {v['vote']} — {v.get('reason', '')}" for v in votes]
+            vote_summary = "## Votes\n" + "\n".join(vote_lines)
+
+        prompt = CHAIR_SUMMARY_PROMPT.format(
+            title=title,
+            discussion_history=history[:6000],
+            vote_summary=vote_summary,
+            participants=", ".join(self.participants),
+        )
+
+        result = spawn_chair_speak(
+            self.chair_profile, prompt,
+            workdir=self.workdir,
+            timeout=self.chair_timeout,
+        )
+
+        summary_data: dict[str, Any] = {}
+        if result.get("reply"):
+            summary_data = _parse_json(result["reply"]) or {}
+
+        if not summary_data:
+            summary_data = {
+                "summary": f"Discussion completed after {motion.get('step_count', 0)} steps.",
+                "action_items": [],
+                "confidence": 0.5,
+                "decision": "no_consensus",
+            }
+
+        decision = summary_data.get("decision", "no_consensus")
+        action_items = summary_data.get("action_items", [])
+        action_item_strings = [
+            ai.get("item", str(ai)) if isinstance(ai, dict) else str(ai)
+            for ai in action_items
+        ]
+
+        # Close the motion
+        db.update_motion_status(
+            self.motion_id,
+            status="closed",
+            decision=decision,
+            rationale=summary_data.get("summary", ""),
+            action_items=action_item_strings,
+        )
+        db.update_motion_state(self.motion_id, "closed")
+
+        # Create kanban tasks from action items
+        created_tasks: list[str] = []
+        if action_items:
+            created_tasks = self._create_kanban_tasks(
+                motion_id=self.motion_id,
+                title=title,
+                action_items=action_items,
+                source_task_id=motion.get("source_task_id"),
+            )
+
+        # Write memory to each participant
+        self._write_participant_memories(title, summary_data, votes)
 
         logger.info(
-            "Role %s spoke in round %d (stance=%s len=%d)",
-            role, round_num, stance, len(response_text),
+            "Discussion finalized: motion=%s decision=%s tasks=%d",
+            self.motion_id, decision, len(created_tasks),
         )
 
-    def _build_history(self, motion_id: str) -> list[dict[str, str]]:
-        """Build LLM message history from stored discussion messages."""
-        stored = db.get_messages(motion_id)
-        history: list[dict[str, str]] = []
-        for msg in stored:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            round_num = msg.get("round_num", 1)
-            history.append({
-                "role": "user",
-                "content": f"[{role} (Round {round_num})]: {content}",
-            })
-        return history
+        return DiscussionResult(
+            motion_id=self.motion_id,
+            decision=decision,
+            summary=summary_data.get("summary", ""),
+            action_items=action_items,
+            confidence=summary_data.get("confidence", 0.0),
+            steps_completed=motion.get("step_count", 0),
+            votes=votes,
+            created_tasks=created_tasks,
+        )
+
+    # ------------------------------------------------------------------ #
+    #  Helpers                                                           #
+    # ------------------------------------------------------------------ #
+
+    def _build_history(self) -> str:
+        """Build a text summary of all messages so far."""
+        messages = db.get_messages(self.motion_id)
+        if not messages:
+            return "(no messages yet)"
+        lines = []
+        for msg in messages:
+            speaker = msg.get("role", "?")
+            chair_tag = " [Chair]" if msg.get("is_chair") else ""
+            step_type = msg.get("step_type", "speak")
+            content = msg.get("content", "")[:500]
+            lines.append(f"[{speaker}{chair_tag} ({step_type})]: {content}")
+        return "\n\n".join(lines)
+
+    def _infer_stance(self, text: str) -> str:
+        """Simple heuristic to infer stance from response text."""
+        lower = text.lower()
+        support = sum(1 for s in ["agree", "support", "recommend", "endorse", "approve"] if s in lower)
+        oppose = sum(1 for s in ["disagree", "oppose", "reject", "concern", "risk"] if s in lower)
+        if support > oppose + 1:
+            return "support"
+        elif oppose > support + 1:
+            return "oppose"
+        return "neutral"
 
     def _fetch_task_context(self, source_task_id: str | None) -> str:
-        """Fetch the source kanban task body for context injection."""
+        """Fetch the source kanban task body for context."""
         if not source_task_id:
             return ""
         try:
@@ -305,233 +493,108 @@ class DiscussionDriver:
             logger.debug("Failed to fetch task context: %s", exc)
         return ""
 
-    def _build_prompt(
-        self,
-        role: str,
-        round_num: int,
-        title: str,
-        description: str,
-        participants: list[str],
-        task_context: str = "",
-    ) -> str:
-        """Build the prompt that triggers the role's response."""
-        parts = [f"## Motion: {title}"]
-        if description:
-            parts.append(f"## Description\n{description}")
-        if task_context:
-            parts.append(f"## Task Context\n{task_context[:2000]}")
-        parts.append(f"## Round {round_num}")
-        if round_num == 1:
-            parts.append(
-                f"You are the **{role}**. This is the opening round. "
-                f"Provide your initial perspective on this motion."
-            )
-        else:
-            parts.append(
-                f"You are the **{role}**. Review the previous rounds above. "
-                f"Build on points you agree with, counter those you disagree with, "
-                f"and refine your position."
-            )
-        return "\n\n".join(parts)
-
-    def _infer_stance(self, text: str) -> str:
-        """Simple heuristic to infer stance from response text."""
-        lower = text.lower()
-        support = sum(1 for s in ["agree", "support", "recommend", "endorse", "approve"] if s in lower)
-        oppose = sum(1 for s in ["disagree", "oppose", "reject", "concern", "risk"] if s in lower)
-        if support > oppose + 1:
-            return "support"
-        elif oppose > support + 1:
-            return "oppose"
-        return "neutral"
-
-    async def _check_consensus(self, motion_id: str) -> dict | None:
-        """Use LLM to check if consensus has been reached."""
-        messages = db.get_messages(motion_id)
-        if len(messages) < 3:
+    def _get_worker_session(self, worker_name: str) -> str | None:
+        """Get a worker's session_id from the registry."""
+        try:
+            from ..worker_manager import get_worker_session
+            return get_worker_session(worker_name)
+        except Exception:
             return None
 
-        discussion_text = "\n".join(
-            f"[{m['role']} R{m['round_num']}]: {m['content'][:500]}"
-            for m in messages
-        )
-
+    def _update_worker_session(self, worker_name: str, session_id: str) -> None:
+        """Update a worker's session_id in the registry."""
         try:
-            result = await asyncio.to_thread(
-                self.ctx.llm.complete,
-                messages=[
-                    {"role": "system", "content": CONSENSUS_CHECKER_PROMPT},
-                    {"role": "user", "content": discussion_text},
-                ],
-                temperature=0.0,
-                max_tokens=256,
-                purpose="agora-consensus-check",
-            )
-            return _parse_json(result.text)
+            from ..worker_manager import update_worker_session
+            update_worker_session(worker_name, session_id)
         except Exception as exc:
-            logger.debug("Consensus check failed: %s", exc)
-            return None
+            logger.debug("Failed to update session for %s: %s", worker_name, exc)
 
-    async def _finalize(
-        self,
-        motion_id: str,
-        rounds_completed: int,
-        decision: str = "",
-    ) -> DiscussionResult:
-        """Generate summary, close motion, create tasks."""
-        motion = db.get_motion(motion_id)
-        messages = db.get_messages(motion_id)
+    def _consume_human_inputs(self) -> list[dict]:
+        """Check for human-injected messages since last step."""
+        # Human messages are added via the API with step_type="human_input"
+        # They're already in the DB, so _build_history will include them.
+        # This is a hook for future expansion (e.g. notifications).
+        messages = db.get_messages(self.motion_id)
+        return [m for m in messages if m.get("step_type") == "human_input"]
 
-        discussion_text = "\n".join(
-            f"[{m['role']} R{m['round_num']} ({m['stance']})]: {m['content']}"
-            for m in messages
-        )
+    def _write_participant_memories(
+        self, title: str, summary_data: dict, votes: list[dict],
+    ) -> None:
+        """Write discussion results to each participant's MEMORY.md."""
+        global_root = get_global_root()
 
-        # Generate structured summary via LLM
-        summary_data: dict[str, Any] = {}
+        for participant in self.participants:
+            try:
+                # Find the participant's profile directory
+                profile_dir = global_root / "profiles" / participant
+                if not profile_dir.exists():
+                    continue
+
+                memory_path = profile_dir / "MEMORY.md"
+                # Find this participant's stance
+                their_vote = next(
+                    (v for v in votes if v["role"] == participant), None
+                )
+                stance_desc = ""
+                if their_vote:
+                    stance_desc = f"My vote: {their_vote['vote']} — {their_vote.get('reason', '')}"
+
+                decision = summary_data.get("decision", "unknown")
+                summary_text = summary_data.get("summary", "")
+
+                entry = (
+                    f"\nAgora discussion ({self.motion_id}): \"{title}\"\n"
+                    f"  {stance_desc}\n"
+                    f"  Decision: {decision} — {summary_text[:150]}\n"
+                )
+                if len(entry) > 300:
+                    entry = entry[:297] + "...\n"
+
+                # Append to MEMORY.md
+                if memory_path.exists():
+                    current = memory_path.read_text()
+                    memory_path.write_text(current + entry)
+                else:
+                    memory_path.write_text(f"# {participant} Memory\n{entry}")
+
+                logger.info("Wrote memory for %s", participant)
+            except Exception as exc:
+                logger.warning("Failed to write memory for %s: %s", participant, exc)
+
+        # Write to chair's memory too
         try:
-            result = await asyncio.to_thread(
-                self.ctx.llm.complete,
-                messages=[
-                    {"role": "system", "content": SUMMARIZER_PROMPT},
-                    {"role": "user", "content": discussion_text},
-                ],
-                temperature=0.2,
-                max_tokens=1024,
-                purpose="agora-summary",
-            )
-            summary_data = _parse_json(result.text) or {}
+            profile_dir = global_root / "profiles" / self.chair_profile
+            if profile_dir.exists():
+                memory_path = profile_dir / "MEMORY.md"
+                vote_summary = ", ".join(
+                    f"{v['role']}={v['vote']}" for v in votes
+                ) if votes else "no vote"
+                entry = (
+                    f"\nAgora motion {self.motion_id} resolved: \"{title}\" → "
+                    f"{summary_data.get('decision', 'unknown')}\n"
+                    f"  Votes: {vote_summary}\n"
+                    f"  {len(summary_data.get('action_items', []))} action items created.\n"
+                )
+                if memory_path.exists():
+                    current = memory_path.read_text()
+                    memory_path.write_text(current + entry)
+                else:
+                    memory_path.write_text(f"# {self.chair_profile} Memory\n{entry}")
         except Exception as exc:
-            logger.warning("Summary generation failed: %s", exc)
-            summary_data = {
-                "summary": f"Discussion completed after {rounds_completed} rounds.",
-                "action_items": [],
-                "confidence": 0.5,
-            }
-
-        # Determine final decision
-        if not decision:
-            confidence = summary_data.get("confidence", 0.0)
-            if confidence >= self.consensus_threshold:
-                decision = "adopted"
-            elif confidence >= 0.4:
-                decision = "no_consensus"
-            else:
-                decision = "rejected"
-
-        # Extract action items
-        action_items = summary_data.get("action_items", [])
-        action_item_strings = [
-            ai.get("item", str(ai)) if isinstance(ai, dict) else str(ai)
-            for ai in action_items
-        ]
-
-        # Close the motion
-        db.update_motion_status(
-            motion_id,
-            status="closed",
-            decision=decision,
-            rationale=summary_data.get("summary", ""),
-            action_items=action_item_strings,
-        )
-
-        # Record per-role votes based on their stances in the discussion
-        participants = motion.get("participants") or DEFAULT_ROLES
-        self._record_votes(motion_id, decision, participants, messages)
-
-        # Create kanban tasks from action items
-        created_tasks: list[str] = []
-        if self.auto_create_tasks and action_items:
-            created_tasks = self._create_kanban_tasks(
-                motion_id=motion_id,
-                title=motion["title"],
-                action_items=action_items,
-                source_task_id=motion.get("source_task_id"),
-            )
-
-        # Write decision to Hermes memory so future sessions remember it.
-        # The kanban_task_completed hook also writes memory when a task
-        # finishes, but this ensures the decision is recorded even if
-        # no kanban tasks are created (e.g. motion rejected or no action items).
-        if decision == "adopted":
-            self._write_motion_memory(
-                motion_id=motion_id,
-                title=motion["title"],
-                rationale=summary_data.get("summary", ""),
-                action_items=action_item_strings,
-            )
-
-        # Write discussion result back to the source task body so the
-        # worker sees the decision immediately when it starts.
-        source_task_id = motion.get("source_task_id")
-        if source_task_id:
-            self._update_source_task_body(
-                source_task_id=source_task_id,
-                motion_id=motion_id,
-                decision=decision,
-                summary=summary_data.get("summary", ""),
-                action_items=action_item_strings,
-            )
-
-        # Unblock source task if blocking
-        if motion.get("blocking") and motion.get("source_task_id"):
-            self._unblock_source_task(
-                motion_id=motion_id,
-                source_task_id=motion["source_task_id"],
-                decision=decision,
-                summary=summary_data.get("summary", ""),
-            )
-
-        logger.info(
-            "Discussion finalized: motion=%s decision=%s confidence=%.2f tasks=%d",
-            motion_id, decision, summary_data.get("confidence", 0), len(created_tasks),
-        )
-
-        return DiscussionResult(
-            motion_id=motion_id,
-            decision=decision,
-            summary=summary_data.get("summary", ""),
-            consensus_points=summary_data.get("consensus_points", []),
-            disagreements=summary_data.get("disagreements", []),
-            action_items=action_items,
-            confidence=summary_data.get("confidence", 0.0),
-            unresolved=summary_data.get("unresolved", []),
-            rounds_completed=rounds_completed,
-            created_tasks=created_tasks,
-        )
-
-    def _get_project_name(self) -> str | None:
-        """Get the project name associated with this discussion driver."""
-        if hasattr(self, "project_name") and self.project_name:
-            return self.project_name
-        return None
+            logger.warning("Failed to write chair memory: %s", exc)
 
     def _create_kanban_tasks(
-        self,
-        motion_id: str,
-        title: str,
-        action_items: list[Any],
-        source_task_id: str | None = None,
+        self, motion_id: str, title: str,
+        action_items: list, source_task_id: str | None,
     ) -> list[str]:
-        """Create kanban tasks from discussion action items.
-
-        Action items may carry a ``depends_on`` field (list of 1-based
-        indices into the action_items list) that establishes parent-child
-        dependencies between tasks. A child task will be in ``todo`` status
-        until its parent (dependency) completes — the kanban dispatcher
-        handles this automatically.
-
-        If the summarizer didn't emit depends_on, all tasks are created
-        as siblings (no inter-task dependencies), which is the original
-        behavior.
-        """
+        """Create kanban tasks from discussion action items."""
         try:
             from hermes_cli import kanban_db
         except ImportError:
             logger.warning("kanban_db not available — skipping task creation")
             return []
 
-        created: dict[int, str] = {}  # index → task_id
+        created: dict[int, str] = {}
         conn = kanban_db.connect()
         try:
             for idx, ai in enumerate(action_items):
@@ -544,30 +607,25 @@ class DiscussionDriver:
                     owner = ""
                     depends_on = []
 
-                # Map owner role to a team member if a project team exists.
+                # Map owner to team member
                 assignee = owner if owner else None
-                project_name = self._get_project_name()
-                if owner and project_name:
+                if owner and self.project_name:
                     try:
-                        from agora.agora.team_manager import get_team_for_project, get_assignee_for_role
-                        team = get_team_for_project(project_name)
+                        from ..team_manager import get_team_for_project, get_assignee_for_role
+                        team = get_team_for_project(self.project_name)
                         if team:
                             picked = get_assignee_for_role(team["name"], owner)
                             if picked:
                                 assignee = picked
                     except Exception:
-                        pass  # fall back to raw owner
+                        pass
 
-                # Resolve dependencies to previously-created task IDs.
-                # depends_on uses 1-based indices into action_items.
                 parent_ids: list[str] = []
                 for dep in depends_on:
                     dep_idx = dep - 1 if isinstance(dep, int) else None
                     if dep_idx is not None and dep_idx in created:
                         parent_ids.append(created[dep_idx])
 
-                # If no intra-action-item deps, link to the source task
-                # (if any) so the motion's originating task is the parent.
                 if not parent_ids and source_task_id:
                     parent_ids = [source_task_id]
 
@@ -578,18 +636,14 @@ class DiscussionDriver:
                         f"From Agora discussion: {title}\n"
                         f"Motion: {motion_id}\n"
                         f"Action item {idx + 1}/{len(action_items)}: {item_title}"
-                        + (f"\nDepends on: {parent_ids}" if parent_ids else "")
                     ),
                     assignee=assignee,
                     workspace_kind="scratch",
                     parents=parent_ids,
-                    tenant=project_name if project_name else None,
+                    tenant=self.project_name if self.project_name else None,
                 )
                 created[idx] = task_id
-                logger.info(
-                    "Created kanban task %s for action item %d: %s (deps=%s)",
-                    task_id, idx + 1, item_title[:80], parent_ids,
-                )
+                logger.info("Created kanban task %s: %s", task_id, item_title[:80])
         except Exception as exc:
             logger.error("Failed to create kanban tasks: %s", exc)
         finally:
@@ -597,169 +651,12 @@ class DiscussionDriver:
 
         return list(created.values())
 
-    def _record_votes(
-        self,
-        motion_id: str,
-        decision: str,
-        participants: list[str],
-        messages: list[dict],
-    ) -> None:
-        """Record per-role votes based on their last stance in the discussion."""
-        # Find each role's last message and infer their vote
-        last_by_role: dict[str, dict] = {}
-        for msg in messages:
-            role = msg.get("role", "")
-            last_by_role[role] = msg
-
-        for role in participants:
-            msg = last_by_role.get(role)
-            if not msg:
-                continue
-            stance = msg.get("stance", "neutral")
-            # Map stance to vote
-            if stance == "support":
-                vote = "adopt"
-                confidence = 0.8
-            elif stance == "oppose":
-                vote = "reject"
-                confidence = 0.7
-            else:
-                vote = "abstain"
-                confidence = 0.5
-            try:
-                db.add_vote(
-                    motion_id=motion_id,
-                    role=role,
-                    vote=vote,
-                    reason=f"Stance: {stance}",
-                    confidence=confidence,
-                )
-            except Exception as exc:
-                logger.debug("Failed to record vote for %s: %s", role, exc)
-
-    def _update_source_task_body(
-        self,
-        source_task_id: str,
-        motion_id: str,
-        decision: str,
-        summary: str,
-        action_items: list[str],
-    ) -> None:
-        """Append discussion result to the source kanban task body."""
-        try:
-            from hermes_cli import kanban_db
-        except ImportError:
-            return
-
-        try:
-            conn = kanban_db.connect()
-            try:
-                task = kanban_db.get_task(conn, source_task_id)
-                if not task:
-                    return
-                append = (
-                    f"\n\n--- Agora Discussion Result ---\n"
-                    f"Motion: {motion_id}\n"
-                    f"Decision: {decision}\n"
-                    f"Summary: {summary}\n"
-                )
-                if action_items:
-                    append += "Action items:\n"
-                    for ai in action_items:
-                        append += f"  - {ai}\n"
-                # Update task body via add_comment (body is immutable in some versions)
-                try:
-                    kanban_db.add_comment(conn, source_task_id, append)
-                    conn.commit()
-                except Exception:
-                    logger.debug("add_comment failed for source task")
-            finally:
-                conn.close()
-        except Exception as exc:
-            logger.debug("Failed to update source task body: %s", exc)
-
-    def _write_motion_memory(
-        self,
-        motion_id: str,
-        title: str,
-        rationale: str,
-        action_items: list[str],
-    ) -> None:
-        """Write the discussion outcome to Hermes MEMORY.md.
-
-        This runs at finalize time so the decision is recorded immediately,
-        not waiting for kanban task completion. Uses MemoryStore.add()
-        directly — the same internal path as the memory tool.
-        """
-        try:
-            from tools.memory_tool import MemoryStore
-        except ImportError:
-            logger.debug("MemoryStore not available — skipping memory write")
-            return
-
-        try:
-            store = MemoryStore()
-            store.load_from_disk()
-
-            # Build a concise declarative memory entry.
-            items_str = ""
-            if action_items:
-                short_items = [ai[:80] for ai in action_items[:3]]
-                items_str = " | " + " ; ".join(short_items)
-
-            entry = f"Agora decision ({motion_id}): {title} → {rationale[:120]}{items_str}"
-            if len(entry) > 250:
-                entry = entry[:247] + "..."
-
-            result = store.add("memory", entry)
-            if result.get("success"):
-                logger.info("Agora memory entry written for motion %s", motion_id)
-            else:
-                logger.debug(
-                    "Memory write skipped for motion %s: %s",
-                    motion_id, result.get("error", ""),
-                )
-        except Exception as exc:
-            logger.debug("Failed to write memory for motion %s: %s", motion_id, exc)
-
-    def _unblock_source_task(
-        self,
-        motion_id: str,
-        source_task_id: str,
-        decision: str,
-        summary: str,
-    ) -> None:
-        """Unblock the source kanban task and write discussion result as comment."""
-        try:
-            from hermes_cli import kanban_db
-        except ImportError:
-            logger.warning("kanban_db not available — skipping unblock")
-            return
-
-        conn = kanban_db.connect()
-        try:
-            # Write discussion result as a comment
-            comment_text = (
-                f"[Agora Motion {motion_id}] Discussion completed: {decision}\n"
-                f"Summary: {summary}"
-            )
-            try:
-                kanban_db.add_comment(conn, source_task_id, comment_text)
-            except Exception:
-                logger.debug("add_comment failed (may not exist in this version)")
-
-            # Unblock the task
-            try:
-                kanban_db.unblock_task(conn, source_task_id)
-            except Exception as exc:
-                logger.debug("unblock_task failed: %s", exc)
-
-            conn.commit()
-            logger.info("Unblocked source task %s after motion %s", source_task_id, motion_id)
-        except Exception as exc:
-            logger.error("Failed to unblock source task: %s", exc)
-        finally:
-            conn.close()
+    def _abort(self, reason: str) -> DiscussionResult:
+        """Abort the discussion with an error."""
+        db.update_motion_status(self.motion_id, status="closed", decision="error")
+        db.update_motion_state(self.motion_id, "closed")
+        logger.error("Discussion aborted: %s", reason)
+        return DiscussionResult(motion_id=self.motion_id, decision="error")
 
 
 def _parse_json(text: str) -> dict | None:
@@ -769,7 +666,6 @@ def _parse_json(text: str) -> dict | None:
     # Strip markdown code blocks
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove first line (```json or ```) and last line (```)
         lines = [l for l in lines[1:] if not l.strip().startswith("```")]
         text = "\n".join(lines)
 

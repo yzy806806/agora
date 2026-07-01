@@ -3,7 +3,7 @@
   "label": "Agora",
   "description": "Multi-role self-driving team \u2014 projects, workers, leaders, discussions, human participation",
   "icon": "Landmark",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "tab": {
     "path": "/agora",
     "position": "after:kanban"
