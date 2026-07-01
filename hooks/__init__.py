@@ -1,10 +1,12 @@
 """Agora hooks — deeper Hermes integration via lifecycle callbacks.
 
 Hooks registered:
-  - kanban_task_completed  — when a worker finishes a task, check if it
-    originated from an Agora motion. If so, write the discussion result
-    back as a comment on the task and, if the motion was adopted, record
-    the decision in Hermes memory for future sessions.
+  - kanban_task_completed  — when a worker finishes a task:
+    1. Write the discussion result back as a comment on the task.
+    2. Write a concise memory entry for adopted decisions.
+    3. **Self-drive**: if the task belongs to an active Agora project and
+       no more pending tasks remain, spawn a planner agent to decide the
+       next development phase (raise a new motion → new tasks → loop).
 """
 from __future__ import annotations
 
@@ -17,11 +19,8 @@ logger = logging.getLogger(__name__)
 
 def register_hooks(ctx: Any) -> None:
     """Register Agora's lifecycle hooks with the Hermes plugin manager."""
-    # Kanban task completion hook — fires in the WORKER process after
-    # kanban_complete() commits. kwargs: task_id, board, assignee,
-    # run_id, summary, profile_name.
     ctx.register_hook("kanban_task_completed", _on_task_completed)
-    logger.info("Agora hook registered: kanban_task_completed")
+    logger.info("Agora hook registered: kanban_task_completed (with self-drive)")
 
 
 def _on_task_completed(
@@ -35,64 +34,66 @@ def _on_task_completed(
 ) -> None:
     """Callback for kanban_task_completed.
 
-    When a kanban task created by Agora completes, we:
-    1. Look up the originating motion (via source_task_id or task body).
-    2. If the motion is closed with decision=adopted, write the
-       discussion result as a kanban comment on the completed task.
-    3. Write a concise memory entry so future sessions remember the
-       decision and its rationale.
+    1. If the task originated from an Agora motion, write the discussion
+       result as a kanban comment and record in memory.
+    2. **Self-drive**: check if this task belongs to an active Agora-managed
+       project. If so and no pending tasks remain, spawn a planner.
     """
+    # --- Phase 1: Existing behavior — write motion result to task + memory ---
     try:
         from ..agora.storage import motions as db
     except ImportError:
-        return
+        db = None
 
-    # Find motions that reference this task as their source.
-    motion = _find_motion_for_task(task_id, db)
-    if motion is None:
-        return  # Not an Agora-originated task, nothing to do.
+    if db is not None:
+        motion = _find_motion_for_task(task_id, db)
+        if motion is not None and motion.get("status") == "closed":
+            decision = motion.get("decision", "")
+            rationale = motion.get("rationale", "")
+            action_items = motion.get("action_items", [])
+            motion_id = motion["id"]
+            title = motion["title"]
 
-    if motion.get("status") != "closed":
-        return  # Discussion still in progress.
+            _write_kanban_comment(
+                task_id=task_id,
+                motion_id=motion_id,
+                title=title,
+                decision=decision,
+                rationale=rationale,
+                action_items=action_items,
+            )
 
-    decision = motion.get("decision", "")
-    rationale = motion.get("rationale", "")
-    action_items = motion.get("action_items", [])
-    motion_id = motion["id"]
-    title = motion["title"]
+            if decision == "adopted":
+                _write_to_memory(
+                    motion_id=motion_id,
+                    title=title,
+                    rationale=rationale,
+                    action_items=action_items,
+                )
 
-    # 1. Write result as a kanban comment on the completed task.
-    _write_kanban_comment(
-        task_id=task_id,
-        motion_id=motion_id,
-        title=title,
-        decision=decision,
-        rationale=rationale,
-        action_items=action_items,
-    )
+            logger.info(
+                "Agora hook: task %s completed (motion %s, decision=%s)",
+                task_id, motion_id, decision,
+            )
 
-    # 2. Write to Hermes memory if the motion was adopted.
-    if decision == "adopted":
-        _write_to_memory(
-            motion_id=motion_id,
-            title=title,
-            rationale=rationale,
-            action_items=action_items,
-        )
-
-    logger.info(
-        "Agora hook: task %s completed (motion %s, decision=%s)",
-        task_id, motion_id, decision,
-    )
+    # --- Phase 2: Self-drive — trigger planner if project is active ---
+    try:
+        from ..project_planner import on_task_completed as _planner_hook
+        _planner_hook(task_id, board=board, assignee=assignee,
+                      run_id=run_id, summary=summary,
+                      profile_name=profile_name)
+    except Exception as exc:
+        logger.debug("Self-drive planner hook skipped: %s", exc)
 
 
+# ---------------------------------------------------------------------------
+# Motion → task comment + memory (existing behavior, unchanged)
 # ---------------------------------------------------------------------------
 
 
 def _find_motion_for_task(task_id: str, db_module: Any) -> dict | None:
     """Find a motion whose source_task_id matches the completed task."""
     try:
-        # List recent closed motions and match by source_task_id.
         motions = db_module.list_motions(status_filter="all", limit=100)
         for m in motions:
             if m.get("source_task_id") == task_id:
@@ -114,7 +115,6 @@ def _write_kanban_comment(
     try:
         from hermes_cli import kanban_db
     except ImportError:
-        logger.debug("kanban_db not available — skipping comment")
         return
 
     comment = (
@@ -145,31 +145,21 @@ def _write_to_memory(
     rationale: str,
     action_items: list[str],
 ) -> None:
-    """Write the discussion outcome to Hermes MEMORY.md.
-
-    Uses MemoryStore.add() directly — the same path the memory tool uses
-    internally. This means the entry appears in MEMORY.md and is injected
-    into the system prompt for future sessions.
-    """
+    """Write the discussion outcome to Hermes MEMORY.md."""
     try:
         from tools.memory_tool import MemoryStore
     except ImportError:
-        logger.debug("MemoryStore not available — skipping memory write")
         return
 
     try:
         store = MemoryStore()
         store.load_from_disk()
 
-        # Build a concise memory entry — declarative fact, not a log.
-        # Keep it short to stay within the char limit.
         items_str = ""
         if action_items:
-            # Take at most 3 items, truncated.
             short_items = [ai[:80] for ai in action_items[:3]]
             items_str = " | " + " ; ".join(short_items)
 
-        # Cap total length to ~200 chars to be a good memory citizen.
         entry = f"Agora decision ({motion_id}): {title} → {rationale[:120]}{items_str}"
         if len(entry) > 250:
             entry = entry[:247] + "..."

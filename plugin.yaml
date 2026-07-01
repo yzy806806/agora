@@ -1,6 +1,6 @@
 name: agora
-version: 0.3.0
-description: "Multi-role deliberation — architect/developer/reviewer discuss via LLM, reach consensus, dispatch tasks to kanban."
+version: 0.4.0
+description: "Multi-role deliberation + self-driving project development. Agora plans, discusses, and dispatches tasks autonomously."
 author: yzy806806
 kind: backend
 provides_tools:
@@ -8,5 +8,8 @@ provides_tools:
   - agora_get_messages
   - agora_get_result
   - agora_list_motions
+  - agora_start_project
+  - agora_stop_project
+  - agora_project_status
 provides_hooks:
   - kanban_task_completed

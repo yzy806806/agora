@@ -230,6 +230,9 @@ def register_all_tools(ctx: Any) -> None:
 
     logger.info("Registered 4 agora tools + /agora command")
 
+    # --- Self-drive project management tools ---
+    _register_project_tools(ctx)
+
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -596,3 +599,102 @@ def _start_background_discussion(driver: Any, motion_id: str) -> None:
     # Prevent the task from being garbage-collected if the event loop
     # doesn't hold a strong reference (rare but happens in some frameworks).
     task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+
+# ---------------------------------------------------------------------------
+# Self-drive project management tools
+# ---------------------------------------------------------------------------
+
+_START_PROJECT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Short project name (e.g. 'docmind')"},
+        "workdir": {"type": "string", "description": "Absolute path to the project repository"},
+        "goal": {"type": "string", "description": "High-level project goal", "default": ""},
+        "initial_topic": {"type": "string", "description": "First discussion topic. If empty, planner auto-generates.", "default": ""},
+        "max_rounds": {"type": "integer", "description": "Maximum planning rounds before stopping", "default": 10},
+    },
+    "required": ["name", "workdir"],
+}
+
+_STOP_PROJECT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Project name to stop"},
+    },
+    "required": ["name"],
+}
+
+_PROJECT_STATUS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Project name (empty = list all)", "default": ""},
+    },
+}
+
+
+def _register_project_tools(ctx: Any) -> None:
+    """Register self-drive project management tools."""
+
+    async def _start_project_handler(args: dict, **kwargs) -> dict:
+        from ..project_planner import start_project
+        name = args.get("name", "")
+        workdir = args.get("workdir", "")
+        goal = args.get("goal", "")
+        initial_topic = args.get("initial_topic", "")
+        max_rounds = args.get("max_rounds", 10)
+        profile = ctx.profile_name if hasattr(ctx, "profile_name") else "coder"
+        if not name or not workdir:
+            return {"error": "name and workdir are required"}
+        return start_project(
+            project_name=name, workdir=workdir, goal=goal,
+            initial_topic=initial_topic, profile=profile, max_rounds=max_rounds,
+        )
+
+    ctx.register_tool(
+        name="agora_start_project",
+        toolset="agora",
+        schema=_START_PROJECT_SCHEMA,
+        handler=_start_project_handler,
+        is_async=True,
+        description="Start a self-driving development project. Agora autonomously plans, discusses, and dispatches tasks until the goal is met.",
+        emoji="🚀",
+    )
+
+    async def _stop_project_handler(args: dict, **kwargs) -> dict:
+        from ..project_planner import stop_project
+        name = args.get("name", "")
+        if not name:
+            return {"error": "name is required"}
+        return stop_project(name)
+
+    ctx.register_tool(
+        name="agora_stop_project",
+        toolset="agora",
+        schema=_STOP_PROJECT_SCHEMA,
+        handler=_stop_project_handler,
+        is_async=True,
+        description="Stop a self-driving project.",
+        emoji="🛑",
+    )
+
+    def _project_status_handler(args: dict, **kwargs) -> dict:
+        from ..project_planner import get_project, list_projects
+        name = args.get("name", "")
+        if name:
+            data = get_project(name)
+            if data is None:
+                return {"error": f"Project '{name}' not found"}
+            return data
+        return {"projects": list_projects()}
+
+    ctx.register_tool(
+        name="agora_project_status",
+        toolset="agora",
+        schema=_PROJECT_STATUS_SCHEMA,
+        handler=_project_status_handler,
+        description="Check status of self-driving projects.",
+        emoji="📊",
+    )
+
+    logger.info("Registered 3 project management tools")
