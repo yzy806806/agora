@@ -378,13 +378,18 @@ def _find_project_for_task(task_id: str) -> str | None:
 
 
 def _has_pending_tasks() -> bool:
-    """Check if there are any todo/ready tasks on the kanban board."""
+    """Check if there are any todo/ready/running tasks on the kanban board.
+
+    Running tasks are included because a worker may still be executing —
+    we only want to spawn a planner when the board is truly empty of
+    in-flight or queued work.
+    """
     try:
         from hermes_cli import kanban_db
         conn = kanban_db.connect()
         try:
             rows = conn.execute(
-                "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready')"
+                "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running')"
             ).fetchone()
             return rows["n"] > 0
         finally:
