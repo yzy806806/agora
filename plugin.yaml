@@ -1,6 +1,6 @@
 name: agora
-version: 0.6.0
-description: "Multi-role deliberation + self-driving project development. Agora plans, discusses, and dispatches tasks autonomously."
+version: 0.7.0
+description: "Multi-role deliberation + self-driving project development. Worker profiles, teams, team leaders with heartbeat, and dashboard API."
 author: yzy806806
 kind: backend
 provides_tools:

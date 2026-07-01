@@ -243,13 +243,117 @@ def create_leader(
         "last_heartbeat_at": None,
         "last_heartbeat_pid": None,
         "status": "active",
+        "cron_job_id": None,  # set by _setup_cron_job
     }
     _leader_file(name).write_text(json.dumps(leader_data, indent=2))
 
-    logger.info("Leader '%s' created for project '%s' (heartbeat=%dm)",
-                name, project, heartbeat_minutes)
+    # Step 6: Create Hermes cron job for heartbeat
+    cron_id = _create_heartbeat_cron(name, heartbeat_minutes)
+    if cron_id:
+        leader_data["cron_job_id"] = cron_id
+        _leader_file(name).write_text(json.dumps(leader_data, indent=2))
+
+    logger.info("Leader '%s' created for project '%s' (heartbeat=%dm, cron=%s)",
+                name, project, heartbeat_minutes, cron_id)
 
     return {"status": "created", "leader": leader_data}
+
+
+def _create_heartbeat_cron(leader_name: str, minutes: int) -> str | None:
+    """Create a Hermes cron job that triggers heartbeat for a leader.
+
+    Uses --no-agent + --script mode: the script calls heartbeat(leader_name),
+    which spawns the leader agent. The cron job runs inside the gateway
+    process, so it works even when no external system is pinging.
+
+    Returns the cron job ID, or None on failure.
+    """
+    hermes = _hermes_bin()
+    schedule = f"every {minutes}m"
+    job_name = f"heartbeat-{leader_name}"
+    script_name = "leader_heartbeat.sh"
+
+    # Ensure the script exists and supports per-leader invocation
+    _ensure_heartbeat_script()
+
+    cmd = [
+        hermes, "cron", "create", schedule,
+        "--name", job_name,
+        "--no-agent",
+        "--script", script_name,
+        "--deliver", "local",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True, text=True, timeout=15,
+            env={**os.environ},
+        )
+        if result.returncode == 0:
+            # Extract job ID from output: "Created job: <id>"
+            for line in result.stdout.split("\n"):
+                if "Created job:" in line:
+                    job_id = line.split("Created job:")[1].strip().split()[0]
+                    logger.info("Cron job %s created for leader %s", job_id, leader_name)
+                    return job_id
+        logger.warning("Failed to create cron job: %s", result.stderr or result.stdout)
+    except Exception as exc:
+        logger.warning("Failed to create cron job: %s", exc)
+    return None
+
+
+def _ensure_heartbeat_script() -> None:
+    """Ensure the leader_heartbeat.sh script exists in ~/.hermes/scripts/.
+
+    The script wakes all active leaders. Individual leader cron jobs
+    all use the same script — the script itself decides who to wake
+    based on the leader registry.
+    """
+    try:
+        kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
+        if kanban_db:
+            scripts_dir = Path(kanban_db).parent / "scripts"
+        else:
+            scripts_dir = Path.home() / ".hermes" / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+
+        script_path = scripts_dir / "leader_heartbeat.sh"
+        if script_path.exists():
+            return  # already created
+
+        script_content = """#!/bin/bash
+# Leader heartbeat — called by Hermes cron scheduler.
+# Wakes ALL active leaders. Each leader follows its SOUL.md protocol.
+# To change a specific leader's interval: hermes cron edit <job_id> --schedule "30m"
+# To pause: hermes cron pause <job_name>
+# To resume: hermes cron resume <job_name>
+
+export HERMES_KANBAN_DB="${HERMES_KANBAN_DB:-/root/.hermes/kanban.db}"
+
+PYTHON=""
+for p in /home/ubuntu/.hermes/hermes-agent/venv/bin/python3 /root/.hermes/hermes-agent/venv/bin/python3 /usr/bin/python3; do
+    [ -x "$p" ] && PYTHON="$p" && break
+done
+[ -z "$PYTHON" ] && PYTHON=python3
+
+PLUGIN=""
+for d in /root/.hermes/profiles/coder/plugins/agora /root/.hermes/plugins/agora; do
+    [ -d "$d" ] && PLUGIN="$d" && break
+done
+
+$PYTHON -c "
+import sys, json, os
+sys.path.insert(0, os.environ.get('AGORA_PLUGIN_PATH', '$PLUGIN'))
+from agora.leader_loop import heartbeat
+result = heartbeat()
+print(json.dumps(result, indent=2))
+" 2>&1 | tail -10
+"""
+        script_path.write_text(script_content)
+        script_path.chmod(0o755)
+        logger.info("Heartbeat script created at %s", script_path)
+    except Exception as exc:
+        logger.warning("Failed to create heartbeat script: %s", exc)
 
 
 def remove_leader(name: str, delete_profile: bool = True) -> dict:
@@ -259,6 +363,11 @@ def remove_leader(name: str, delete_profile: bool = True) -> dict:
         return {"error": f"Leader '{name}' not found"}
 
     data = json.loads(lf.read_text())
+
+    # Remove cron job if exists
+    cron_id = data.get("cron_job_id")
+    if cron_id:
+        _remove_heartbeat_cron(cron_id)
 
     if delete_profile:
         hermes = _hermes_bin()
@@ -328,3 +437,49 @@ def _patch_config_model(config_path: Path, model: str) -> None:
             config_path.write_text(new_content)
     except Exception as exc:
         logger.warning("Failed to patch model: %s", exc)
+
+
+def _remove_heartbeat_cron(cron_id: str) -> None:
+    """Remove a Hermes cron job by ID."""
+    hermes = _hermes_bin()
+    try:
+        subprocess.run(
+            [hermes, "cron", "remove", cron_id],
+            capture_output=True, text=True, timeout=10,
+        )
+        logger.info("Cron job %s removed", cron_id)
+    except Exception as exc:
+        logger.warning("Failed to remove cron job %s: %s", cron_id, exc)
+
+
+def update_heartbeat_schedule(name: str, minutes: int) -> dict:
+    """Update the heartbeat interval for a leader.
+
+    This edits the Hermes cron job's schedule.
+    """
+    leader = get_leader(name)
+    if leader is None:
+        return {"error": f"Leader '{name}' not found"}
+
+    cron_id = leader.get("cron_job_id")
+    if not cron_id:
+        return {"error": f"Leader '{name}' has no cron job. Create the leader first."}
+
+    hermes = _hermes_bin()
+    schedule = f"every {minutes}m"
+    try:
+        result = subprocess.run(
+            [hermes, "cron", "edit", cron_id, "--schedule", schedule],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {"error": f"Failed to edit cron job: {result.stderr.strip()}"}
+    except Exception as exc:
+        return {"error": f"Failed to edit cron job: {exc}"}
+
+    # Update leader registry
+    leader["heartbeat_minutes"] = minutes
+    _leader_file(name).write_text(json.dumps(leader, indent=2))
+
+    logger.info("Leader '%s' heartbeat updated to %dm", name, minutes)
+    return {"status": "updated", "leader": name, "heartbeat_minutes": minutes}

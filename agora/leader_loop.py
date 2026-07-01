@@ -73,11 +73,17 @@ def _spawn_leader_agent(leader: dict) -> dict:
     profile_dir = leader.get("profile_dir", "")
     workdir = ""
 
-    # Get project workdir
+    # Get project workdir from project registry
     try:
-        from ..project_planner import get_project
-        proj = get_project(project)
-        if proj:
+        kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
+        if kanban_db:
+            registry_dir = Path(kanban_db).parent / "agora" / "projects"
+        else:
+            registry_dir = Path.home() / ".hermes" / "agora" / "projects"
+        proj_file = registry_dir / f"{project.replace('/', '-').replace(' ', '_')}.json"
+        if proj_file.exists():
+            import json as _json
+            proj = _json.loads(proj_file.read_text())
             workdir = proj.get("workdir", "")
     except Exception:
         pass
@@ -86,7 +92,7 @@ def _spawn_leader_agent(leader: dict) -> dict:
     prompt = _HEARTBEAT_PROMPT.format(
         leader_name=name,
         project=project,
-        workdir=workdir or "(unknown)",
+        workdir=workdir or "/root",
     )
 
     # Find hermes binary

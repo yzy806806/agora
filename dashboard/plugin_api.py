@@ -543,3 +543,277 @@ def start_discussion(req: StartDiscussionRequest):
     except Exception as exc:
         logger.error("start_discussion failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+#  Leader management                                                          #
+# --------------------------------------------------------------------------- #
+
+class CreateLeaderRequest(BaseModel):
+    name: str = Field(..., description="Leader profile name")
+    project: str = Field(..., description="Project name to manage")
+    clone_from: str = Field("coder", description="Source profile to clone")
+    heartbeat_minutes: int = Field(15, description="Heartbeat interval in minutes")
+    model: Optional[str] = Field(None, description="Override model")
+
+
+@router.get("/leaders")
+def list_leaders():
+    """List all registered team leaders with cron status."""
+    try:
+        import sys, json as _json
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.leader_manager import list_leaders as _list
+        leaders = _list()
+        cron_jobs_path = Path.home() / ".hermes" / "profiles" / "coder" / "cron" / "jobs.json"
+        cron_map = {}
+        try:
+            if cron_jobs_path.exists():
+                cron_data = _json.loads(cron_jobs_path.read_text())
+                for job in cron_data.get("jobs", []):
+                    cron_map[job.get("name", "")] = job
+        except Exception:
+            pass
+        for leader in leaders:
+            cron_name = "heartbeat-" + leader.get("name", "")
+            job = cron_map.get(cron_name)
+            leader["cron_enabled"] = job.get("enabled", False) if job else False
+            leader["cron_next_run"] = job.get("next_run_at") if job else None
+            leader["cron_last_run"] = job.get("last_run_at") if job else None
+            leader["cron_schedule"] = job.get("schedule_display") if job else None
+        return {"leaders": leaders}
+    except Exception as exc:
+        logger.error("list_leaders failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/leaders")
+def create_leader(req: CreateLeaderRequest):
+    """Create a team leader. Automatically creates a cron job for heartbeat."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.leader_manager import create_leader as _create
+        result = _create(
+            name=req.name, project=req.project, clone_from=req.clone_from,
+            heartbeat_minutes=req.heartbeat_minutes, model=req.model,
+        )
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("create_leader failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/leaders/{name}")
+def remove_leader(name: str):
+    """Remove a leader and its cron job."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.leader_manager import remove_leader as _remove
+        result = _remove(name)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class UpdateHeartbeatRequest(BaseModel):
+    minutes: int = Field(..., description="New heartbeat interval in minutes")
+
+@router.put("/leaders/{name}/heartbeat")
+def update_heartbeat(name: str, req: UpdateHeartbeatRequest):
+    """Update the heartbeat interval for a leader."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.leader_manager import update_heartbeat_schedule
+        result = update_heartbeat_schedule(name, req.minutes)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/leaders/{name}/heartbeat/trigger")
+def trigger_heartbeat(name: str):
+    """Manually trigger a leader heartbeat right now."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.leader_loop import heartbeat
+        result = heartbeat(leader_name=name)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.put("/leaders/{name}/pause")
+def pause_leader(name: str):
+    """Pause a leader's heartbeat cron job."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["hermes", "cron", "pause", "heartbeat-" + name],
+            capture_output=True, text=True, timeout=10,
+        )
+        return {"name": name, "paused": result.returncode == 0,
+                "output": result.stdout.strip()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.put("/leaders/{name}/resume")
+def resume_leader(name: str):
+    """Resume a leader's heartbeat cron job."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["hermes", "cron", "resume", "heartbeat-" + name],
+            capture_output=True, text=True, timeout=10,
+        )
+        return {"name": name, "resumed": result.returncode == 0,
+                "output": result.stdout.strip()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+#  Worker management                                                          #
+# --------------------------------------------------------------------------- #
+
+class CreateWorkerRequest(BaseModel):
+    name: str = Field(..., description="Worker profile name")
+    role: str = Field(..., description="Role: architect/developer/reviewer/tester/devops")
+    clone_from: str = Field("coder")
+    model: Optional[str] = Field(None)
+
+
+@router.get("/workers")
+def list_workers():
+    """List all registered Agora workers."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.worker_manager import list_workers as _list
+        return {"workers": _list()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/workers/templates")
+def list_worker_templates():
+    """List available role templates."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.worker_templates import list_templates
+        return {"templates": list_templates()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/workers")
+def create_worker(req: CreateWorkerRequest):
+    """Create a worker profile from a role template."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.worker_manager import create_worker as _create
+        result = _create(name=req.name, role=req.role,
+                         clone_from=req.clone_from, model=req.model)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/workers/{name}")
+def remove_worker(name: str, delete_profile: bool = True):
+    """Remove a worker from the Agora registry."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.worker_manager import remove_worker as _remove
+        result = _remove(name, delete_profile=delete_profile)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+#  Team management                                                            #
+# --------------------------------------------------------------------------- #
+
+class CreateTeamRequestV2(BaseModel):
+    team_name: str = Field(...)
+    workers: list[str] = Field(...)
+    project: Optional[str] = Field(None)
+
+
+@router.get("/teams")
+def list_teams():
+    """List all registered teams."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.team_manager import list_teams as _list
+        return {"teams": _list()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/teams")
+def create_team(req: CreateTeamRequestV2):
+    """Create a team by selecting workers."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.team_manager import create_team as _create
+        result = _create(team_name=req.team_name, worker_names=req.workers,
+                         project=req.project)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/teams/{team_name}")
+def remove_team(team_name: str):
+    """Remove a team."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.team_manager import remove_team as _remove
+        result = _remove(team_name)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
