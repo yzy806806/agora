@@ -236,6 +236,9 @@ def register_all_tools(ctx: Any) -> None:
     # --- Worker & team management tools ---
     _register_worker_tools(ctx)
 
+    # --- Leader management tools ---
+    _register_leader_tools(ctx)
+
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -839,3 +842,98 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     logger.info("Registered 7 worker & team management tools")
+
+
+# --------------------------------------------------------------------------- #
+#  Leader management tools                                                    #
+# --------------------------------------------------------------------------- #
+
+_CREATE_LEADER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Profile name (e.g. frank)"},
+        "project": {"type": "string", "description": "Project name this leader manages"},
+        "clone_from": {"type": "string", "description": "Source profile to clone", "default": "coder"},
+        "heartbeat_minutes": {"type": "integer", "description": "Heartbeat interval in minutes", "default": 15},
+        "model": {"type": "string", "description": "Override model (optional)", "default": ""},
+    },
+    "required": ["name", "project"],
+}
+
+_LIST_LEADERS_SCHEMA = {"type": "object", "properties": {}}
+
+_REMOVE_LEADER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Leader name to remove"},
+        "delete_profile": {"type": "boolean", "default": True},
+    },
+    "required": ["name"],
+}
+
+_LEADER_HEARTBEAT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "leader_name": {"type": "string", "description": "Specific leader to wake (optional)"},
+        "project": {"type": "string", "description": "Wake leader for this project (optional). If both omitted, wakes all."},
+    },
+}
+
+
+def _register_leader_tools(ctx: Any) -> None:
+    """Register leader management tools."""
+
+    async def _create_leader_handler(args: dict, **kwargs) -> dict:
+        from ..agora.leader_manager import create_leader
+        return create_leader(
+            name=args.get("name", ""),
+            project=args.get("project", ""),
+            clone_from=args.get("clone_from", "coder"),
+            heartbeat_minutes=args.get("heartbeat_minutes", 15),
+            model=args.get("model", "") or None,
+        )
+
+    ctx.register_tool(
+        name="agora_create_leader", toolset="agora", schema=_CREATE_LEADER_SCHEMA,
+        handler=_create_leader_handler, is_async=True,
+        description="Create a team leader for a project. Leader monitors progress, unblocks stuck tasks, and plans next phases. Gets woken up by heartbeat.",
+        emoji="\U0001f451",
+    )
+
+    def _list_leaders_handler(args: dict, **kwargs) -> dict:
+        from ..agora.leader_manager import list_leaders
+        return {"leaders": list_leaders()}
+
+    ctx.register_tool(
+        name="agora_list_leaders", toolset="agora", schema=_LIST_LEADERS_SCHEMA,
+        handler=_list_leaders_handler,
+        description="List all registered team leaders.",
+        emoji="\U0001f3af",
+    )
+
+    async def _remove_leader_handler(args: dict, **kwargs) -> dict:
+        from ..agora.leader_manager import remove_leader
+        return remove_leader(args.get("name", ""), delete_profile=args.get("delete_profile", True))
+
+    ctx.register_tool(
+        name="agora_remove_leader", toolset="agora", schema=_REMOVE_LEADER_SCHEMA,
+        handler=_remove_leader_handler, is_async=True,
+        description="Remove a leader from the registry.",
+        emoji="\U0001f5d1\ufe0f",
+    )
+
+    async def _leader_heartbeat_handler(args: dict, **kwargs) -> dict:
+        from ..agora.leader_loop import heartbeat
+        return heartbeat(
+            leader_name=args.get("leader_name", "") or None,
+            project=args.get("project", "") or None,
+        )
+
+    ctx.register_tool(
+        name="agora_leader_heartbeat", toolset="agora", schema=_LEADER_HEARTBEAT_SCHEMA,
+        handler=_leader_heartbeat_handler, is_async=True,
+        description="Trigger a leader heartbeat. The leader will check project health, unblock stuck tasks, and plan next steps. Wakes all leaders if no name/project specified.",
+        emoji="\U0001f493",
+    )
+
+    logger.info("Registered 4 leader management tools")
