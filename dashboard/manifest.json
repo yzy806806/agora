@@ -1,9 +1,9 @@
 {
   "name": "agora",
   "label": "Agora",
-  "description": "Multi-role deliberation — manage agent profiles, start discussions, dispatch tasks to kanban",
+  "description": "Multi-role deliberation — manage worker profiles, teams, leaders with heartbeat, and discussions",
   "icon": "Landmark",
-  "version": "0.3.0",
+  "version": "0.8.0",
   "tab": {
     "path": "/agora",
     "position": "after:kanban"

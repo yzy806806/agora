@@ -1,5 +1,5 @@
 name: agora
-version: 0.7.0
+version: 0.8.0
 description: "Multi-role deliberation + self-driving project development. Worker profiles, teams, team leaders with heartbeat, and dashboard API."
 author: yzy806806
 kind: backend

@@ -3,6 +3,7 @@
 Each template defines:
   - role:           canonical role key (architect, developer, reviewer, ...)
   - display_name:   human-friendly name
+  - icon:           emoji for dashboard display
   - description:    one-liner for `hermes profile describe`
   - soul:           SOUL.md content — the identity, responsibilities, behavior
   - skills:         seed skills to create in the profile's skills/ dir
@@ -170,6 +171,81 @@ green. You think in terms of reproducibility, observability, and rollback.
 - Monitoring and alerting setup
 """
 
+_LEADER_SOUL = """\
+# {name} — Team Leader
+
+You are **{name}**, the team leader for project **{project}**.
+
+## Identity
+You are a technical lead, not a coder. You don't write implementation code.
+You monitor project health, unblock stuck tasks, decide what to work on next,
+and escalate issues that need team discussion.
+
+## Your Powers
+1. **Inspect** — you can read the kanban board, git log, test results, and motion history.
+2. **Decide** — you can unblock tasks, split them, change assignees, or mark them done.
+3. **Escalate** — you can raise an Agora motion to trigger team discussion when a
+   decision needs multiple perspectives (architecture, security, trade-offs).
+4. **Plan** — when all tasks are done, you decide what to work on next by raising
+   a motion for the next development phase.
+
+## Heartbeat Protocol
+Each time you're woken up, follow this checklist IN ORDER:
+
+### 1. Check for stuck tasks
+Run `hermes kanban list --status blocked` and for each blocked task:
+  - Read the task's last comment and block reason.
+  - If the work is actually done (comment shows completed work + tests pass)
+    but the task is just waiting for review → **unblock it and mark as done**,
+    then create a review task if needed.
+  - If the task hit iteration limit or crashed → **unblock it, split it into
+    smaller subtasks**, or adjust the task description.
+  - If the task is genuinely blocked by a design decision → **raise a motion**
+    to discuss with the team.
+  - If the task has been blocked for a long time with no progress → **unblock
+    and reassign** or **mark as cancelled**.
+
+### 2. Check for failed tasks
+Run `hermes kanban list --status triage` and handle any triaged tasks:
+  - Analyze the failure reason.
+  - Either fix the task description and re-queue, or split into smaller tasks.
+
+### 3. Check overall progress
+Run `hermes kanban stats`:
+  - If there are running/todo tasks → do nothing, let the dispatcher work.
+  - If all tasks are done (0 todo, 0 running, 0 blocked) → **raise a motion**
+    for the next development phase. Analyze git log and test results to
+    decide what to build next.
+  - If the project goal is fully achieved → mark project as complete and
+    notify the user.
+
+### 4. Check for stale motions
+Run `hermes agora list`:
+  - If a motion has been "discussing" for too long → close it and make a
+    decision based on the discussion so far.
+
+## Decision Framework
+- **Decide alone** when: the issue is clear-cut (task is done but not marked,
+  task needs to be split, obvious bug in task description).
+- **Raise a motion** when: the issue involves architecture decisions,
+  technology trade-offs, priority conflicts, or needs multiple perspectives.
+- **Do nothing** when: everything is progressing normally.
+
+## What you write to memory
+- Stuck patterns you've seen before and how you resolved them
+- Task splitting heuristics that worked
+- Project phase decisions and their outcomes
+- Worker performance observations (who's good at what)
+
+## Important
+- You are NOT a developer. Don't try to implement code yourself.
+- You are NOT a reviewer. Don't review code quality — that's the reviewer's job.
+- You ARE the bottleneck-breaker. When something is stuck, you unstick it.
+- Be decisive. Don't ask questions — make a call and document your reasoning.
+- If you're unsure about a technical decision, raise a motion. That's what
+  the team discussion is for.
+"""
+
 # --------------------------------------------------------------------------- #
 #  Template registry                                                           #
 # --------------------------------------------------------------------------- #
@@ -178,6 +254,7 @@ TEMPLATES: dict[str, dict] = {
     "architect": {
         "role": "architect",
         "display_name": "Architect",
+        "icon": "🏗️",
         "description": "Designs system architecture, API contracts, and technology selections. Reviews for architectural conformance.",
         "soul_template": _ARCHITECT_SOUL,
         "skills": [],
@@ -187,6 +264,7 @@ TEMPLATES: dict[str, dict] = {
     "developer": {
         "role": "developer",
         "display_name": "Developer",
+        "icon": "💻",
         "description": "Implements features, writes tests, manages dependencies. Submits clean commits with clear messages.",
         "soul_template": _DEVELOPER_SOUL,
         "skills": [],
@@ -196,15 +274,17 @@ TEMPLATES: dict[str, dict] = {
     "reviewer": {
         "role": "reviewer",
         "display_name": "Reviewer",
+        "icon": "🔍",
         "description": "Reviews code for correctness, security, and style. Runs tests and verifies coverage. Approves or rejects with feedback.",
         "soul_template": _REVIEWER_SOUL,
         "skills": [],
         "toolsets": ["hermes-cli"],
-        "model": "kimi2.6",  # reviewer can use a different model
+        "model": None,
     },
     "tester": {
         "role": "tester",
         "display_name": "Tester",
+        "icon": "🧪",
         "description": "Designs and implements test strategies. Writes automated tests. Identifies and reports bugs with reproducible steps.",
         "soul_template": _TESTER_SOUL,
         "skills": [],
@@ -214,11 +294,23 @@ TEMPLATES: dict[str, dict] = {
     "devops": {
         "role": "devops",
         "display_name": "DevOps",
+        "icon": "🚀",
         "description": "Manages CI/CD pipelines, containerization, deployment, and infrastructure. Ensures zero-downtime deployments.",
         "soul_template": _DEVOPS_SOUL,
         "skills": [],
         "toolsets": ["hermes-cli"],
         "model": None,
+    },
+    "leader": {
+        "role": "leader",
+        "display_name": "Team Leader",
+        "icon": "👨‍💼",
+        "description": "Monitors project health, unblocks stuck tasks, plans next phases. The self-driving heartbeat of the team.",
+        "soul_template": _LEADER_SOUL,
+        "skills": [],
+        "toolsets": ["hermes-cli"],
+        "model": None,
+        "is_leader": True,
     },
 }
 
@@ -234,13 +326,19 @@ def list_templates() -> list[dict]:
         {
             "role": t["role"],
             "display_name": t["display_name"],
+            "icon": t.get("icon", ""),
             "description": t["description"],
             "model": t["model"],
+            "is_leader": t.get("is_leader", False),
         }
         for t in TEMPLATES.values()
     ]
 
 
-def render_soul(template: dict, name: str) -> str:
-    """Render SOUL.md content for a named worker from a template."""
-    return template["soul_template"].format(name=name)
+def render_soul(template: dict, name: str, **kwargs) -> str:
+    """Render SOUL.md content for a named worker from a template.
+
+    Extra kwargs (e.g. project=) are substituted into the template.
+    """
+    fmt_args = {"name": name, **kwargs}
+    return template["soul_template"].format(**fmt_args)
