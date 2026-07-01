@@ -205,15 +205,3 @@ def _has_pending_tasks() -> bool:
             conn.close()
     except Exception:
         return False
-
-
-
-
-    pid = data.get("last_planner_pid")
-    if not pid:
-        return False
-    try:
-        os.kill(pid, 0)  # signal 0 = check existence
-        return True
-    except (ProcessLookupError, PermissionError):
-        return False

@@ -1067,8 +1067,8 @@ def generate_soul_api(req: GenerateSoulRequest):
         if "error" in worker_result:
             raise HTTPException(status_code=400, detail=worker_result["error"])
 
-        from agora.worker_manager import _profiles_root
-        profiles_root = _profiles_root()
+        from agora.utils import get_profiles_root
+        profiles_root = get_profiles_root()
         soul_path = profiles_root / req.name / "SOUL.md"
         soul_path.write_text(soul_content)
 

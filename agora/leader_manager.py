@@ -73,7 +73,7 @@ def create_leader(
     if _leader_file(name).exists():
         return {"error": f"Leader '{name}' already exists"}
 
-    profiles_root = getget_profiles_root()
+    profiles_root = get_profiles_root()
     profile_dir = profiles_root / name
 
     if profile_dir.exists():
@@ -255,7 +255,7 @@ def remove_leader(name: str, delete_profile: bool = True) -> dict:
 
     if delete_profile:
         hermes = find_hermes_binary()
-        profiles_root = getget_profiles_root()
+        profiles_root = get_profiles_root()
         try:
             subprocess.run(
                 [hermes, "profile", "delete", name, "--yes"],
