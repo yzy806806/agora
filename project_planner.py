@@ -91,8 +91,16 @@ def start_project(
     pf.write_text(json.dumps(data, indent=2))
     logger.info("Project %s started: %s", project_name, workdir)
 
-    # Kick off the first planning cycle
-    _spawn_planner(project_name, topic_hint=initial_topic)
+    # Kick off the first planning cycle in a background thread
+    # so start_project returns immediately without blocking the tool handler.
+    import threading
+    t = threading.Thread(
+        target=_spawn_planner,
+        args=(project_name,),
+        kwargs={"topic_hint": initial_topic},
+        daemon=True,
+    )
+    t.start()
     return {"status": "started", "project": data}
 
 
@@ -222,6 +230,16 @@ def _spawn_planner(project_name: str, topic_hint: str = "") -> int | None:
     env = dict(os.environ)
     if workdir and os.path.isabs(workdir):
         env["TERMINAL_CWD"] = workdir
+
+    # CRITICAL: Pass HERMES_HOME so the planner subprocess reads the same
+    # profile-scoped config and data as the gateway. Without this, the
+    # planner's get_hermes_home() falls back to the DEFAULT profile root,
+    # and it won't find the project registry or agora DB.
+    try:
+        from hermes_constants import get_hermes_home
+        env["HERMES_HOME"] = get_hermes_home()
+    except Exception:
+        pass
 
     # Log the planner output to a file for debugging
     log_path = _registry_dir() / f"planner_{project_name}.log"
