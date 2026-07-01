@@ -39,4 +39,4 @@ def register(ctx) -> None:
         description="Manage Agora discussions: list, show, discuss, result",
     )
 
-    logger.info("Agora plugin registered (4 tools + 3 project tools + 7 worker/team tools + 4 leader tools + dashboard API + /agora command + hermes agora CLI + hooks with self-drive)")
+    logger.info("Agora plugin v%s registered (18 tools + dashboard API + /agora command + CLI + hooks)", __version__)

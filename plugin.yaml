@@ -24,3 +24,5 @@ provides_tools:
   - agora_leader_heartbeat
 provides_hooks:
   - kanban_task_completed
+has_api: true
+has_dashboard: true
