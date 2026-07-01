@@ -1,8 +1,8 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v0.9.1**
 
-Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色讨论方案、搜索信息、撰写内容、自动分配任务、审查质量——Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
+Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。Leader 在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
 ## 核心能力
 
