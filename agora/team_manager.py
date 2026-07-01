@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import logging
+
+from .utils import get_registry_dir, safe_name, now_iso
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,29 +31,10 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _registry_dir() -> Path:
-    """Return the global Agora registry directory."""
-    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
-    if kanban_db:
-        global_root = str(Path(kanban_db).parent)
-    else:
-        try:
-            from hermes_constants import get_hermes_home
-            home = Path(get_hermes_home())
-            if "/profiles/" in str(home):
-                global_root = str(home.parent.parent)
-            else:
-                global_root = str(home)
-        except Exception:
-            global_root = str(Path.home() / ".hermes")
-    d = Path(global_root) / "agora" / "teams"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
 
 
 def _team_file(team_name: str) -> Path:
-    safe = team_name.replace("/", "-").replace(" ", "_")
-    return _registry_dir() / f"{safe}.json"
+    return get_registry_dir("teams") / f"{safe_name(team_name)}.json"
 
 
 # --------------------------------------------------------------------------- #
@@ -110,7 +93,7 @@ def create_team(
         "workers": roster,
         "role_map": role_map,  # role → [worker names] for dispatch routing
         "project": project,
-        "created_at": _now_iso(),
+        "created_at": now_iso(),
         "dispatch_counters": {},  # role → int, for round-robin
     }
 
@@ -164,7 +147,7 @@ def get_team(team_name: str) -> dict | None:
 
 def list_teams() -> list[dict]:
     """List all registered teams."""
-    d = _registry_dir()
+    d = get_registry_dir("teams")
     teams = []
     for f in d.glob("*.json"):
         try:
@@ -278,5 +261,3 @@ def _remove_project_from_worker(worker_name: str, project_name: str) -> None:
         wf.write_text(json.dumps(data, indent=2))
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()

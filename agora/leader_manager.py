@@ -20,144 +20,28 @@ import json
 import logging
 import os
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .utils import (
+    get_registry_dir,
+    get_profiles_root,
+    find_hermes_binary,
+    now_iso,
+    patch_config_model,
+    safe_name,
+)
 
 logger = logging.getLogger(__name__)
 
 
-_LEADER_SOUL_TEMPLATE = """\
-# {name} — Team Leader
+from .worker_templates import TEMPLATES as _TEMPLATES, render_soul as _render_soul
 
-You are **{name}**, the team leader for project **{project}**.
-
-## Identity
-You are a technical lead, not a coder. You don't write implementation code.
-You monitor project health, unblock stuck tasks, decide what to work on next,
-and escalate issues that need team discussion.
-
-## Your Powers
-1. **Inspect** — you can read the kanban board, git log, test results, and motion history.
-2. **Decide** — you can unblock tasks, split them, change assignees, or mark them done.
-3. **Escalate** — you can raise an Agora motion to trigger team discussion when a
-   decision needs multiple perspectives (architecture, security, trade-offs).
-4. **Plan** — when all tasks are done, you decide what to work on next by raising
-   a motion for the next development phase.
-
-## Heartbeat Protocol
-Each time you're woken up, follow this checklist IN ORDER:
-
-### 1. Check for stuck tasks
-Run `hermes kanban list --status blocked` and for each blocked task:
-  - Read the task's last comment and block reason.
-  - If the work is actually done (comment shows completed work + tests pass)
-    but the task is just waiting for review → **unblock it and mark as done**,
-    then create a review task if needed.
-  - If the task hit iteration limit or crashed → **unblock it, split it into
-    smaller subtasks**, or adjust the task description.
-  - If the task is genuinely blocked by a design decision → **raise a motion**
-    to discuss with the team.
-  - If the task has been blocked for a long time with no progress → **unblock
-    and reassign** or **mark as cancelled**.
-
-### 2. Check for failed tasks
-Run `hermes kanban list --status triage` and handle any triaged tasks:
-  - Analyze the failure reason.
-  - Either fix the task description and re-queue, or split into smaller tasks.
-
-### 3. Check overall progress
-Run `hermes kanban stats`:
-  - If there are running/todo tasks → do nothing, let the dispatcher work.
-  - If all tasks are done (0 todo, 0 running, 0 blocked) → **raise a motion**
-    for the next development phase. Analyze git log and test results to
-    decide what to build next.
-  - If the project goal is fully achieved → mark project as complete and
-    notify the user.
-
-### 4. Check for stale motions
-Run `hermes agora list --status active`:
-  - If a motion has been "discussing" for too long → close it and make a
-    decision based on the discussion so far.
-
-## Decision Framework
-- **Decide alone** when: the issue is clear-cut (task is done but not marked,
-  task needs to be split, obvious bug in task description).
-- **Raise a motion** when: the issue involves architecture decisions,
-  technology trade-offs, priority conflicts, or needs multiple perspectives.
-- **Do nothing** when: everything is progressing normally.
-
-## What you write to memory
-- Stuck patterns you've seen before and how you resolved them
-- Task splitting heuristics that worked
-- Project phase decisions and their outcomes
-- Worker performance observations (who's good at what)
-
-## Important
-- You are NOT a developer. Don't try to implement code yourself.
-- You are NOT a reviewer. Don't review code quality — that's the reviewer's job.
-- You ARE the bottleneck-breaker. When something is stuck, you unstick it.
-- Be decisive. Don't ask questions — make a call and document your reasoning.
-- If you're unsure about a technical decision, raise a motion. That's what
-  the team discussion is for.
-"""
-
-
-def _registry_dir() -> Path:
-    """Return the global Agora registry directory."""
-    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
-    if kanban_db:
-        global_root = str(Path(kanban_db).parent)
-    else:
-        try:
-            from hermes_constants import get_hermes_home
-            home = Path(get_hermes_home())
-            if "/profiles/" in str(home):
-                global_root = str(home.parent.parent)
-            else:
-                global_root = str(home)
-        except Exception:
-            global_root = str(Path.home() / ".hermes")
-    d = Path(global_root) / "agora" / "leaders"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+_LEADER_SOUL_TEMPLATE = _TEMPLATES["leader"]["soul_template"]
 
 
 def _leader_file(name: str) -> Path:
-    safe = name.replace("/", "-").replace(" ", "_")
-    return _registry_dir() / f"{safe}.json"
-
-
-def _profiles_root() -> Path:
-    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
-    if kanban_db:
-        return Path(kanban_db).parent / "profiles"
-    try:
-        from hermes_constants import get_hermes_home
-        home = Path(get_hermes_home())
-        if "/profiles/" in str(home):
-            return home.parent
-        return home / "profiles"
-    except Exception:
-        return Path.home() / ".hermes" / "profiles"
-
-
-def _hermes_bin() -> str:
-    candidates = [
-        os.environ.get("HERMES_BIN", ""),
-        "/home/ubuntu/.hermes/hermes-agent/venv/bin/hermes",
-        "/root/.hermes/hermes-agent/venv/bin/hermes",
-        "/usr/local/bin/hermes",
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    import shutil
-    return shutil.which("hermes") or "hermes"
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return get_registry_dir("leaders") / f"{safe_name(name)}.json"
 
 
 # --------------------------------------------------------------------------- #
@@ -189,7 +73,7 @@ def create_leader(
     if _leader_file(name).exists():
         return {"error": f"Leader '{name}' already exists"}
 
-    profiles_root = _profiles_root()
+    profiles_root = getget_profiles_root()
     profile_dir = profiles_root / name
 
     if profile_dir.exists():
@@ -198,7 +82,7 @@ def create_leader(
     description = f"Team leader for project {project}. Monitors progress, unblocks stuck tasks, and plans next phases."
 
     # Step 1: Clone profile
-    hermes = _hermes_bin()
+    hermes = find_hermes_binary()
     clone_cmd = [
         hermes, "profile", "create", name,
         "--clone-from", clone_from,
@@ -229,7 +113,7 @@ def create_leader(
 
     # Step 4: Override model if specified
     if model:
-        _patch_config_model(profile_dir / "config.yaml", model)
+        patch_config_model(profile_dir / "config.yaml", model)
 
     # Step 5: Register leader
     leader_data = {
@@ -239,7 +123,7 @@ def create_leader(
         "model": model or "inherited",
         "heartbeat_minutes": heartbeat_minutes,
         "profile_dir": str(profile_dir),
-        "created_at": _now_iso(),
+        "created_at": now_iso(),
         "last_heartbeat_at": None,
         "last_heartbeat_pid": None,
         "status": "active",
@@ -268,7 +152,7 @@ def _create_heartbeat_cron(leader_name: str, minutes: int) -> str | None:
 
     Returns the cron job ID, or None on failure.
     """
-    hermes = _hermes_bin()
+    hermes = find_hermes_binary()
     schedule = f"every {minutes}m"
     job_name = f"heartbeat-{leader_name}"
     script_name = "leader_heartbeat.sh"
@@ -370,8 +254,8 @@ def remove_leader(name: str, delete_profile: bool = True) -> dict:
         _remove_heartbeat_cron(cron_id)
 
     if delete_profile:
-        hermes = _hermes_bin()
-        profiles_root = _profiles_root()
+        hermes = find_hermes_binary()
+        profiles_root = getget_profiles_root()
         try:
             subprocess.run(
                 [hermes, "profile", "delete", name, "--yes"],
@@ -396,7 +280,7 @@ def get_leader(name: str) -> dict | None:
 
 
 def list_leaders() -> list[dict]:
-    d = _registry_dir()
+    d = get_registry_dir("leaders")
     leaders = []
     for f in d.glob("*.json"):
         try:
@@ -419,29 +303,14 @@ def update_heartbeat(name: str, pid: int | None = None) -> None:
     if not lf.exists():
         return
     data = json.loads(lf.read_text())
-    data["last_heartbeat_at"] = _now_iso()
+    data["last_heartbeat_at"] = now_iso()
     data["last_heartbeat_pid"] = pid
     lf.write_text(json.dumps(data, indent=2))
 
 
-def _patch_config_model(config_path: Path, model: str) -> None:
-    try:
-        content = config_path.read_text()
-        import re
-        new_content = re.sub(
-            r'(\nmodel:\n  default: )([^\n]+)',
-            f'\\g<1>{model}',
-            content, count=1,
-        )
-        if new_content != content:
-            config_path.write_text(new_content)
-    except Exception as exc:
-        logger.warning("Failed to patch model: %s", exc)
-
-
 def _remove_heartbeat_cron(cron_id: str) -> None:
     """Remove a Hermes cron job by ID."""
-    hermes = _hermes_bin()
+    hermes = find_hermes_binary()
     try:
         subprocess.run(
             [hermes, "cron", "remove", cron_id],
@@ -465,7 +334,7 @@ def update_heartbeat_schedule(name: str, minutes: int) -> dict:
     if not cron_id:
         return {"error": f"Leader '{name}' has no cron job. Create the leader first."}
 
-    hermes = _hermes_bin()
+    hermes = find_hermes_binary()
     schedule = f"every {minutes}m"
     try:
         result = subprocess.run(

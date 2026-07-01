@@ -26,6 +26,12 @@ else:
 
 logger = logging.getLogger(__name__)
 
+import sys as _sys
+from pathlib import Path as _Path
+_PLUGIN_ROOT = _Path(__file__).parent.parent
+if str(_PLUGIN_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_PLUGIN_ROOT))
+
 # ---------------------------------------------------------------------------
 # Profile management
 # ---------------------------------------------------------------------------
@@ -296,8 +302,6 @@ def list_motions(
 ):
     """List Agora discussions."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.storage import motions as db
         motions = db.list_motions(status_filter=status, limit=limit)
         return {
@@ -326,8 +330,6 @@ def list_motions(
 def get_motion(motion_id: str):
     """Get a motion with all its messages."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.storage import motions as db
         motion = db.get_motion(motion_id)
         if motion is None:
@@ -525,8 +527,6 @@ def start_discussion(req: StartDiscussionRequest):
     (needs ctx.llm), so this just creates the motion record and returns
     instructions for starting it."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.storage import motions as db
         motion = db.create_motion(
             title=req.title,
@@ -591,8 +591,6 @@ def list_leaders():
 def create_leader(req: CreateLeaderRequest):
     """Create a team leader. Automatically creates a cron job for heartbeat."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.leader_manager import create_leader as _create
         result = _create(
             name=req.name, project=req.project, clone_from=req.clone_from,
@@ -612,8 +610,6 @@ def create_leader(req: CreateLeaderRequest):
 def remove_leader(name: str):
     """Remove a leader and its cron job."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.leader_manager import remove_leader as _remove
         result = _remove(name)
         if "error" in result:
@@ -632,8 +628,6 @@ class UpdateHeartbeatRequest(BaseModel):
 def update_heartbeat(name: str, req: UpdateHeartbeatRequest):
     """Update the heartbeat interval for a leader."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.leader_manager import update_heartbeat_schedule
         result = update_heartbeat_schedule(name, req.minutes)
         if "error" in result:
@@ -649,8 +643,6 @@ def update_heartbeat(name: str, req: UpdateHeartbeatRequest):
 def trigger_heartbeat(name: str):
     """Manually trigger a leader heartbeat right now."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.leader_loop import heartbeat
         result = heartbeat(leader_name=name)
         if "error" in result:
@@ -707,8 +699,6 @@ class CreateWorkerRequest(BaseModel):
 def list_workers():
     """List all registered Agora workers."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.worker_manager import list_workers as _list
         return {"workers": _list()}
     except Exception as exc:
@@ -719,8 +709,6 @@ def list_workers():
 def list_worker_templates():
     """List available role templates."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.worker_templates import list_templates
         return {"templates": list_templates()}
     except Exception as exc:
@@ -731,8 +719,6 @@ def list_worker_templates():
 def create_worker(req: CreateWorkerRequest):
     """Create a worker profile from a role template."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.worker_manager import create_worker as _create
         result = _create(name=req.name, role=req.role,
                          clone_from=req.clone_from, model=req.model)
@@ -749,8 +735,6 @@ def create_worker(req: CreateWorkerRequest):
 def remove_worker(name: str, delete_profile: bool = True):
     """Remove a worker from the Agora registry."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.worker_manager import remove_worker as _remove
         result = _remove(name, delete_profile=delete_profile)
         if "error" in result:
@@ -776,8 +760,6 @@ class CreateTeamRequestV2(BaseModel):
 def list_teams():
     """List all registered teams."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.team_manager import list_teams as _list
         return {"teams": _list()}
     except Exception as exc:
@@ -788,8 +770,6 @@ def list_teams():
 def create_team(req: CreateTeamRequestV2):
     """Create a team by selecting workers."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.team_manager import create_team as _create
         result = _create(team_name=req.team_name, worker_names=req.workers,
                          project=req.project)
@@ -806,13 +786,215 @@ def create_team(req: CreateTeamRequestV2):
 def remove_team(team_name: str):
     """Remove a team."""
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.team_manager import remove_team as _remove
         result = _remove(team_name)
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
         return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+#  Project management                                                          #
+# --------------------------------------------------------------------------- #
+
+class StartProjectRequest(BaseModel):
+    name: str = Field(..., description="Project name")
+    goal: str = Field(..., description="Project goal")
+    workdir: str = Field("/root", description="Working directory")
+    team: Optional[str] = Field(None, description="Team name")
+    leader: Optional[str] = Field(None, description="Leader name")
+    profile: str = Field("coder", description="Hermes profile for workers")
+    max_rounds: int = Field(10, description="Max planning rounds")
+
+
+@router.get("/projects")
+def list_projects_api():
+    """List all Agora projects."""
+    try:
+        from project_planner import list_projects
+        return {"projects": list_projects()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/projects/{name}")
+def get_project_api(name: str):
+    """Get project detail."""
+    try:
+        from project_planner import get_project
+        proj = get_project(name)
+        if proj is None:
+            raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+        return proj
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/projects")
+def start_project_api(req: StartProjectRequest):
+    """Start a new self-driving project."""
+    try:
+        from project_planner import start_project
+        result = start_project(
+            project_name=req.name,
+            workdir=req.workdir,
+            goal=req.goal,
+            profile=req.profile,
+            max_rounds=req.max_rounds,
+            team=req.team,
+        )
+        if req.leader:
+            import json
+            from agora.leader_manager import get_leader, _leader_file
+            leader = get_leader(req.leader)
+            if leader:
+                leader["project"] = req.name
+                _leader_file(req.leader).write_text(json.dumps(leader, indent=2))
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/projects/{name}")
+def stop_project_api(name: str):
+    """Stop a project."""
+    try:
+        from project_planner import stop_project
+        result = stop_project(name)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+#  AI-generated SOUL.md                                                        #
+# --------------------------------------------------------------------------- #
+
+class GenerateSoulRequest(BaseModel):
+    name: str = Field(..., description="Worker profile name")
+    description: str = Field(..., description="Natural-language role description")
+    clone_from: str = Field("coder")
+    model: Optional[str] = Field(None)
+    toolsets: Optional[list[str]] = Field(None)
+
+
+@router.post("/workers/generate-soul")
+def generate_soul_api(req: GenerateSoulRequest):
+    """Generate a custom SOUL.md using LLM, then create the worker profile."""
+    try:
+        import sys, subprocess, os
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from agora.worker_templates import generate_soul_prompt
+
+        prompt = generate_soul_prompt(req.name, req.description)
+
+        hermes_bin = None
+        for c in [
+            os.environ.get("HERMES_BIN", ""),
+            "/home/ubuntu/.hermes/hermes-agent/venv/bin/hermes",
+            "/root/.hermes/hermes-agent/venv/bin/hermes",
+            "/usr/local/bin/hermes",
+        ]:
+            if c and os.path.isfile(c) and os.access(c, os.X_OK):
+                hermes_bin = c
+                break
+        if not hermes_bin:
+            import shutil
+            hermes_bin = shutil.which("hermes") or "hermes"
+
+        profile = req.clone_from or "coder"
+        result = subprocess.run(
+            [hermes_bin, "-p", profile, "chat", "-q", prompt],
+            capture_output=True, text=True, timeout=120,
+        )
+
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"LLM call failed: {result.stderr[:200]}",
+            )
+
+        soul_content = result.stdout.strip()
+        if not soul_content or len(soul_content) < 50:
+            raise HTTPException(status_code=500, detail="LLM returned empty response")
+
+        if "# " in soul_content:
+            soul_content = soul_content[soul_content.index("# "):]
+
+        from agora.worker_manager import create_worker
+        worker_result = create_worker(
+            name=req.name,
+            role="custom",
+            clone_from=req.clone_from,
+            model=req.model,
+        )
+
+        if "error" in worker_result:
+            raise HTTPException(status_code=400, detail=worker_result["error"])
+
+        from agora.worker_manager import _profiles_root
+        profiles_root = _profiles_root()
+        soul_path = profiles_root / req.name / "SOUL.md"
+        soul_path.write_text(soul_content)
+
+        if req.toolsets:
+            import yaml
+            config_path = profiles_root / req.name / "config.yaml"
+            if config_path.exists():
+                cfg = yaml.safe_load(config_path.read_text()) or {}
+                cfg["toolsets"] = req.toolsets
+                config_path.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True))
+
+        return {
+            "status": "created",
+            "name": req.name,
+            "soul_preview": soul_content[:500],
+            "worker": worker_result.get("worker", {}),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+#  Human discussion participation                                              #
+# --------------------------------------------------------------------------- #
+
+class AddMessageRequest(BaseModel):
+    role: str = Field("user", description="Message role")
+    content: str = Field(..., description="Message content")
+
+
+@router.post("/motions/{motion_id}/messages")
+def add_motion_message(motion_id: str, req: AddMessageRequest):
+    """Add a human message to a discussion."""
+    try:
+        from agora.storage import motions as db
+        motion = db.get_motion(motion_id)
+        if motion is None:
+            raise HTTPException(status_code=404, detail="Motion not found")
+        if motion["status"] == "closed":
+            raise HTTPException(status_code=400, detail="Motion is closed")
+
+        db.add_message(
+            motion_id=motion_id,
+            role=req.role,
+            content=req.content,
+            round_num=motion.get("current_round", 0),
+            stance="neutral",
+        )
+        return {"status": "added", "motion_id": motion_id, "role": req.role}
     except HTTPException:
         raise
     except Exception as exc:

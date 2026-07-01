@@ -1,4 +1,4 @@
-// Agora Dashboard — Team Management + Profiles + Discussions
+// Agora Dashboard — Projects + Team + Profiles
 // Uses Hermes Plugin SDK (React + UI components exposed on window)
 (function () {
   const SDK = window.__HERMES_PLUGIN_SDK__;
@@ -54,28 +54,729 @@
   // ========================================================================
 
   function AgoraDashboard() {
-    const [tab, setTab] = useState("team");
+    const [tab, setTab] = useState("projects");
 
     return React.createElement("div", { className: "agora-dashboard" },
       // Header
       React.createElement("div", { className: "agora-header" },
         React.createElement("h2", null, "🏛️ Agora"),
         React.createElement("p", { className: "agora-subtitle" },
-          "Multi-role deliberation — manage agent profiles, teams, and discussions"
+          "Multi-role deliberation — manage projects, agent teams, and discussions"
         ),
       ),
       // Tabs
       React.createElement(Tabs, { value: tab, onValueChange: setTab },
         React.createElement(TabsList, null,
+          React.createElement(TabsTrigger, { value: "projects" }, "Projects"),
           React.createElement(TabsTrigger, { value: "team" }, "Team"),
           React.createElement(TabsTrigger, { value: "profiles" }, "Profiles"),
-          React.createElement(TabsTrigger, { value: "motions" }, "Discussions"),
         ),
       ),
       // Tab content
+      tab === "projects" && React.createElement(ProjectsTab),
       tab === "team" && React.createElement(TeamTab),
       tab === "profiles" && React.createElement(ProfilesTab),
-      tab === "motions" && React.createElement(MotionsTab),
+    );
+  }
+
+  // ========================================================================
+  // Projects Tab — Project list + Start Project + Project Detail
+  // ========================================================================
+
+  function ProjectsTab() {
+    const [projects, setProjects] = useState([]);
+    const [teams, setTeams] = useState([]);
+    const [leaders, setLeaders] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [showCreate, setShowCreate] = useState(false);
+    const [selectedProject, setSelectedProject] = useState(null);
+
+    const load = useCallback(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [p, t, l] = await Promise.all([
+          apiGet("/projects").catch(() => ({ projects: [] })),
+          apiGet("/teams").catch(() => ({ teams: [] })),
+          apiGet("/leaders").catch(() => ({ leaders: [] })),
+        ]);
+        setProjects(p.projects || []);
+        setTeams(t.teams || []);
+        setLeaders(l.leaders || []);
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    }, []);
+
+    useEffect(() => { load(); }, [load]);
+
+    // If a project is selected, show the detail view
+    if (selectedProject) {
+      return React.createElement(ProjectDetail, {
+        projectName: selectedProject,
+        onBack: () => setSelectedProject(null),
+      });
+    }
+
+    if (loading) return React.createElement("p", null, "Loading projects...");
+    if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
+
+    return React.createElement("div", { className: "agora-projects" },
+      React.createElement("div", { className: "agora-actions" },
+        React.createElement(Button, { onClick: () => setShowCreate(!showCreate) },
+          showCreate ? "Cancel" : "+ Start Project"
+        ),
+        React.createElement(Button, { variant: "outline", onClick: load }, "↻ Refresh"),
+      ),
+      showCreate && React.createElement(StartProjectForm, {
+        teams: teams,
+        leaders: leaders,
+        onCreated: (name) => { setShowCreate(false); setSelectedProject(name); },
+      }),
+      React.createElement("div", { className: "agora-project-list" },
+        projects.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
+          "No projects yet. Click \"Start Project\" to kick off a new one."
+        ),
+        projects.map((p) =>
+          React.createElement(ProjectCard, {
+            key: p.name,
+            project: p,
+            onSelect: () => setSelectedProject(p.name),
+            onDeleted: load,
+          })
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Start Project Form
+  // ------------------------------------------------------------------------
+
+  function StartProjectForm({ teams, leaders, onCreated }) {
+    const [name, setName] = useState("");
+    const [goal, setGoal] = useState("");
+    const [workdir, setWorkdir] = useState("");
+    const [team, setTeam] = useState("");
+    const [leader, setLeader] = useState("");
+    const [error, setError] = useState(null);
+    const [creating, setCreating] = useState(false);
+
+    const handleSubmit = async () => {
+      if (!name.trim()) { setError("Project name is required"); return; }
+      if (!goal.trim()) { setError("Goal is required"); return; }
+      if (!workdir.trim()) { setError("Workdir path is required"); return; }
+      setCreating(true);
+      setError(null);
+      try {
+        const result = await apiPost("/projects", {
+          name: name.trim(),
+          goal: goal.trim(),
+          workdir: workdir.trim(),
+          team: team || null,
+          leader: leader || null,
+        });
+        onCreated(result.name || name.trim());
+      } catch (e) {
+        setError(e.message);
+      }
+      setCreating(false);
+    };
+
+    return React.createElement(Card, { className: "agora-create-form" },
+      React.createElement(CardHeader, null,
+        React.createElement(CardTitle, null, "Start Project"),
+      ),
+      React.createElement(CardContent, null,
+        error && React.createElement("p", { className: "agora-error" }, error),
+        React.createElement("div", { className: "agora-field" },
+          React.createElement(Label, null, "Project Name"),
+          React.createElement(Input, {
+            value: name,
+            onChange: (e) => setName(e.target.value),
+            placeholder: "e.g. docmind, webapp-redesign, api-v2",
+          }),
+        ),
+        React.createElement("div", { className: "agora-field" },
+          React.createElement(Label, null, "Goal"),
+          React.createElement("textarea", {
+            className: "agora-textarea agora-textarea-sm",
+            value: goal,
+            onChange: (e) => setGoal(e.target.value),
+            rows: 3,
+            placeholder: "What should the team accomplish? e.g. Build a doc-aware search API with React frontend",
+          }),
+        ),
+        React.createElement("div", { className: "agora-field" },
+          React.createElement(Label, null, "Workdir Path"),
+          React.createElement(Input, {
+            value: workdir,
+            onChange: (e) => setWorkdir(e.target.value),
+            placeholder: "e.g. /root/docmind",
+          }),
+        ),
+        React.createElement("div", { className: "agora-field-row" },
+          React.createElement("div", { className: "agora-field" },
+            React.createElement(Label, null, "Team"),
+            teams.length === 0
+              ? React.createElement("p", { className: "agora-hint" }, "No teams available. Create one in the Team tab.")
+              : React.createElement(Select, { value: team, onValueChange: setTeam },
+                  React.createElement(SelectOption, { value: "" }, "— Select Team —"),
+                  teams.map((t) =>
+                    React.createElement(SelectOption, { key: t.name, value: t.name }, t.name)
+                  ),
+                ),
+          ),
+          React.createElement("div", { className: "agora-field" },
+            React.createElement(Label, null, "Leader (optional)"),
+            leaders.length === 0
+              ? React.createElement("p", { className: "agora-hint" }, "No leaders available.")
+              : React.createElement(Select, { value: leader, onValueChange: setLeader },
+                  React.createElement(SelectOption, { value: "" }, "— Select Leader —"),
+                  leaders.map((l) =>
+                    React.createElement(SelectOption, { key: l.name, value: l.name }, l.name + " (" + (l.project || "unassigned") + ")")
+                  ),
+                ),
+          ),
+        ),
+        React.createElement(Button, { onClick: handleSubmit, disabled: creating },
+          creating ? "Starting..." : "🚀 Start Project"
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Project Card (in the list)
+  // ------------------------------------------------------------------------
+
+  function ProjectCard({ project, onSelect, onDeleted }) {
+    const [deleting, setDeleting] = useState(false);
+
+    var statusBadge;
+    if (project.status === "active") {
+      statusBadge = React.createElement(Badge, { className: "agora-badge-green" }, "active");
+    } else if (project.status === "completed") {
+      statusBadge = React.createElement(Badge, { className: "agora-badge-blue" }, "completed");
+    } else if (project.status === "stopped") {
+      statusBadge = React.createElement(Badge, { className: "agora-badge-red" }, "stopped");
+    } else {
+      statusBadge = React.createElement(Badge, null, project.status || "unknown");
+    }
+
+    var counts = project.task_counts || {};
+    var total = (counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0);
+
+    const handleDelete = async (e) => {
+      e.stopPropagation();
+      if (!confirm("Stop and delete project '" + project.name + "'?")) return;
+      setDeleting(true);
+      try { await apiDelete("/projects/" + project.name); onDeleted(); }
+      catch (e) { alert("Delete failed: " + e.message); }
+      setDeleting(false);
+    };
+
+    return React.createElement(Card, {
+      className: "agora-project-card",
+      onClick: onSelect,
+    },
+      React.createElement(CardContent, null,
+        React.createElement("div", { className: "agora-project-header" },
+          React.createElement("div", { className: "agora-project-info" },
+            React.createElement("span", { className: "agora-project-name" }, "📁 ", project.name),
+            statusBadge,
+            project.team && React.createElement(Badge, { className: "agora-badge-blue" }, "👥 " + project.team),
+            project.leader && React.createElement(Badge, null, "👨‍💼 " + project.leader),
+          ),
+          React.createElement(Button, {
+            variant: "ghost", size: "sm", onClick: handleDelete, disabled: deleting,
+          }, deleting ? "..." : "Stop"),
+        ),
+        project.goal && React.createElement("p", { className: "agora-project-goal" }, project.goal),
+        React.createElement("div", { className: "agora-project-meta" },
+          React.createElement("span", null, "📋 ", total, " tasks"),
+          counts.done > 0 && React.createElement("span", { className: "agora-count-done" }, "✅ ", counts.done, " done"),
+          counts.running > 0 && React.createElement("span", { className: "agora-count-running" }, "🔄 ", counts.running, " running"),
+          counts.todo > 0 && React.createElement("span", null, "📝 ", counts.todo, " todo"),
+          counts.blocked > 0 && React.createElement("span", { className: "agora-count-blocked" }, "🚫 ", counts.blocked, " blocked"),
+          project.workdir && React.createElement("span", null, "📂 ", project.workdir),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Project Detail — Overview / Kanban / Discussions / Team
+  // ------------------------------------------------------------------------
+
+  function ProjectDetail({ projectName, onBack }) {
+    const [project, setProject] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [subtab, setSubtab] = useState("overview");
+
+    const load = useCallback(async () => {
+      try {
+        const data = await apiGet("/projects/" + projectName);
+        setProject(data);
+        setError(null);
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    }, [projectName]);
+
+    useEffect(() => { load(); }, [load]);
+
+    // Auto-refresh every 10 seconds when viewing project detail
+    useEffect(() => {
+      var interval = setInterval(load, 10000);
+      return function () { clearInterval(interval); };
+    }, [load]);
+
+    if (loading) return React.createElement("p", null, "Loading project...");
+    if (error) return React.createElement("div", null,
+      React.createElement(Button, { variant: "ghost", size: "sm", onClick: onBack }, "← Back to Projects"),
+      React.createElement("p", { className: "agora-error" }, "Error: " + error),
+    );
+
+    var counts = project.task_counts || {};
+
+    return React.createElement("div", { className: "agora-project-detail" },
+      React.createElement("div", { className: "agora-project-detail-header" },
+        React.createElement(Button, { variant: "ghost", size: "sm", onClick: onBack }, "← Back to Projects"),
+        React.createElement("div", { className: "agora-project-detail-title" },
+          React.createElement("h3", null, "📁 ", project.name),
+          project.status === "active" && React.createElement(Badge, { className: "agora-badge-green" }, "active"),
+          project.status === "completed" && React.createElement(Badge, { className: "agora-badge-blue" }, "completed"),
+          project.status === "stopped" && React.createElement(Badge, { className: "agora-badge-red" }, "stopped"),
+        ),
+      ),
+      project.goal && React.createElement("p", { className: "agora-project-goal" }, project.goal),
+      React.createElement(Tabs, { value: subtab, onValueChange: setSubtab },
+        React.createElement(TabsList, null,
+          React.createElement(TabsTrigger, { value: "overview" }, "Overview"),
+          React.createElement(TabsTrigger, { value: "kanban" }, "Kanban (" + ((counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0)) + ")"),
+          React.createElement(TabsTrigger, { value: "discussions" }, "Discussions"),
+          React.createElement(TabsTrigger, { value: "team" }, "Team"),
+        ),
+      ),
+      subtab === "overview" && React.createElement(ProjectOverview, { project: project }),
+      subtab === "kanban" && React.createElement(ProjectKanban, { projectName: projectName }),
+      subtab === "discussions" && React.createElement(ProjectDiscussions, { projectName: projectName }),
+      subtab === "team" && React.createElement(ProjectTeam, { project: project }),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Project Overview sub-tab
+  // ------------------------------------------------------------------------
+
+  function ProjectOverview({ project }) {
+    var counts = project.task_counts || {};
+    var total = (counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0);
+    var progressPct = total > 0 ? Math.round(((counts.done || 0) / total) * 100) : 0;
+
+    return React.createElement(Card, { className: "agora-project-overview" },
+      React.createElement(CardContent, null,
+        React.createElement("div", { className: "agora-overview-grid" },
+          React.createElement("div", { className: "agora-stat-box" },
+            React.createElement("div", { className: "agora-stat-number" }, counts.todo || 0),
+            React.createElement("div", { className: "agora-stat-label" }, "📝 Todo"),
+          ),
+          React.createElement("div", { className: "agora-stat-box" },
+            React.createElement("div", { className: "agora-stat-number agora-stat-running" }, counts.running || 0),
+            React.createElement("div", { className: "agora-stat-label" }, "🔄 Running"),
+          ),
+          React.createElement("div", { className: "agora-stat-box" },
+            React.createElement("div", { className: "agora-stat-number agora-stat-blocked" }, counts.blocked || 0),
+            React.createElement("div", { className: "agora-stat-label" }, "🚫 Blocked"),
+          ),
+          React.createElement("div", { className: "agora-stat-box" },
+            React.createElement("div", { className: "agora-stat-number agora-stat-done" }, counts.done || 0),
+            React.createElement("div", { className: "agora-stat-label" }, "✅ Done"),
+          ),
+        ),
+        React.createElement("div", { className: "agora-progress-section" },
+          React.createElement("div", { className: "agora-progress-label" },
+            React.createElement("span", null, "Progress"),
+            React.createElement("span", null, progressPct + "%"),
+          ),
+          React.createElement("div", { className: "agora-progress-bar" },
+            React.createElement("div", { className: "agora-progress-fill", style: { width: progressPct + "%" } }),
+          ),
+        ),
+        React.createElement("div", { className: "agora-project-meta" },
+          project.team && React.createElement("span", null, "👥 Team: ", project.team),
+          project.leader && React.createElement("span", null, "👨‍💼 Leader: ", project.leader),
+          project.workdir && React.createElement("span", null, "📂 ", project.workdir),
+        ),
+        project.created_at && React.createElement("div", { className: "agora-project-meta" },
+          React.createElement("span", null, "🕒 Created ", isoTimeAgo(project.created_at)),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Project Kanban sub-tab
+  // ------------------------------------------------------------------------
+
+  function ProjectKanban({ projectName }) {
+    const [tasks, setTasks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const load = useCallback(async () => {
+      try {
+        const data = await fetchJSON("/api/kanban/tasks?project=" + encodeURIComponent(projectName));
+        setTasks(data.tasks || []);
+        setError(null);
+      } catch (e) {
+        // Kanban API may not exist for this project — show empty state, not error
+        setTasks([]);
+        setError(null);
+      }
+      setLoading(false);
+    }, [projectName]);
+
+    useEffect(() => { load(); }, [load]);
+
+    // Poll every 5 seconds for task updates
+    useEffect(() => {
+      var interval = setInterval(load, 5000);
+      return function () { clearInterval(interval); };
+    }, [load]);
+
+    if (loading) return React.createElement("p", null, "Loading kanban board...");
+
+    // Group tasks by status
+    var grouped = { todo: [], running: [], blocked: [], done: [] };
+    tasks.forEach(function (t) {
+      var s = t.status || "todo";
+      if (!grouped[s]) grouped[s] = [];
+      grouped[s].push(t);
+    });
+
+    var columns = [
+      { key: "todo", title: "📝 Todo", cls: "agora-kanban-todo" },
+      { key: "running", title: "🔄 Running", cls: "agora-kanban-running" },
+      { key: "blocked", title: "🚫 Blocked", cls: "agora-kanban-blocked" },
+      { key: "done", title: "✅ Done", cls: "agora-kanban-done" },
+    ];
+
+    if (tasks.length === 0 && !error) {
+      return React.createElement("p", { className: "agora-empty-hint" },
+        "No tasks found. Tasks are managed via the Hermes kanban API for this project."
+      );
+    }
+
+    return React.createElement("div", { className: "agora-kanban" },
+      React.createElement("div", { className: "agora-kanban-board" },
+        columns.map(function (col) {
+          return React.createElement("div", { key: col.key, className: cn("agora-kanban-column", col.cls) },
+            React.createElement("div", { className: "agora-kanban-col-header" },
+              React.createElement("span", null, col.title),
+              React.createElement(Badge, null, grouped[col.key] ? grouped[col.key].length : 0),
+            ),
+            React.createElement("div", { className: "agora-kanban-col-body" },
+              (grouped[col.key] || []).map(function (t) {
+                return React.createElement("div", { key: t.id || t.title, className: "agora-kanban-task" },
+                  React.createElement("div", { className: "agora-kanban-task-title" }, t.title || t.id),
+                  t.description && React.createElement("p", { className: "agora-kanban-task-desc" }, t.description),
+                  React.createElement("div", { className: "agora-kanban-task-meta" },
+                    t.assignee && React.createElement(Badge, { className: "agora-badge-blue" }, t.assignee),
+                    t.priority && React.createElement(Badge, null, t.priority),
+                  ),
+                );
+              }),
+              (!grouped[col.key] || grouped[col.key].length === 0) &&
+                React.createElement("p", { className: "agora-kanban-empty" }, "—"),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Project Discussions sub-tab — motions + real-time discussion + user input
+  // ------------------------------------------------------------------------
+
+  function ProjectDiscussions({ projectName }) {
+    const [motions, setMotions] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [selectedMotion, setSelectedMotion] = useState(null);
+
+    const load = useCallback(async () => {
+      try {
+        const data = await apiGet("/motions?status=all&limit=50");
+        // Filter motions by project name in the source field
+        var filtered = (data.motions || []).filter(function (m) {
+          return m.source === projectName || (m.source && m.source.indexOf(projectName) >= 0);
+        });
+        setMotions(filtered);
+        setError(null);
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    }, [projectName]);
+
+    useEffect(() => { load(); }, [load]);
+
+    if (loading) return React.createElement("p", null, "Loading discussions...");
+
+    return React.createElement("div", { className: "agora-project-discussions" },
+      React.createElement("div", { className: "agora-actions" },
+        React.createElement(Button, { variant: "outline", onClick: load }, "↻ Refresh"),
+        React.createElement(Button, {
+          variant: "outline",
+          onClick: async function () {
+            var title = prompt("Discussion topic for project '" + projectName + "':");
+            if (!title) return;
+            try {
+              await apiPost("/motions", { title: title, source: projectName, rounds: 3 });
+              load();
+            } catch (e) { alert("Failed: " + e.message); }
+          },
+        }, "+ New Discussion"),
+      ),
+      error && React.createElement("p", { className: "agora-error" }, "Error: " + error),
+      React.createElement("div", { className: "agora-discussion-layout" },
+        // Motion list sidebar
+        React.createElement("div", { className: "agora-discussion-sidebar" },
+          React.createElement("h4", { className: "agora-sidebar-title" }, "Discussions"),
+          motions.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
+            "No discussions yet for this project."
+          ),
+          motions.map(function (m) {
+            return React.createElement("div", {
+              key: m.motion_id,
+              className: cn("agora-discussion-item", selectedMotion === m.motion_id && "selected"),
+              onClick: function () { setSelectedMotion(selectedMotion === m.motion_id ? null : m.motion_id); },
+            },
+              React.createElement("div", { className: "agora-discussion-item-title" },
+                m.status === "closed" ? "✅ " : "🔄 ",
+                m.title
+              ),
+              React.createElement("div", { className: "agora-discussion-item-meta" },
+                React.createElement("span", null, m.motion_id),
+                m.decision && React.createElement(Badge, null, m.decision),
+              ),
+            );
+          }),
+        ),
+        // Active discussion view
+        React.createElement("div", { className: "agora-discussion-main" },
+          selectedMotion
+            ? React.createElement(DiscussionView, { motionId: selectedMotion })
+            : React.createElement("p", { className: "agora-empty-hint" },
+                "Select a discussion from the left to view the conversation."
+              ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Discussion View — real-time messages + user input for human participation
+  // ------------------------------------------------------------------------
+
+  function DiscussionView({ motionId }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [userInput, setUserInput] = useState("");
+    const [sending, setSending] = useState(false);
+    const messagesEndRef = useRef(null);
+
+    const load = useCallback(async () => {
+      try {
+        var d = await apiGet("/motions/" + motionId);
+        setData(d);
+      } catch (e) {
+        // silently fail on poll — keep existing data
+      }
+      setLoading(false);
+    }, [motionId]);
+
+    useEffect(function () {
+      setLoading(true);
+      load();
+    }, [load]);
+
+    // Poll every 3 seconds when viewing an active (non-closed) motion
+    useEffect(function () {
+      if (loading) return;
+      var isActive = data && data.status !== "closed";
+      if (!isActive) return;
+      var interval = setInterval(load, 3000);
+      return function () { clearInterval(interval); };
+    }, [load, data, loading]);
+
+    // Scroll to bottom on new messages
+    useEffect(function () {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
+      }
+    }, [data]);
+
+    var handleSend = async function () {
+      if (!userInput.trim()) return;
+      setSending(true);
+      try {
+        await apiPost("/motions/" + motionId + "/messages", {
+          role: "user",
+          content: userInput.trim(),
+        });
+        setUserInput("");
+        load(); // immediately refresh
+      } catch (e) {
+        alert("Failed to send message: " + e.message);
+      }
+      setSending(false);
+    };
+
+    var handleKeyPress = function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    };
+
+    if (loading) return React.createElement("p", null, "Loading discussion...");
+    if (!data) return React.createElement("p", { className: "agora-error" }, "Failed to load discussion");
+
+    var messages = data.messages || [];
+    var isActive = data.status !== "closed";
+
+    return React.createElement("div", { className: "agora-discussion-view" },
+      React.createElement("div", { className: "agora-discussion-header" },
+        React.createElement("h4", null, data.title),
+        React.createElement("div", { className: "agora-discussion-info" },
+          React.createElement(Badge, null, data.status),
+          data.decision && React.createElement(Badge, {
+            className: cn(
+              data.decision === "adopted" && "agora-badge-green",
+              data.decision === "rejected" && "agora-badge-red",
+            )
+          }, data.decision),
+          React.createElement("span", { className: "agora-discussion-round" },
+            "Round ", data.current_round || 0, "/", data.max_rounds || "?"
+          ),
+        ),
+      ),
+      data.rationale && React.createElement("p", { className: "agora-rationale" }, data.rationale),
+      // Messages
+      React.createElement("div", { className: "agora-discussion-messages", ref: messagesEndRef },
+        messages.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
+          "No messages yet. Start the discussion below."
+        ),
+        messages.map(function (msg) {
+          var isUser = msg.role === "user";
+          return React.createElement("div", {
+            key: msg.id || (msg.role + "-" + msg.round + "-" + messages.indexOf(msg)),
+            className: cn("agora-message", isUser && "agora-message-user"),
+          },
+            React.createElement("div", { className: "agora-message-header" },
+              React.createElement("strong", null, isUser ? "👤 " + (msg.role) : msg.role),
+              msg.round && React.createElement("span", { className: "agora-message-round" }, "R" + msg.round),
+              msg.stance && React.createElement(Badge, null, msg.stance),
+            ),
+            React.createElement("div", { className: "agora-message-content" }, msg.content),
+          );
+        }),
+      ),
+      // User input box for human participation
+      isActive && React.createElement("div", { className: "agora-discussion-input" },
+        React.createElement("textarea", {
+          className: "agora-textarea agora-textarea-sm",
+          value: userInput,
+          onChange: function (e) { setUserInput(e.target.value); },
+          onKeyPress: handleKeyPress,
+          rows: 2,
+          placeholder: "Type a message to join the discussion... (Enter to send, Shift+Enter for newline)",
+        }),
+        React.createElement("div", { className: "agora-discussion-input-actions" },
+          React.createElement(Button, { onClick: handleSend, disabled: sending || !userInput.trim() },
+            sending ? "Sending..." : "💬 Send"
+          ),
+        ),
+      ),
+      !isActive && React.createElement("p", { className: "agora-hint" },
+        "This discussion is closed. No further messages can be added."
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Project Team sub-tab — workers assigned to this project
+  // ------------------------------------------------------------------------
+
+  function ProjectTeam({ project }) {
+    const [workers, setWorkers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const load = useCallback(async () => {
+      try {
+        var data = await apiGet("/workers");
+        var allWorkers = data.workers || [];
+        // Filter workers assigned to this project
+        var projectWorkers = allWorkers.filter(function (w) {
+          return w.projects && w.projects.indexOf(project.name) >= 0;
+        });
+        setWorkers(projectWorkers);
+        setError(null);
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    }, [project.name]);
+
+    useEffect(() => { load(); }, [load]);
+
+    // Poll every 10 seconds
+    useEffect(() => {
+      var interval = setInterval(load, 10000);
+      return function () { clearInterval(interval); };
+    }, [load]);
+
+    if (loading) return React.createElement("p", null, "Loading team...");
+    if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
+
+    return React.createElement("div", { className: "agora-project-team" },
+      project.team && React.createElement("div", { className: "agora-project-team-header" },
+        React.createElement("span", { className: "agora-team-name" }, "👥 Team: ", project.team),
+        project.leader && React.createElement(Badge, { className: "agora-badge-blue" }, "👨‍💼 Leader: " + project.leader),
+      ),
+      workers.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
+        "No workers assigned to this project. Assign workers via the Team tab."
+      ),
+      React.createElement("div", { className: "agora-worker-list" },
+        workers.map(function (w) {
+          return React.createElement(Card, { key: w.name, className: "agora-worker-card" },
+            React.createElement(CardContent, null,
+              React.createElement("div", { className: "agora-worker-header" },
+                React.createElement("div", { className: "agora-worker-info" },
+                  React.createElement("span", { className: "agora-worker-name" }, w.name),
+                  React.createElement(Badge, null, w.role),
+                  w.model && w.model !== "inherited" && React.createElement(Badge, { className: "agora-badge-blue" }, w.model),
+                ),
+              ),
+              React.createElement("p", { className: "agora-worker-desc" }, w.description || ""),
+              React.createElement("div", { className: "agora-worker-meta" },
+                w.status && React.createElement("span", null, "● ", w.status),
+                w.current_task && React.createElement("span", null, "📋 ", w.current_task),
+                w.last_active && React.createElement("span", null, "🕒 ", isoTimeAgo(w.last_active)),
+              ),
+            ),
+          );
+        }),
+      ),
     );
   }
 
@@ -1053,138 +1754,6 @@
           React.createElement("div", { key: s.name, className: "agora-skill-item" },
             React.createElement("span", { className: "agora-skill-name" }, s.name),
           )
-        ),
-      ),
-    );
-  }
-
-  // ========================================================================
-  // Motions Tab (existing — unchanged)
-  // ========================================================================
-
-  function MotionsTab() {
-    const [motions, setMotions] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [selected, setSelected] = useState(null);
-
-    const load = useCallback(async () => {
-      setLoading(true);
-      try {
-        const data = await apiGet("/motions?status=all&limit=50");
-        setMotions(data.motions || []);
-      } catch (e) {
-        setError(e.message);
-      }
-      setLoading(false);
-    }, []);
-
-    useEffect(() => { load(); }, [load]);
-
-    if (loading) return React.createElement("p", null, "Loading discussions...");
-    if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
-
-    return React.createElement("div", { className: "agora-motions" },
-      React.createElement("div", { className: "agora-actions" },
-        React.createElement(Button, { onClick: load }, "↻ Refresh"),
-        React.createElement(Button, {
-          variant: "outline",
-          onClick: async () => {
-            const title = prompt("Discussion topic:");
-            if (!title) return;
-            try {
-              const result = await apiPost("/motions", { title: title, rounds: 3 });
-              alert("Motion created: " + result.motion_id + "\nUse /agora discuss in chat to start the LLM discussion.");
-              load();
-            } catch (e) { alert("Failed: " + e.message); }
-          },
-        }, "+ New Discussion"),
-      ),
-      React.createElement("div", { className: "agora-motion-list" },
-        motions.length === 0 && React.createElement("p", null, "No discussions yet. Use /agora discuss to start one."),
-        motions.map((m) =>
-          React.createElement(MotionCard, {
-            key: m.motion_id,
-            motion: m,
-            isSelected: selected === m.motion_id,
-            onSelect: () => setSelected(selected === m.motion_id ? null : m.motion_id),
-          })
-        ),
-      ),
-      selected && React.createElement(MotionDetail, { motionId: selected }),
-    );
-  }
-
-  function MotionCard({ motion, isSelected, onSelect }) {
-    const statusIcon = motion.status === "closed" ? "✅" : "🔄";
-    const decisionBadge = motion.decision
-      ? React.createElement(Badge, {
-          className: cn(
-            "agora-badge",
-            motion.decision === "adopted" && "agora-badge-green",
-            motion.decision === "rejected" && "agora-badge-red",
-          )
-        }, motion.decision)
-      : null;
-
-    return React.createElement(Card, {
-      className: cn("agora-motion-card", isSelected && "selected"),
-      onClick: onSelect,
-    },
-      React.createElement(CardContent, null,
-        React.createElement("div", { className: "agora-motion-header" },
-          React.createElement("span", null, statusIcon, " ", motion.title),
-          decisionBadge,
-        ),
-        React.createElement("div", { className: "agora-motion-meta" },
-          React.createElement("span", null, motion.motion_id),
-          motion.source && motion.source !== "user" && React.createElement(Badge, null, motion.source),
-        ),
-      ),
-    );
-  }
-
-  function MotionDetail({ motionId }) {
-    const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-      setLoading(true);
-      apiGet("/motions/" + motionId).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, [motionId]);
-
-    if (loading) return React.createElement("p", null, "Loading motion...");
-    if (!data) return React.createElement("p", { className: "agora-error" }, "Failed to load motion");
-
-    return React.createElement(Card, { className: "agora-motion-detail" },
-      React.createElement(CardHeader, null,
-        React.createElement(CardTitle, null, data.title),
-      ),
-      React.createElement(CardContent, null,
-        React.createElement("div", { className: "agora-motion-info" },
-          React.createElement(Badge, null, data.status),
-          data.decision && React.createElement(Badge, null, data.decision),
-          React.createElement("span", null, "Round ", data.current_round, "/", data.max_rounds),
-        ),
-        data.rationale && React.createElement("p", { className: "agora-rationale" }, data.rationale),
-        data.action_items && data.action_items.length > 0 && React.createElement("div", { className: "agora-action-items" },
-          React.createElement("h4", null, "Action Items"),
-          data.action_items.map((ai, i) =>
-            React.createElement("div", { key: i, className: "agora-action-item" }, "• ", ai)
-          ),
-        ),
-        data.messages && data.messages.length > 0 && React.createElement("div", { className: "agora-messages" },
-          React.createElement("h4", null, "Discussion"),
-          data.messages.map((msg) =>
-            React.createElement("div", { key: msg.id, className: "agora-message" },
-              React.createElement("div", { className: "agora-message-header" },
-                React.createElement("strong", null, msg.role),
-                React.createElement("span", { className: "agora-message-round" }, "R" + msg.round),
-                React.createElement(Badge, null, msg.stance),
-              ),
-              React.createElement("div", { className: "agora-message-content" }, msg.content),
-            )
-          ),
         ),
       ),
     );

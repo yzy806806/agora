@@ -1,9 +1,9 @@
 {
   "name": "agora",
   "label": "Agora",
-  "description": "Multi-role deliberation — manage worker profiles, teams, leaders with heartbeat, and discussions",
+  "description": "Multi-role self-driving team \u2014 projects, workers, leaders, discussions, human participation",
   "icon": "Landmark",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "tab": {
     "path": "/agora",
     "position": "after:kanban"

@@ -18,9 +18,10 @@ import json
 import logging
 import os
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .utils import find_hermes_binary, now_iso, get_registry_dir, safe_name
 
 logger = logging.getLogger(__name__)
 
@@ -62,29 +63,30 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
 def _spawn_leader_agent(leader: dict) -> dict:
     """Spawn a leader agent subprocess for one heartbeat cycle.
 
+    Non-blocking: spawns the process, writes output to a log file, and
+    returns immediately with status="spawned". PROJECT_COMPLETE detection
+    is handled asynchronously by the heartbeat batch loop, which checks
+    the log file on subsequent runs.
+
     The agent gets a prompt that tells it to:
     1. Check kanban board for stuck tasks
     2. Unblock/split/reassign as needed
-    3. If all done, raise a motion for next phase
+    3. If all done, plan next phase (create tasks directly) or declare PROJECT_COMPLETE
     4. Check stale motions
     """
     name = leader["name"]
     project = leader.get("project", "")
     profile_dir = leader.get("profile_dir", "")
     workdir = ""
+    goal = ""
 
-    # Get project workdir from project registry
+    # Get project info from project registry
     try:
-        kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
-        if kanban_db:
-            registry_dir = Path(kanban_db).parent / "agora" / "projects"
-        else:
-            registry_dir = Path.home() / ".hermes" / "agora" / "projects"
-        proj_file = registry_dir / f"{project.replace('/', '-').replace(' ', '_')}.json"
+        proj_file = get_registry_dir("projects") / f"{safe_name(project)}.json"
         if proj_file.exists():
-            import json as _json
-            proj = _json.loads(proj_file.read_text())
+            proj = json.loads(proj_file.read_text())
             workdir = proj.get("workdir", "")
+            goal = proj.get("goal", "")
     except Exception:
         pass
 
@@ -92,12 +94,13 @@ def _spawn_leader_agent(leader: dict) -> dict:
     prompt = _HEARTBEAT_PROMPT.format(
         leader_name=name,
         project=project,
+        goal=goal or "(not specified)",
         workdir=workdir or "/root",
     )
 
     # Find hermes binary
-    hermes_bin = _find_hermes_binary()
-    if hermes_bin is None:
+    hermes_bin = find_hermes_binary()
+    if not hermes_bin:
         return {"error": "Cannot find hermes binary"}
 
     # Build command
@@ -118,8 +121,7 @@ def _spawn_leader_agent(leader: dict) -> dict:
         env["TERMINAL_CWD"] = workdir
 
     # Log file
-    from .leader_manager import _registry_dir
-    log_path = _registry_dir() / f"heartbeat_{name}.log"
+    log_path = get_registry_dir("leaders") / f"heartbeat_{name}.log"
 
     try:
         log_fd = open(log_path, "a")
@@ -152,20 +154,47 @@ def _spawn_leader_agent(leader: dict) -> dict:
         return {"error": f"Failed to spawn leader: {exc}"}
 
 
-def _find_hermes_binary() -> str | None:
-    candidates = [
-        os.environ.get("HERMES_BIN", ""),
-        "/home/ubuntu/.hermes/hermes-agent/venv/bin/hermes",
-        "/root/.hermes/hermes-agent/venv/bin/hermes",
-        "/usr/local/bin/hermes",
-        "/usr/bin/hermes",
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    import shutil
-    found = shutil.which("hermes")
-    return found
+def _on_project_complete(leader_name: str, project: str) -> None:
+    """Handle project completion — stop the leader's cron job and update project status."""
+    try:
+        # Pause the leader's cron job
+        from .leader_manager import get_leader
+        leader = get_leader(leader_name)
+        if leader:
+            cron_id = leader.get("cron_job_id")
+            if cron_id:
+                hermes = find_hermes_binary()
+                if hermes:
+                    subprocess.run(
+                        [hermes, "cron", "pause", cron_id],
+                        capture_output=True, text=True, timeout=10,
+                    )
+
+        # Update project status
+        try:
+            registry_dir = get_registry_dir("projects")
+            proj_file = registry_dir / f"{safe_name(project)}.json"
+            if proj_file.exists():
+                import json as _json
+                proj = _json.loads(proj_file.read_text())
+                proj["status"] = "completed"
+                proj["completed_at"] = now_iso()
+                proj_file.write_text(_json.dumps(proj, indent=2))
+        except Exception:
+            pass
+
+        # Update leader status
+        from .leader_manager import _leader_file
+        lf = _leader_file(leader_name)
+        if lf.exists():
+            import json as _json
+            data = _json.loads(lf.read_text())
+            data["status"] = "completed"
+            lf.write_text(_json.dumps(data, indent=2))
+
+        logger.info("Project '%s' marked complete, leader '%s' cron paused", project, leader_name)
+    except Exception as exc:
+        logger.error("Failed to handle project completion: %s", exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -175,31 +204,35 @@ def _find_hermes_binary() -> str | None:
 _HEARTBEAT_PROMPT = """\
 Heartbeat wake-up for {leader_name}, team leader of project '{project}'.
 
-Follow your SOUL.md heartbeat protocol. Here's a quick reference:
-
-1. **Check stuck tasks**: Run `hermes kanban list --status blocked`
-   For each blocked task, read its comments and decide:
-   - Work is done but waiting for review → mark as done, optionally create a review task
-   - Hit iteration limit or crashed → unblock, split into smaller tasks, or adjust description
-   - Blocked by design decision → raise a motion with agora_raise_motion
-   - Stuck too long → unblock and reassign, or cancel
-
-2. **Check triage**: Run `hermes kanban list --status triage`
-   Handle any triaged tasks (analyze failure, fix description, re-queue)
-
-3. **Check progress**: Run `hermes kanban stats`
-   - If running/todo > 0 → do nothing, let workers continue
-   - If all done (0 todo, 0 running, 0 blocked) → raise a motion for next phase
-   - If project goal achieved → say "PROJECT_COMPLETE" with summary
-
-4. **Check stale motions**: Run `hermes agora list --status active`
-   Close any motion that's been discussing too long.
-
+Project goal: {goal}
 Project workdir: {workdir}
-You can use `cd {workdir}` to inspect code, run git log, run tests, etc.
+
+Follow your SOUL.md heartbeat protocol. Quick reference:
+
+1. **Check stuck tasks**: Check for blocked tasks. For each:
+   - Done but waiting on review -> mark done, create review task if needed
+   - Hit limit or crashed -> unblock, split into smaller tasks, or adjust description
+   - Blocked by design decision -> raise a motion with agora_raise_motion
+   - Stuck too long -> unblock and reassign, or cancel
+
+2. **Check failed tasks**: Handle any triaged tasks (analyze failure, fix, re-queue)
+
+3. **Check progress**:
+   - If running/todo > 0 -> do nothing, let workers continue
+   - If all done (0 todo, 0 running, 0 blocked):
+     -> Review the project goal: "{goal}"
+     -> Check what has been accomplished so far (read files, check outputs)
+     -> Is the goal achieved?
+        - YES -> output PROJECT_COMPLETE with a summary of what was accomplished. Stop here.
+        - NO -> plan the next phase. Create new kanban tasks directly with `hermes kanban add`.
+          Assign each task to the appropriate team role.
+          Only use agora_raise_motion if a direction decision needs team discussion.
+
+4. **Check stale motions**: Close any motion discussing too long. Decide from the discussion so far.
 
 Be decisive. Take action. Don't just report — DO things.
-If you unblock a task, actually run the kanban command to unblock it.
-If you raise a motion, actually call agora_raise_motion.
+If you unblock a task, actually run the kanban command.
+If you create tasks, actually run `hermes kanban add`.
 If everything is fine, say "ALL_GOOD" and explain briefly what you checked.
+If the project goal is achieved, say "PROJECT_COMPLETE" and explain why.
 """

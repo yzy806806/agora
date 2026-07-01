@@ -22,6 +22,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .utils import (
+    get_registry_dir,
+    get_profiles_root,
+    find_hermes_binary,
+    now_iso,
+    patch_config_model,
+    safe_name,
+)
 from .worker_templates import TEMPLATES, get_template, render_soul, list_templates
 
 logger = logging.getLogger(__name__)
@@ -30,59 +38,8 @@ logger = logging.getLogger(__name__)
 #  Registry — tracks which profiles are Agora-managed workers                 #
 # --------------------------------------------------------------------------- #
 
-def _registry_dir() -> Path:
-    """Return the global Agora registry directory."""
-    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
-    if kanban_db:
-        global_root = str(Path(kanban_db).parent)
-    else:
-        try:
-            from hermes_constants import get_hermes_home
-            home = Path(get_hermes_home())
-            if "/profiles/" in str(home):
-                global_root = str(home.parent.parent)
-            else:
-                global_root = str(home)
-        except Exception:
-            global_root = str(Path.home() / ".hermes")
-    d = Path(global_root) / "agora" / "workers"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
 def _worker_file(name: str) -> Path:
-    safe = name.replace("/", "-").replace(" ", "_")
-    return _registry_dir() / f"{safe}.json"
-
-
-def _profiles_root() -> Path:
-    """Return the path to ~/.hermes/profiles/."""
-    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
-    if kanban_db:
-        return Path(kanban_db).parent / "profiles"
-    try:
-        from hermes_constants import get_hermes_home
-        home = Path(get_hermes_home())
-        if "/profiles/" in str(home):
-            return home.parent
-        return home / "profiles"
-    except Exception:
-        return Path.home() / ".hermes" / "profiles"
-
-
-def _hermes_bin() -> str:
-    candidates = [
-        os.environ.get("HERMES_BIN", ""),
-        "/home/ubuntu/.hermes/hermes-agent/venv/bin/hermes",
-        "/root/.hermes/hermes-agent/venv/bin/hermes",
-        "/usr/local/bin/hermes",
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    import shutil as _sh
-    found = _sh.which("hermes")
-    return found or "hermes"
+    return get_registry_dir("workers") / f"{safe_name(name)}.json"
 
 
 # --------------------------------------------------------------------------- #
@@ -115,11 +72,6 @@ def create_worker(
     Returns:
         dict with creation status and worker info
     """
-    template = get_template(role)
-    if template is None:
-        available = ", ".join(TEMPLATES.keys())
-        return {"error": f"Unknown role '{role}'. Available: {available}"}
-
     # Validate name
     if not name or not name.replace("-", "").replace("_", "").isalnum():
         return {"error": f"Invalid worker name '{name}'. Use lowercase alphanumeric with - or _."}
@@ -128,7 +80,20 @@ def create_worker(
     if _worker_file(name).exists():
         return {"error": f"Worker '{name}' already exists. Remove it first or use a different name."}
 
-    profiles_root = _profiles_root()
+    # Handle custom role — no template, SOUL.md written separately by caller
+    if role == "custom":
+        template = None
+        display_name = "Custom"
+        description = "Custom worker with LLM-generated SOUL.md"
+    else:
+        template = get_template(role)
+        if template is None:
+            available = ", ".join(TEMPLATES.keys())
+            return {"error": f"Unknown role '{role}'. Available: {available}"}
+        display_name = template["display_name"]
+        description = template["description"]
+
+    profiles_root = get_profiles_root()
     profile_dir = profiles_root / name
 
     # Check if profile dir already exists (maybe created manually)
@@ -136,11 +101,11 @@ def create_worker(
         return {"error": f"Profile directory '{profile_dir}' already exists."}
 
     # Step 1: Clone the profile using hermes CLI
-    hermes = _hermes_bin()
+    hermes = find_hermes_binary()
     clone_cmd = [
         hermes, "profile", "create", name,
         "--clone-from", clone_from,
-        "--description", template["description"],
+        "--description", description,
     ]
     try:
         result = subprocess.run(
@@ -157,12 +122,14 @@ def create_worker(
         return {"error": f"Failed to clone profile: {exc}"}
 
     # Step 2: Write SOUL.md
-    soul_path = profile_dir / "SOUL.md"
-    soul_content = render_soul(template, name)
-    try:
-        soul_path.write_text(soul_content)
-    except Exception as exc:
-        logger.warning("Failed to write SOUL.md for %s: %s", name, exc)
+    if template is not None:
+        soul_path = profile_dir / "SOUL.md"
+        soul_content = render_soul(template, name)
+        try:
+            soul_path.write_text(soul_content)
+        except Exception as exc:
+            logger.warning("Failed to write SOUL.md for %s: %s", name, exc)
+    # For custom role, SOUL.md is written separately by the caller
 
     # Step 3: Ensure MEMORY.md exists (empty, not cloned from parent)
     memory_path = profile_dir / "MEMORY.md"
@@ -178,7 +145,7 @@ def create_worker(
     # Step 4: Ensure USER.md exists
     user_path = profile_dir / "USER.md"
     try:
-        user_path.write_text(f"# {name}\n\nRole: {template['display_name']}\n")
+        user_path.write_text(f"# {name}\n\nRole: {display_name}\n")
     except Exception as exc:
         logger.warning("Failed to write USER.md for %s: %s", name, exc)
 
@@ -192,20 +159,20 @@ def create_worker(
         logger.warning("Failed to create skills dir for %s: %s", name, exc)
 
     # Step 6: Override model if specified or from template
-    effective_model = model or template.get("model")
+    effective_model = model or (template.get("model") if template else None)
     if effective_model:
-        _patch_config_model(profile_dir / "config.yaml", effective_model)
+        patch_config_model(profile_dir / "config.yaml", effective_model)
 
     # Step 7: Register in the worker registry
     worker_data = {
         "name": name,
         "role": role,
-        "display_name": template["display_name"],
-        "description": template["description"],
+        "display_name": display_name,
+        "description": description,
         "clone_from": clone_from,
         "model": effective_model or "inherited",
         "profile_dir": str(profile_dir),
-        "created_at": _now_iso(),
+        "created_at": now_iso(),
         "projects": [],  # list of project names this worker participates in
     }
     _worker_file(name).write_text(json.dumps(worker_data, indent=2))
@@ -244,8 +211,8 @@ def remove_worker(name: str, delete_profile: bool = True) -> dict:
 
     # Delete the Hermes profile
     if delete_profile:
-        hermes = _hermes_bin()
-        profiles_root = _profiles_root()
+        hermes = find_hermes_binary()
+        profiles_root = get_profiles_root()
         try:
             result = subprocess.run(
                 [hermes, "profile", "delete", name, "--yes"],
@@ -279,7 +246,7 @@ def get_worker(name: str) -> dict | None:
 
 def list_workers() -> list[dict]:
     """List all registered Agora workers."""
-    d = _registry_dir()
+    d = get_registry_dir("workers")
     workers = []
     for f in d.glob("*.json"):
         try:
@@ -292,27 +259,3 @@ def list_workers() -> list[dict]:
 def list_available_templates() -> list[dict]:
     """List all role templates that can be used to create workers."""
     return list_templates()
-
-
-def _patch_config_model(config_path: Path, model: str) -> None:
-    """Patch the model.default field in a profile's config.yaml."""
-    try:
-        content = config_path.read_text()
-        # Simple replacement — the config is YAML and model.default is unique
-        import re
-        # Match "default: <something>" under "model:" section
-        new_content = re.sub(
-            r'(\nmodel:\n  default: )([^\n]+)',
-            f'\\g<1>{model}',
-            content,
-            count=1,
-        )
-        if new_content != content:
-            config_path.write_text(new_content)
-    except Exception as exc:
-        logger.warning("Failed to patch model in %s: %s", config_path, exc)
-
-
-def _now_iso() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
