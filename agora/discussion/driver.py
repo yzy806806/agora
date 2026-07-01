@@ -564,7 +564,7 @@ class DiscussionDriver:
                         + (f"\nDepends on: {parent_ids}" if parent_ids else "")
                     ),
                     assignee=assignee,
-                    workspace_kind="dir",
+                    workspace_kind="scratch",
                     parents=parent_ids,
                 )
                 created[idx] = task_id
