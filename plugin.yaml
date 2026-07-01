@@ -1,5 +1,5 @@
 name: agora
-version: 0.4.0
+version: 0.5.0
 description: "Multi-role deliberation + self-driving project development. Agora plans, discusses, and dispatches tasks autonomously."
 author: yzy806806
 kind: backend
@@ -11,5 +11,12 @@ provides_tools:
   - agora_start_project
   - agora_stop_project
   - agora_project_status
+  - agora_create_worker
+  - agora_list_workers
+  - agora_remove_worker
+  - agora_list_templates
+  - agora_create_team
+  - agora_list_teams
+  - agora_remove_team
 provides_hooks:
   - kanban_task_completed

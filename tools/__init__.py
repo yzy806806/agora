@@ -233,6 +233,9 @@ def register_all_tools(ctx: Any) -> None:
     # --- Self-drive project management tools ---
     _register_project_tools(ctx)
 
+    # --- Worker & team management tools ---
+    _register_worker_tools(ctx)
+
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -698,3 +701,141 @@ def _register_project_tools(ctx: Any) -> None:
     )
 
     logger.info("Registered 3 project management tools")
+
+
+# --------------------------------------------------------------------------- #
+#  Worker & Team management tools                                             #
+# --------------------------------------------------------------------------- #
+
+_CREATE_WORKER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Profile name (lowercase alphanumeric, e.g. alice)"},
+        "role": {
+            "type": "string",
+            "enum": ["architect", "developer", "reviewer", "tester", "devops"],
+            "description": "Role template to use",
+        },
+        "clone_from": {"type": "string", "description": "Source profile to clone config from", "default": "coder"},
+        "model": {"type": "string", "description": "Override model for this worker (optional)", "default": ""},
+    },
+    "required": ["name", "role"],
+}
+
+_LIST_WORKERS_SCHEMA = {"type": "object", "properties": {}}
+_REMOVE_WORKER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Worker profile name to remove"},
+        "delete_profile": {"type": "boolean", "description": "Also delete the Hermes profile directory", "default": True},
+    },
+    "required": ["name"],
+}
+_LIST_TEMPLATES_SCHEMA = {"type": "object", "properties": {}}
+_CREATE_TEAM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "team_name": {"type": "string", "description": "Unique team name"},
+        "workers": {"type": "array", "items": {"type": "string"}, "description": "Worker profile names to include"},
+        "project": {"type": "string", "description": "Project to bind this team to (optional)", "default": ""},
+    },
+    "required": ["team_name", "workers"],
+}
+_LIST_TEAMS_SCHEMA = {"type": "object", "properties": {}}
+_REMOVE_TEAM_SCHEMA = {
+    "type": "object",
+    "properties": {"team_name": {"type": "string", "description": "Team name to remove"}},
+    "required": ["team_name"],
+}
+
+
+def _register_worker_tools(ctx: Any) -> None:
+    """Register worker and team management tools."""
+
+    async def _create_worker_handler(args: dict, **kwargs) -> dict:
+        from ..agora.worker_manager import create_worker
+        return create_worker(
+            name=args.get("name", ""),
+            role=args.get("role", ""),
+            clone_from=args.get("clone_from", "coder"),
+            model=args.get("model", "") or None,
+        )
+
+    ctx.register_tool(
+        name="agora_create_worker", toolset="agora", schema=_CREATE_WORKER_SCHEMA,
+        handler=_create_worker_handler, is_async=True,
+        description="Create a worker profile from a role template. Generates config, SOUL.md (identity), memory, and skills directory. The same worker can participate in multiple projects.",
+        emoji="\U0001f464",
+    )
+
+    def _list_workers_handler(args: dict, **kwargs) -> dict:
+        from ..agora.worker_manager import list_workers
+        return {"workers": list_workers()}
+
+    ctx.register_tool(
+        name="agora_list_workers", toolset="agora", schema=_LIST_WORKERS_SCHEMA,
+        handler=_list_workers_handler,
+        description="List all registered Agora worker profiles.",
+        emoji="\U0001f465",
+    )
+
+    async def _remove_worker_handler(args: dict, **kwargs) -> dict:
+        from ..agora.worker_manager import remove_worker
+        return remove_worker(args.get("name", ""), delete_profile=args.get("delete_profile", True))
+
+    ctx.register_tool(
+        name="agora_remove_worker", toolset="agora", schema=_REMOVE_WORKER_SCHEMA,
+        handler=_remove_worker_handler, is_async=True,
+        description="Remove a worker from the Agora registry and optionally delete the profile.",
+        emoji="\U0001f5d1\ufe0f",
+    )
+
+    def _list_templates_handler(args: dict, **kwargs) -> dict:
+        from ..agora.worker_templates import list_templates
+        return {"templates": list_templates()}
+
+    ctx.register_tool(
+        name="agora_list_templates", toolset="agora", schema=_LIST_TEMPLATES_SCHEMA,
+        handler=_list_templates_handler,
+        description="List available role templates for creating workers.",
+        emoji="\U0001f4cb",
+    )
+
+    async def _create_team_handler(args: dict, **kwargs) -> dict:
+        from ..agora.team_manager import create_team
+        return create_team(
+            team_name=args.get("team_name", ""),
+            worker_names=args.get("workers", []),
+            project=args.get("project", "") or None,
+        )
+
+    ctx.register_tool(
+        name="agora_create_team", toolset="agora", schema=_CREATE_TEAM_SCHEMA,
+        handler=_create_team_handler, is_async=True,
+        description="Create a team by selecting existing workers. A team is the assignee pool for a project. The same worker can be on multiple teams.",
+        emoji="\U0001f91d",
+    )
+
+    def _list_teams_handler(args: dict, **kwargs) -> dict:
+        from ..agora.team_manager import list_teams
+        return {"teams": list_teams()}
+
+    ctx.register_tool(
+        name="agora_list_teams", toolset="agora", schema=_LIST_TEAMS_SCHEMA,
+        handler=_list_teams_handler,
+        description="List all registered teams.",
+        emoji="\U0001f3c6",
+    )
+
+    async def _remove_team_handler(args: dict, **kwargs) -> dict:
+        from ..agora.team_manager import remove_team
+        return remove_team(args.get("team_name", ""))
+
+    ctx.register_tool(
+        name="agora_remove_team", toolset="agora", schema=_REMOVE_TEAM_SCHEMA,
+        handler=_remove_team_handler, is_async=True,
+        description="Remove a team from the registry.",
+        emoji="\U0001f4a5",
+    )
+
+    logger.info("Registered 7 worker & team management tools")

@@ -74,6 +74,7 @@ def start_project(
     initial_topic: str = "",
     profile: str = "coder",
     max_rounds: int = 10,
+    team: str | None = None,
 ) -> dict:
     """Register a project for self-driving development.
 
@@ -101,6 +102,7 @@ def start_project(
         "initial_topic": initial_topic,
         "last_planner_pid": None,
         "last_planner_at": None,
+        "team": team,  # optional team name for assignee routing
     }
     pf.write_text(json.dumps(data, indent=2))
     logger.info("Project %s started: %s", project_name, workdir)
@@ -188,8 +190,13 @@ Your job is to analyze the current state of the project and decide the next step
 - Topic hint: {topic_hint}
 - Project goal: {goal}
 - Project workdir: {workdir}
+- Team: {team}
 - You have access to all Hermes tools including agora_raise_motion,
   agora_list_motions, file tools, and terminal.
+
+When you raise a motion, mention the project name '{project_name}' in
+the description so the discussion driver can route action items to the
+correct team members.
 
 Be decisive and specific. Don't ask questions — make a decision and act on it.
 """
@@ -226,11 +233,13 @@ def _spawn_planner(project_name: str, topic_hint: str = "") -> int | None:
     goal = data.get("goal", "")
 
     # Build the planner prompt
+    team = data.get("team", "none")
     prompt = _PLANNER_PROMPT_TEMPLATE.format(
         project_name=project_name,
         topic_hint=topic_hint or "(auto-generated)",
         goal=goal or "(not specified)",
         workdir=workdir,
+        team=team or "none",
     )
 
     # Find the hermes binary

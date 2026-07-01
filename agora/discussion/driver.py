@@ -500,6 +500,12 @@ class DiscussionDriver:
             created_tasks=created_tasks,
         )
 
+    def _get_project_name(self) -> str | None:
+        """Get the project name associated with this discussion driver."""
+        if hasattr(self, "project_name") and self.project_name:
+            return self.project_name
+        return None
+
     def _create_kanban_tasks(
         self,
         motion_id: str,
@@ -538,8 +544,19 @@ class DiscussionDriver:
                     owner = ""
                     depends_on = []
 
-                # Map owner role to kanban assignee (profile name)
+                # Map owner role to a team member if a project team exists.
                 assignee = owner if owner else None
+                project_name = self._get_project_name()
+                if owner and project_name:
+                    try:
+                        from agora.agora.team_manager import get_team_for_project, get_assignee_for_role
+                        team = get_team_for_project(project_name)
+                        if team:
+                            picked = get_assignee_for_role(team["name"], owner)
+                            if picked:
+                                assignee = picked
+                    except Exception:
+                        pass  # fall back to raw owner
 
                 # Resolve dependencies to previously-created task IDs.
                 # depends_on uses 1-based indices into action_items.
@@ -566,6 +583,7 @@ class DiscussionDriver:
                     assignee=assignee,
                     workspace_kind="scratch",
                     parents=parent_ids,
+                    tenant=project_name if project_name else None,
                 )
                 created[idx] = task_id
                 logger.info(
