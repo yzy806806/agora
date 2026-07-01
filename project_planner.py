@@ -32,16 +32,30 @@ _REGISTRY_DIR: Path | None = None
 
 
 def _registry_dir() -> Path:
-    """Return the directory for self-drive project registry files."""
+    """Return the directory for self-drive project registry files.
+
+    Uses the GLOBAL Hermes home (not profile-scoped) so that workers
+    running under different profiles (architect/developer/reviewer) can
+    all find the same project registry. The kanban DB is already global
+    (HERMES_KANBAN_DB=/root/.hermes/kanban.db), so the registry must be too.
+    """
     global _REGISTRY_DIR
     if _REGISTRY_DIR is not None:
         return _REGISTRY_DIR
-    try:
-        from hermes_constants import get_hermes_home
-        home = Path(get_hermes_home())
-    except Exception:
-        home = Path.home() / ".hermes"
-    d = home / "agora" / "projects"
+    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
+    if kanban_db:
+        global_root = str(Path(kanban_db).parent)
+    else:
+        try:
+            from hermes_constants import get_hermes_home
+            home = Path(get_hermes_home())
+            if home.name == "profiles" or home.parent.name == "profiles":
+                global_root = str(home.parent.parent)
+            else:
+                global_root = str(home)
+        except Exception:
+            global_root = str(Path.home() / ".hermes")
+    d = Path(global_root) / "agora" / "projects"
     d.mkdir(parents=True, exist_ok=True)
     _REGISTRY_DIR = d
     return d
@@ -231,15 +245,27 @@ def _spawn_planner(project_name: str, topic_hint: str = "") -> int | None:
     if workdir and os.path.isabs(workdir):
         env["TERMINAL_CWD"] = workdir
 
-    # CRITICAL: Pass HERMES_HOME so the planner subprocess reads the same
-    # profile-scoped config and data as the gateway. Without this, the
-    # planner's get_hermes_home() falls back to the DEFAULT profile root,
-    # and it won't find the project registry or agora DB.
+    # CRITICAL: Set HERMES_HOME to the project owner's profile so the
+    # planner subprocess reads the same config, tools, and agora DB as
+    # the profile that started the project. The worker that fired this
+    # hook may be running under a different profile (developer/architect),
+    # but the planner must run as the project's profile (e.g. coder).
     try:
         from hermes_constants import get_hermes_home
-        env["HERMES_HOME"] = get_hermes_home()
+        worker_home = get_hermes_home()
+        # If the worker's home is profile-scoped, replace with the
+        # project owner's profile path.
+        if "/profiles/" in str(worker_home):
+            base = str(worker_home).rsplit("/profiles/", 1)[0]
+            env["HERMES_HOME"] = f"{base}/profiles/{profile}"
+        else:
+            env["HERMES_HOME"] = str(worker_home)
     except Exception:
         pass
+    # Also pass HERMES_KANBAN_DB so the planner uses the same shared DB.
+    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
+    if kanban_db:
+        env["HERMES_KANBAN_DB"] = kanban_db
 
     # Log the planner output to a file for debugging
     log_path = _registry_dir() / f"planner_{project_name}.log"

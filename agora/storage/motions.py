@@ -14,13 +14,27 @@ from typing import Any, Optional
 
 
 def _agora_db_path() -> Path:
-    """Return the path to the Agora motions database."""
-    try:
-        from hermes_constants import get_hermes_home
-        home = Path(get_hermes_home())
-    except Exception:
-        home = Path.home() / ".hermes"
-    agora_dir = home / "agora"
+    """Return the path to the Agora motions database.
+
+    Uses the GLOBAL Hermes home (not profile-scoped) so that workers
+    running under different profiles all read/write the same motions DB.
+    The kanban DB is already global, and motions must be too.
+    """
+    import os
+    kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
+    if kanban_db:
+        global_root = Path(kanban_db).parent
+    else:
+        try:
+            from hermes_constants import get_hermes_home
+            home = Path(get_hermes_home())
+            if home.parent.name == "profiles":
+                global_root = home.parent.parent
+            else:
+                global_root = home
+        except Exception:
+            global_root = Path.home() / ".hermes"
+    agora_dir = global_root / "agora"
     agora_dir.mkdir(parents=True, exist_ok=True)
     return agora_dir / "motions.db"
 
