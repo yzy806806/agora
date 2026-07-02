@@ -940,14 +940,14 @@
     return React.createElement("div", { className: "agora-workers" },
       React.createElement("div", { className: "agora-actions" },
         React.createElement(Button, { onClick: () => setShowCreate(!showCreate) },
-          showCreate ? "Cancel" : "+ Create Worker"
+          showCreate ? "Cancel" : "+ Create Profile"
         ),
         React.createElement(Button, { variant: "outline", onClick: load }, "↻ Refresh"),
       ),
       // Templates gallery
       !showCreate && templates.length > 0 && React.createElement("div", { className: "agora-templates-gallery" },
         React.createElement("p", { className: "agora-section-hint" },
-          "Available role templates — click \"Create Worker\" to instantiate one"
+          "Available role templates — click \"Create Profile\" to instantiate one"
         ),
         React.createElement("div", { className: "agora-template-cards" },
           templates.map((t) =>
@@ -1021,7 +1021,7 @@
 
     return React.createElement(Card, { className: "agora-create-form" },
       React.createElement(CardHeader, null,
-        React.createElement(CardTitle, null, "Create Worker"),
+        React.createElement(CardTitle, null, "Create Profile"),
       ),
       React.createElement(CardContent, null,
         error && React.createElement("p", { className: "agora-error" }, error),
@@ -1072,7 +1072,7 @@
           }),
         ),
         React.createElement(Button, { onClick: handleSubmit, disabled: creating },
-          creating ? "Creating..." : "Create Worker"
+          creating ? "Creating..." : "Create Profile"
         ),
       ),
     );
@@ -1521,7 +1521,6 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selected, setSelected] = useState(null);
-    const [showCreate, setShowCreate] = useState(false);
 
     const load = useCallback(async () => {
       setLoading(true);
@@ -1542,8 +1541,8 @@
 
     return React.createElement("div", { className: "agora-profiles" },
       React.createElement("div", { className: "agora-actions" },
-        React.createElement(Button, { onClick: () => setShowCreate(!showCreate) },
-          showCreate ? "Cancel" : "+ Create Profile"
+        React.createElement("p", { className: "agora-section-hint" },
+          "Profiles are created from the Team tab — pick a role template to auto-generate SOUL.md, config, and skills."
         ),
         React.createElement(Button, {
           variant: "outline",
@@ -1557,11 +1556,10 @@
           },
         }, "⚡ Quick Team Setup"),
       ),
-      showCreate && React.createElement(CreateProfileForm, {
-        onCreated: () => { setShowCreate(false); load(); },
-      }),
       React.createElement("div", { className: "agora-profile-list" },
-        profiles.length === 0 && React.createElement("p", null, "No profiles yet."),
+        profiles.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
+          "No profiles yet. Go to the Team tab to create one."
+        ),
         profiles.map((p) =>
           React.createElement(ProfileCard, {
             key: p.name,
@@ -1573,90 +1571,6 @@
         ),
       ),
       selected && React.createElement(ProfileDetail, { name: selected, onChanged: load }),
-    );
-  }
-
-  function CreateProfileForm({ onCreated }) {
-    const [name, setName] = useState("");
-    const [preset, setPreset] = useState("");
-    const [cloneFrom, setCloneFrom] = useState("default");
-    const [cloneConfig, setCloneConfig] = useState(true);
-    const [description, setDescription] = useState("");
-    const [error, setError] = useState(null);
-    const [creating, setCreating] = useState(false);
-
-    const handleSubmit = async () => {
-      if (!name.trim()) { setError("Name is required"); return; }
-      setCreating(true);
-      setError(null);
-      try {
-        await apiPost("/profiles", {
-          name: name.trim(),
-          preset: preset || null,
-          clone_from: cloneFrom || null,
-          clone_config: cloneConfig,
-          description: description || null,
-        });
-        setName(""); setPreset(""); setDescription("");
-        onCreated();
-      } catch (e) {
-        setError(e.message);
-      }
-      setCreating(false);
-    };
-
-    return React.createElement(Card, { className: "agora-create-form" },
-      React.createElement(CardHeader, null,
-        React.createElement(CardTitle, null, "Create Profile"),
-      ),
-      React.createElement(CardContent, null,
-        error && React.createElement("p", { className: "agora-error" }, error),
-        React.createElement("div", { className: "agora-field" },
-          React.createElement(Label, null, "Profile Name"),
-          React.createElement(Input, {
-            value: name,
-            onChange: (e) => setName(e.target.value),
-            placeholder: "e.g. architect, developer, reviewer",
-          }),
-        ),
-        React.createElement("div", { className: "agora-field" },
-          React.createElement(Label, null, "Preset Role"),
-          React.createElement(Select, { value: preset, onValueChange: setPreset },
-            React.createElement(SelectOption, { value: "" }, "— None —"),
-            React.createElement(SelectOption, { value: "architect" }, "Architect"),
-            React.createElement(SelectOption, { value: "developer" }, "Developer"),
-            React.createElement(SelectOption, { value: "reviewer" }, "Reviewer"),
-          ),
-        ),
-        React.createElement("div", { className: "agora-field" },
-          React.createElement(Label, null, "Clone From"),
-          React.createElement(Input, {
-            value: cloneFrom,
-            onChange: (e) => setCloneFrom(e.target.value),
-            placeholder: "default",
-          }),
-        ),
-        React.createElement("div", { className: "agora-field" },
-          React.createElement(Label, { className: "agora-checkbox-label" },
-            React.createElement(Checkbox, {
-              checked: cloneConfig,
-              onCheckedChange: setCloneConfig,
-            }),
-            " Clone config, .env, SOUL.md, skills",
-          ),
-        ),
-        React.createElement("div", { className: "agora-field" },
-          React.createElement(Label, null, "Description"),
-          React.createElement(Input, {
-            value: description,
-            onChange: (e) => setDescription(e.target.value),
-            placeholder: "What this profile is good at",
-          }),
-        ),
-        React.createElement(Button, { onClick: handleSubmit, disabled: creating },
-          creating ? "Creating..." : "Create"
-        ),
-      ),
     );
   }
 
