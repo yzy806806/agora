@@ -7,8 +7,8 @@ slowing down spawns and inflating token costs.  This module provides:
   - ``check_session_size`` — query the Hermes session DB (or fall back to
     a heuristic based on motions + kanban activity) to decide whether a
     session needs rotation.
-  - ``rotate_session`` — write a memory summary, then clear the stored
-    ``session_id`` so the next spawn creates a fresh session.
+  - ``rotate_session`` — clear the stored ``session_id`` so the next spawn
+    creates a fresh session.
 """
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Rotation thresholds
-_MAX_MESSAGES = 200
-_MAX_SIZE_KB = 500.0
-_HEURISTIC_THRESHOLD = 50  # motions messages or completed tasks
+_MAX_MESSAGES = 500
+_MAX_SIZE_KB = 2000.0
+_HEURISTIC_THRESHOLD = 100  # motions messages or completed tasks
 
 
 def _state_db_path() -> Path | None:
@@ -131,7 +131,7 @@ def check_session_size(profile_name: str, session_id: str | None) -> dict:
       - session_id: str
       - message_count: int
       - size_kb: float
-      - needs_rotation: bool  (True if > 200 messages or > 500KB)
+      - needs_rotation: bool  (True if > 500 messages or > 2000KB)
 
     If the session_id is ``None`` or the session can't be found, a
     heuristic based on motions/kanban activity is used.  If that also
@@ -189,19 +189,16 @@ def check_session_size(profile_name: str, session_id: str | None) -> dict:
 def rotate_session(profile_name: str, worker_name: str) -> dict:
     """Rotate a worker's session.
 
-    1. Writes a summary of the old session to the worker's MEMORY.md
-       (by spawning the agent one last time with a memory-writing prompt).
-    2. Clears the session_id in the worker registry so the next spawn
-       creates a fresh session.
-    3. Returns dict with old_session_id and status.
+    Clears the session_id in the worker registry so the next spawn creates a
+    fresh session. Returns dict with old_session_id and status.
 
-    The actual summary writing is done by spawning the worker agent one
-    last time with a prompt::
-
-        'Before we start a new session, write a brief summary of what
-        you've learned in this session to your MEMORY.md.'
-
-    Then clearing the session_id.
+    In-place compression (configured in config.yaml) handles context
+    management during normal operation — session IDs persist across
+    compressions. Rotation is just a safety net for edge cases where a
+    session has grown too large despite compression. We don't spawn an agent
+    to write a memory summary here — that's too expensive for a safety-net
+    operation. The worker's MEMORY.md already accumulates experience
+    organically through normal agent operation.
     """
     old_session_id: str | None = None
 
@@ -218,29 +215,6 @@ def rotate_session(profile_name: str, worker_name: str) -> dict:
             "status": "no_session",
             "message": "Worker has no session_id — nothing to rotate",
         }
-
-    # Spawn the agent one last time to write a memory summary
-    try:
-        from .discussion.agent_spawn import spawn_agent_speak
-        result = spawn_agent_speak(
-            profile_name=profile_name,
-            prompt=(
-                "Before we start a new session, write a brief summary "
-                "of what you've learned in this session to your MEMORY.md. "
-                "Focus on key decisions, facts, and workflows you discovered."
-            ),
-            session_id=old_session_id,
-            timeout=120,
-        )
-        if result.get("error"):
-            logger.warning(
-                "Memory summary spawn for %s returned error: %s",
-                worker_name, result["error"],
-            )
-    except Exception as exc:
-        logger.warning(
-            "Failed to spawn %s for memory summary: %s", worker_name, exc,
-        )
 
     # Clear the session_id so the next spawn creates a new session
     try:

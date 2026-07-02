@@ -45,6 +45,7 @@ def create_team(
     team_name: str,
     worker_names: list[str],
     project: str | None = None,
+    default_max_steps: int = 30,
 ) -> dict:
     """Create a team by selecting existing workers.
 
@@ -52,6 +53,8 @@ def create_team(
         team_name:    Unique team name (e.g. "docmind-team")
         worker_names: List of worker profile names to include
         project:      Optional project to bind this team to
+        default_max_steps: Default max discussion steps for this team's
+                       discussions. Can be overridden per motion. (default: 30)
 
     Returns:
         dict with team info
@@ -93,6 +96,7 @@ def create_team(
         "workers": roster,
         "role_map": role_map,  # role → [worker names] for dispatch routing
         "project": project,
+        "default_max_steps": default_max_steps,
         "created_at": now_iso(),
         "dispatch_counters": {},  # role → int, for round-robin
     }

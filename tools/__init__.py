@@ -330,13 +330,16 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
             if resolved_project and not chair:
                 chair = get_heartbeat_member(resolved_project) or ""
 
-            # 4. Get team participants
-            if resolved_project and not participants:
+            # 4. Get team participants + default max_steps
+            if resolved_project and (not participants or max_steps == 30):
                 proj = get_project(resolved_project)
                 if proj and proj.get("team"):
                     team = get_team(proj["team"])
                     if team:
-                        participants = [w["name"] for w in team.get("workers", [])]
+                        if not participants:
+                            participants = [w["name"] for w in team.get("workers", [])]
+                        if max_steps == 30 and team.get("default_max_steps"):
+                            max_steps = team["default_max_steps"]
         except Exception:
             pass
 

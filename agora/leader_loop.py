@@ -232,37 +232,12 @@ def check_project_complete(project_name: str) -> bool:
 # --------------------------------------------------------------------------- #
 
 _HEARTBEAT_PROMPT = """\
-Heartbeat wake-up for {leader_name}, heartbeat member of project '{project}'.
+Heartbeat wake-up for {leader_name}, project '{project}'.
 
-Project goal: {goal}
-Project workdir: {workdir}
+Goal: {goal}
+Workdir: {workdir}
 
-Follow your SOUL.md heartbeat protocol. Quick reference:
-
-1. **Check stuck tasks**: Check for blocked tasks. For each:
-   - Done but waiting on review -> mark done, create review task if needed
-   - Hit limit or crashed -> unblock, split into smaller tasks, or adjust description
-   - Blocked by design decision -> raise a motion with agora_raise_motion
-   - Stuck too long -> unblock and reassign, or cancel
-
-2. **Check failed tasks**: Handle any triaged tasks (analyze failure, fix, re-queue)
-
-3. **Check progress**:
-   - If running/todo > 0 -> do nothing, let workers continue
-   - If all done (0 todo, 0 running, 0 blocked):
-     -> Review the project goal: "{goal}"
-     -> Check what has been accomplished so far (read files, check outputs)
-     -> Is the goal achieved?
-        - YES -> output PROJECT_COMPLETE with a summary of what was accomplished. Stop here.
-        - NO -> plan the next phase. Create new kanban tasks directly with `hermes kanban add`.
-          Assign each task to the appropriate team role.
-          Only use agora_raise_motion if a direction decision needs team discussion.
-
-4. **Check stale motions**: Close any motion discussing too long. Decide from the discussion so far.
-
-Be decisive. Take action. Don't just report — DO things.
-If you unblock a task, actually run the kanban command.
-If you create tasks, actually run `hermes kanban add`.
-If everything is fine, say "ALL_GOOD" and explain briefly what you checked.
-If the project goal is achieved, say "PROJECT_COMPLETE" and explain why.
+Check current status and take action per your SOUL.md heartbeat protocol.
+If everything is running fine, say "ALL_GOOD" with a brief summary.
+If the goal is achieved, say "PROJECT_COMPLETE" with a summary.
 """

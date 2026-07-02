@@ -152,7 +152,7 @@ class DiscussionDriver:
                 logger.info("Human input injected at step %d", step)
 
             # 2b: Chair evaluates
-            action = self._chair_evaluate(title)
+            action = self._chair_evaluate(title, step)
             if action is None:
                 # Chair failed; force close
                 logger.warning("Chair evaluation failed at step %d, forcing close", step)
@@ -185,6 +185,12 @@ class DiscussionDriver:
                 )
 
         # --- Finalize: summary + memory ---
+        # If we exited the loop due to max_steps (not because the chair called
+        # close or vote), force a formal vote before finalizing.
+        if step >= self.max_steps:
+            logger.info("Max steps (%d) reached, forcing vote", self.max_steps)
+            self._run_voting(title)
+
         return self._finalize(title, motion)
 
     # ------------------------------------------------------------------ #
@@ -227,7 +233,7 @@ class DiscussionDriver:
         )
         return data
 
-    def _chair_evaluate(self, title: str) -> dict | None:
+    def _chair_evaluate(self, title: str, step: int = 0) -> dict | None:
         """Chair evaluates the discussion after each speaker."""
         history = self._build_history()
         prompt = CHAIR_EVALUATE_PROMPT.format(
@@ -235,6 +241,13 @@ class DiscussionDriver:
             participants=", ".join(self.participants),
             discussion_history=history,
         )
+        # Warn the chair when approaching the step limit
+        if step >= self.max_steps - 3:
+            prompt += (
+                f"\n⚠️ Discussion is approaching the step limit "
+                f"({step}/{self.max_steps}). Please prepare to make a "
+                f"final decision or call a vote.\n"
+            )
         result = spawn_chair_speak(
             self.chair_profile, prompt,
             workdir=self.workdir,

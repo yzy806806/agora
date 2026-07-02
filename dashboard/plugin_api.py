@@ -354,7 +354,8 @@ def start_discussion(req: StartDiscussionRequest):
         # Auto-resolve participants and chair from the project
         participants = req.participants
         chair = req.chair
-        if not participants or not chair:
+        max_steps = req.max_steps
+        if not participants or not chair or max_steps == 30:
             if req.project:
                 try:
                     from project_planner import get_heartbeat_member, get_project
@@ -362,13 +363,16 @@ def start_discussion(req: StartDiscussionRequest):
                     # Chair defaults to project's heartbeat_member
                     if not chair:
                         chair = get_heartbeat_member(req.project) or ""
-                    # Participants from the project's team
-                    if not participants:
+                    # Participants + default_max_steps from the project's team
+                    if not participants or max_steps == 30:
                         proj = get_project(req.project)
                         if proj and proj.get("team"):
                             team = get_team(proj["team"])
                             if team:
-                                participants = [w["name"] for w in team.get("workers", [])]
+                                if not participants:
+                                    participants = [w["name"] for w in team.get("workers", [])]
+                                if max_steps == 30 and team.get("default_max_steps"):
+                                    max_steps = team["default_max_steps"]
                 except Exception as exc:
                     logger.warning("Project/chair lookup failed: %s", exc)
 
@@ -396,7 +400,7 @@ def start_discussion(req: StartDiscussionRequest):
             source="user",
             participants=participants,
             chair=chair,
-            max_steps=req.max_steps,
+            max_steps=max_steps,
         )
 
         # Spawn the discussion driver as a background process using the
@@ -409,7 +413,7 @@ def start_discussion(req: StartDiscussionRequest):
                 participants=participants,
                 workdir=workdir,
                 project_name=req.project,
-                max_steps=req.max_steps,
+                max_steps=max_steps,
             )
             if spawn_result.get("status") == "spawned":
                 logger.info(

@@ -1,7 +1,7 @@
 """Worker profile manager — create, list, remove Hermes profiles from templates.
 
 A "worker" is a Hermes profile with:
-  - config.yaml    (cloned from a parent profile, e.g. coder)
+  - config.yaml    (copied from global config.yaml)
   - SOUL.md        (role identity, rendered from template)
   - MEMORY.md      (empty initially, accumulates experience over time)
   - USER.md        (empty initially)
@@ -56,14 +56,14 @@ def _worker_file(name: str) -> Path:
 def create_worker(
     name: str,
     role: str,
-    clone_from: str = "coder",
+    clone_from: str | None = None,
     model: str | None = None,
     extra_config: dict | None = None,
 ) -> dict:
     """Create a new worker profile from a role template.
 
     This creates a full Hermes profile with:
-    - Cloned config.yaml (API keys, model, toolsets) from clone_from
+    - config.yaml (API keys, model, toolsets) copied from global config.yaml
     - SOUL.md rendered from the role template
     - Empty MEMORY.md and USER.md
     - Independent skills/ directory
@@ -72,7 +72,10 @@ def create_worker(
     Args:
         name:        Profile name (lowercase, alphanumeric, e.g. "alice")
         role:        Template role key (architect/developer/reviewer/tester/devops/researcher/writer/leader)
-        clone_from:  Source profile to clone config from (default: coder)
+        clone_from:  Source profile to clone from (default: None — copy global
+                     config.yaml directly). When set, clones the named profile
+                     instead, for advanced users who want to inherit from a
+                     specific existing profile.
         model:       Override model for this worker (default: from template or inherit)
         extra_config: Additional config overrides (rarely needed)
 
@@ -107,26 +110,37 @@ def create_worker(
     if profile_dir.exists():
         return {"error": f"Profile directory '{profile_dir}' already exists."}
 
-    # Step 1: Clone the profile using hermes CLI
-    hermes = find_hermes_binary()
-    clone_cmd = [
-        hermes, "profile", "create", name,
-        "--clone-from", clone_from,
-        "--description", description,
-    ]
-    try:
-        result = subprocess.run(
-            clone_cmd,
-            capture_output=True, text=True, timeout=30,
-            env={**os.environ, "HERMES_HOME": str(profiles_root.parent)},
-        )
-        if result.returncode != 0:
-            return {
-                "error": f"Failed to clone profile: {result.stderr.strip() or result.stdout.strip()}",
-                "command": " ".join(clone_cmd),
-            }
-    except Exception as exc:
-        return {"error": f"Failed to clone profile: {exc}"}
+    # Step 1: Create the profile directory and copy config.yaml
+    # When clone_from is None (default), create the profile dir manually and
+    # copy config.yaml from the global root config (~/.hermes/config.yaml).
+    # When clone_from is given, use `hermes profile create --clone-from` for
+    # advanced users who want to inherit from a specific existing profile.
+    if clone_from:
+        hermes = find_hermes_binary()
+        clone_cmd = [
+            hermes, "profile", "create", name,
+            "--clone-from", clone_from,
+            "--description", description,
+        ]
+        try:
+            result = subprocess.run(
+                clone_cmd,
+                capture_output=True, text=True, timeout=30,
+                env={**os.environ, "HERMES_HOME": str(profiles_root.parent)},
+            )
+            if result.returncode != 0:
+                return {
+                    "error": f"Failed to clone profile: {result.stderr.strip() or result.stdout.strip()}",
+                    "command": " ".join(clone_cmd),
+                }
+        except Exception as exc:
+            return {"error": f"Failed to clone profile: {exc}"}
+    else:
+        # Create the profile directory manually
+        try:
+            profile_dir.mkdir(parents=True, exist_ok=False)
+        except Exception as exc:
+            return {"error": f"Failed to create profile directory '{profile_dir}': {exc}"}
 
     # Step 1b: Ensure config.yaml exists in the profile directory.
     # Profiles without config.yaml fall back to DEFAULT_CONFIG (compression
