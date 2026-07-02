@@ -566,7 +566,8 @@ class DiscussionDriver:
                 if not profile_dir.exists():
                     continue
 
-                memory_path = profile_dir / "MEMORY.md"
+                memory_path = profile_dir / "memories" / "MEMORY.md"
+                memory_path.parent.mkdir(parents=True, exist_ok=True)
                 # Find this participant's stance
                 their_vote = next(
                     (v for v in votes if v["role"] == participant), None
@@ -601,7 +602,8 @@ class DiscussionDriver:
         try:
             profile_dir = global_root / "profiles" / self.chair_profile
             if profile_dir.exists():
-                memory_path = profile_dir / "MEMORY.md"
+                memory_path = profile_dir / "memories" / "MEMORY.md"
+                memory_path.parent.mkdir(parents=True, exist_ok=True)
                 vote_summary = ", ".join(
                     f"{v['role']}={v['vote']}" for v in votes
                 ) if votes else "no vote"

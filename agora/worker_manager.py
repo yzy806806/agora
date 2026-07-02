@@ -149,23 +149,27 @@ def create_worker(
             logger.warning("Failed to write SOUL.md for %s: %s", name, exc)
     # For custom role, SOUL.md is written separately by the caller
 
-    # Step 3: Ensure MEMORY.md exists (empty, not cloned from parent)
-    memory_path = profile_dir / "MEMORY.md"
+    # Step 3: Ensure memories/MEMORY.md exists (Hermes memory tool reads/writes here)
+    # NOTE: Hermes v0.18 memory tool uses <profile>/memories/MEMORY.md, NOT <profile>/MEMORY.md
+    memories_dir = profile_dir / "memories"
     try:
+        memories_dir.mkdir(parents=True, exist_ok=True)
+        memory_path = memories_dir / "MEMORY.md"
         if not memory_path.exists() or memory_path.stat().st_size == 0:
             memory_path.write_text(f"# {name} Memory\n\nPersonal experience and learned facts.\n")
         else:
             # Overwrite with clean personal memory (don't inherit parent's)
             memory_path.write_text(f"# {name} Memory\n\nPersonal experience and learned facts.\n")
     except Exception as exc:
-        logger.warning("Failed to write MEMORY.md for %s: %s", name, exc)
+        logger.warning("Failed to write memories/MEMORY.md for %s: %s", name, exc)
 
-    # Step 4: Ensure USER.md exists
-    user_path = profile_dir / "USER.md"
+    # Step 4: Ensure memories/USER.md exists
     try:
-        user_path.write_text(f"# {name}\n\nRole: {display_name}\n")
+        user_path = memories_dir / "USER.md"
+        if not user_path.exists() or user_path.stat().st_size == 0:
+            user_path.write_text(f"# {name}\n\nRole: {display_name}\n")
     except Exception as exc:
-        logger.warning("Failed to write USER.md for %s: %s", name, exc)
+        logger.warning("Failed to write memories/USER.md for %s: %s", name, exc)
 
     # Step 5: Ensure skills/ dir exists (profile-local, independent)
     skills_dir = profile_dir / "skills"

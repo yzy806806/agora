@@ -104,11 +104,14 @@ def create_leader(
     soul_path = profile_dir / "SOUL.md"
     soul_path.write_text(_LEADER_SOUL_TEMPLATE.format(name=name, project=project))
 
-    # Step 3: Clean MEMORY.md and USER.md
-    (profile_dir / "MEMORY.md").write_text(
+    # Step 3: Clean memories/MEMORY.md and memories/USER.md
+    # NOTE: Hermes v0.18 memory tool uses <profile>/memories/ directory
+    memories_dir = profile_dir / "memories"
+    memories_dir.mkdir(parents=True, exist_ok=True)
+    (memories_dir / "MEMORY.md").write_text(
         f"# {name} Memory\n\nTeam leader for project {project}.\n"
     )
-    (profile_dir / "USER.md").write_text(
+    (memories_dir / "USER.md").write_text(
         f"# {name}\n\nRole: Team Leader\nProject: {project}\n"
     )
 
