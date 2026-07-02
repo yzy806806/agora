@@ -4,7 +4,7 @@ Mounted at /api/plugins/agora/ by the Hermes dashboard plugin system.
 
 Provides REST endpoints for:
   - Profile management (list, delete, config, SOUL, skills)
-  - Worker management (list, create, remove, templates, generate-soul)
+  - Worker management (list, create, remove, templates)
   - Team management (list, create, remove)
   - Project management (list, start, stop, heartbeat control)
   - Motion management (list, show, state, discuss)
@@ -732,90 +732,7 @@ def trigger_project_heartbeat(name: str):
 # AI-generated SOUL.md
 # --------------------------------------------------------------------------- #
 
-class GenerateSoulRequest(BaseModel):
-    name: str = Field(..., description="Worker profile name")
-    description: str = Field(..., description="Natural-language role description")
-    clone_from: str = Field("coder")
-    model: Optional[str] = Field(None)
-    toolsets: Optional[list[str]] = Field(None)
 
-
-@router.post("/workers/generate-soul")
-def generate_soul_api(req: GenerateSoulRequest):
-    """Generate a custom SOUL.md using LLM, then create the worker profile."""
-    try:
-        import sys, subprocess, os
-        from agora.worker_templates import generate_soul_prompt
-
-        prompt = generate_soul_prompt(req.name, req.description)
-
-        hermes_bin = None
-        for c in [
-            os.environ.get("HERMES_BIN", ""),
-            "/home/ubuntu/.hermes/hermes-agent/venv/bin/hermes",
-            "/root/.hermes/hermes-agent/venv/bin/hermes",
-            "/usr/local/bin/hermes",
-        ]:
-            if c and os.path.isfile(c) and os.access(c, os.X_OK):
-                hermes_bin = c
-                break
-        if not hermes_bin:
-            import shutil
-            hermes_bin = shutil.which("hermes") or "hermes"
-
-        profile = req.clone_from or "coder"
-        result = subprocess.run(
-            [hermes_bin, "-p", profile, "--yolo", "chat", "-Q", "-q", prompt],
-            capture_output=True, text=True, timeout=120,
-        )
-
-        if result.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"LLM call failed: {result.stderr[:200]}",
-            )
-
-        soul_content = result.stdout.strip()
-        if not soul_content or len(soul_content) < 50:
-            raise HTTPException(status_code=500, detail="LLM returned empty response")
-
-        if "# " in soul_content:
-            soul_content = soul_content[soul_content.index("# "):]
-
-        from agora.worker_manager import create_worker
-        worker_result = create_worker(
-            name=req.name,
-            role="custom",
-            clone_from=req.clone_from,
-            model=req.model,
-        )
-
-        if "error" in worker_result:
-            raise HTTPException(status_code=400, detail=worker_result["error"])
-
-        from agora.utils import get_profiles_root
-        profiles_root = get_profiles_root()
-        soul_path = profiles_root / req.name / "SOUL.md"
-        soul_path.write_text(soul_content)
-
-        if req.toolsets:
-            import yaml
-            config_path = profiles_root / req.name / "config.yaml"
-            if config_path.exists():
-                cfg = yaml.safe_load(config_path.read_text()) or {}
-                cfg["toolsets"] = req.toolsets
-                config_path.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True))
-
-        return {
-            "status": "created",
-            "name": req.name,
-            "soul_preview": soul_content[:500],
-            "worker": worker_result.get("worker", {}),
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------

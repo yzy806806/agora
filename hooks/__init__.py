@@ -239,10 +239,11 @@ def _on_task_claimed(
         is_agora = False
         if tenant:
             try:
-                from ..project_planner import get_project
+                from project_planner import get_project, update_project_agents_md
                 proj = get_project(tenant)
                 if proj is not None and proj.get("status") == "active":
                     is_agora = True
+                    update_project_agents_md(proj["name"])
                     logger.info(
                         "Agora claim: task %s claimed by %s for project %s at %s",
                         task_id, assignee or "(none)", tenant,
@@ -322,7 +323,7 @@ def _on_task_blocked(
         is_agora = False
         if tenant:
             try:
-                from ..project_planner import get_project
+                from project_planner import get_project, update_project_agents_md
                 proj = get_project(tenant)
                 if proj is not None and proj.get("status") == "active":
                     is_agora = True

@@ -45,6 +45,94 @@ def _ensure_project_board(project_name: str) -> str:
     return board_name
 
 
+def update_project_agents_md(project_name: str) -> dict:
+    """Write/update AGENTS.md in the project workdir with team info.
+
+    This file is auto-loaded by Hermes into every worker's system prompt
+    (via TERMINAL_CWD context file scanning). It gives workers awareness
+    of their team members, roles, and project context without requiring
+    any changes to Hermes itself.
+
+    Called on:
+    - start_project (initial write)
+    - leader heartbeat (refresh — members may have been added/removed)
+    """
+    proj = get_project(project_name)
+    if proj is None:
+        return {"error": f"Project '{project_name}' not found"}
+
+    workdir = proj.get("workdir", "")
+    if not workdir or not os.path.isabs(workdir):
+        return {"skipped": "no valid workdir"}
+
+    workdir_path = Path(workdir)
+    if not workdir_path.exists():
+        return {"skipped": "workdir does not exist"}
+
+    # Gather team info
+    team_name = proj.get("team", "")
+    members = []
+    if team_name:
+        try:
+            from agora.team_manager import get_team
+            team = get_team(team_name)
+            if team:
+                for w in team.get("workers", []):
+                    members.append({
+                        "name": w["name"],
+                        "role": w.get("role", "unknown"),
+                        "display_name": w.get("display_name", w["role"]),
+                    })
+        except Exception as exc:
+            logger.warning("Failed to get team info for AGENTS.md: %s", exc)
+
+    # Build the AGENTS.md content
+    lines = [
+        "# Project Context",
+        "",
+        f"**Project:** {project_name}",
+        f"**Goal:** {proj.get('goal', '(not specified)')}",
+        f"**Status:** {proj.get('status', 'unknown')}",
+        "",
+    ]
+
+    if proj.get("heartbeat_member"):
+        lines.append(f"**Heartbeat Member:** {proj['heartbeat_member']} (woken every {proj.get('heartbeat_minutes', '?')} min)")
+        lines.append("")
+
+    if members:
+        lines.append("## Team Members")
+        lines.append("")
+        lines.append("| Name | Role |")
+        lines.append("|------|------|")
+        for m in members:
+            is_hb = " (heartbeat)" if m["name"] == proj.get("heartbeat_member") else ""
+            lines.append(f"| {m['name']}{is_hb} | {m['display_name']} |")
+        lines.append("")
+        lines.append("When creating follow-up tasks, assign them to the appropriate team member above.")
+        lines.append("Use `hermes profile list` to verify member availability.")
+        lines.append("")
+
+    # Project-specific instructions
+    lines.append("## Workflow")
+    lines.append("")
+    lines.append("1. Check `hermes kanban list` for your assigned tasks.")
+    lines.append("2. Use `kanban_show()` to read task details.")
+    lines.append("3. After completing a task, use `kanban_complete(summary=..., metadata=...)`.")
+    lines.append("4. If blocked, use `kanban_block(reason=...)` with a clear explanation.")
+    lines.append("5. For design decisions that need team input, use `agora_raise_motion`.")
+    lines.append("")
+
+    agents_path = workdir_path / "AGENTS.md"
+    try:
+        agents_path.write_text("\n".join(lines))
+        logger.info("AGENTS.md written to %s for project '%s'", agents_path, project_name)
+        return {"status": "updated", "path": str(agents_path), "members": len(members)}
+    except Exception as exc:
+        logger.warning("Failed to write AGENTS.md: %s", exc)
+        return {"error": str(exc)}
+
+
 # --------------------------------------------------------------------------- #
 #  Heartbeat cron management                                                  #
 # --------------------------------------------------------------------------- #
@@ -233,6 +321,9 @@ def start_project(
     # Add project to heartbeat_member's project list
     if heartbeat_member:
         _add_project_to_worker(heartbeat_member, project_name)
+
+    # Write AGENTS.md to workdir so workers auto-load team context
+    update_project_agents_md(project_name)
 
     return {"status": "started", "project": data}
 

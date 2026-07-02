@@ -104,6 +104,13 @@ def _spawn_leader_agent(project: dict) -> dict:
     if not session_id:
         session_id = get_worker_session(member_name, project_name)
 
+    # Refresh AGENTS.md so the leader and workers always see current team
+    try:
+        from project_planner import update_project_agents_md
+        update_project_agents_md(project_name)
+    except Exception:
+        pass
+
     # Check session size — rotate if too large
     try:
         from agora.session_manager import check_session_size, rotate_session
