@@ -1,26 +1,29 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v0.9.1**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v0.11.1**
 
 [中文文档](./README_CN.md)
 
-Agora turns Hermes into a self-driving team: multiple AI roles — each a **real Hermes agent subprocess** with its own SOUL.md, MEMORY.md, tools, and session context — discuss approaches, search the web, write content, and auto-dispatch tasks. The Leader acts as **chair** in event-driven discussions, dynamically picking speakers, evaluating progress, calling votes, and summarizing outcomes. Discussion results are written to each participant's MEMORY.md. The Leader plans the next phase, decides when the goal is achieved, and stops itself. Everything is managed from the Dashboard — no CLI needed.
+Agora turns Hermes into a self-driving team: multiple AI roles — each a **real Hermes agent subprocess** with its own SOUL.md, MEMORY.md, tools, and session context — discuss approaches, search the web, write content, and auto-dispatch tasks. A **leader** (just a worker created from the "leader" template) acts as **chair** in event-driven discussions, dynamically picking speakers, evaluating progress, calling votes, and summarizing outcomes. Discussion results are written to each participant's MEMORY.md. The leader plans the next phase, decides when the goal is achieved, and stops itself. Everything is managed from the Dashboard — no CLI needed.
 
 ## Key Features
 
 | Feature | Description |
 |---------|-------------|
+| **Unified worker model** | No separate leader concept — a leader is just a worker created from the "leader" template (`is_leader=true`). Everything goes through `worker_manager` |
 | **Event-driven discussion engine** | Leader chairs discussions: opens topic, picks speakers dynamically, evaluates after each turn, calls votes, summarizes — no fixed round-robin |
 | **Real agent subprocesses** | Each speaker is a real `hermes -p <profile> chat -q` spawn with SOUL.md, MEMORY.md, tools, and session context — not a stateless LLM call |
-| **Session continuity** | Workers use `--resume` to maintain full conversation context across kanban tasks and discussions |
+| **Per-project session isolation** | Leader uses `--resume` with project-specific `session_id` — context doesn't bleed between projects |
+| **Shared experience** | Same leader profile manages multiple projects — MEMORY.md, SOUL.md, and skills are shared across projects |
+| **Heartbeat on project, not profile** | `heartbeat_member`, `heartbeat_minutes`, `heartbeat_cron_id` live on the project — one leader can run different projects at different intervals |
+| **Team awareness** | `AGENTS.md` auto-generated in project workdir — workers and leader can see team members, roles, and project context. Refreshed on heartbeat and on `kanban_task_claimed` |
 | **Memory persistence** | Discussion decisions and action items written to each participant's MEMORY.md for accumulated team knowledge |
 | **8 role templates** | Architect, Developer, Reviewer, Tester, DevOps, Researcher, Writer, Leader |
-| **Custom roles in discussions** | Custom (AI-generated) roles participate in discussions — identity comes from their SOUL.md, no pre-registration needed |
-| **Leader = Planner + Chair** | Leader plans next phase, creates tasks, detects project completion, and chairs all team discussions |
-| **Self-driving** | Heartbeat cron wakes Leader to check progress, unblock, plan |
-| **Auto-stop** | Leader outputs PROJECT_COMPLETE when goal achieved, cron auto-paused |
+| **Self-driving** | Heartbeat cron wakes leader to check kanban, unblock, plan, dispatch |
+| **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when goal achieved → cron auto-paused |
+| **3 kanban hooks** | `kanban_task_completed` (memory + comment write-back), `kanban_task_claimed` (log + AGENTS.md refresh), `kanban_task_blocked` (auto-trigger discussion if design decision) |
 | **Human participation** | Jump into discussions anytime via Dashboard input box |
-| **Dashboard** | Projects/Team/Profiles tabs, event-driven discussion flow (steps, chair guidance, speaker turns, votes) |
+| **Dashboard** | Projects tab (default), Team tab (Members + Teams sub-tabs), Profiles tab |
 
 ## Install
 
@@ -32,13 +35,13 @@ hermes gateway restart
 
 ## Quick Start
 
-### 1. Create a team from Dashboard
+### 1. Create workers from Dashboard
 
-Open `hermes dashboard`, go to the **Agora** tab:
+Open `hermes dashboard`, go to the **Agora** tab → **Team → Members**:
 
-1. **Team → Workers** — Pick a template or use AI to generate a custom role
-2. **Team → Leaders** — Create a Leader, set heartbeat interval
-3. **Team → Teams** — Select workers, form a team
+1. Pick a template, give the worker a name (e.g. `alice`, `bob`)
+2. Create as many workers as you need — including a leader (from the "leader" template)
+3. Go to **Team → Teams** — select workers, form a team
 
 **Templates:**
 
@@ -53,16 +56,20 @@ Open `hermes dashboard`, go to the **Agora** tab:
 | Writer | ✍️ | Content writing, structuring, tone |
 | Team Leader | 👨‍💼 | Project monitoring, phase planning, completion detection |
 
-**AI-generated roles:** Enter a name + one-line description (e.g. "Fashion editor, fact-checking and copyediting"), LLM generates a complete SOUL.md.
+Each worker is a Hermes profile with: `config.yaml` (cloned from parent), `SOUL.md` (from template), `memories/MEMORY.md`, `memories/USER.md`, `skills/`. Workers persist across projects — their memory, skills, and identity carry over, just like a real employee.
 
 ### 2. Start a project
 
 In the **Projects** tab, click "Start Project":
-- Name (e.g. `fashion-report`)
-- Goal (e.g. "Write a 2026 spring/summer fashion trends PDF")
-- Working directory
-- Select team and leader
+- **Name** (e.g. `fashion-report`)
+- **Goal** (e.g. "Write a 2026 spring/summer fashion trends PDF")
+- **Working directory**
+- **Team** — select the team you formed
+- **Heartbeat member** — select a leader worker to wake on heartbeat
+- **Heartbeat interval** — minutes between heartbeats (default: 15)
 - Click create
+
+The heartbeat cron is created automatically. `AGENTS.md` is written to the project workdir so all workers see team context.
 
 ### 3. Observe and participate
 
@@ -74,15 +81,18 @@ Click into a project to see:
 
 ### 4. Leader self-driving
 
-Each heartbeat, the Leader:
+Each heartbeat, the leader:
 1. Checks blocked tasks → unblock/split/reassign
-2. All done → plan next phase from goal, create tasks directly
-3. Direction decision needed → raise motion for team discussion
-4. Goal achieved → output `PROJECT_COMPLETE` → cron auto-paused
+2. Checks triaged/failed tasks → analyze, fix, re-queue
+3. All done → plan next phase from goal, create tasks directly
+4. Direction decision needed → raise motion for team discussion
+5. Goal achieved → output `PROJECT_COMPLETE` → cron auto-paused
+
+The chair for discussions auto-resolves from `project.heartbeat_member`.
 
 ## Event-Driven Discussion Engine
 
-The discussion engine was completely rewritten in v0.9.0. Instead of the old round-robin `ctx.llm.complete` approach, each discussion is now a **real meeting of real agents**:
+Each discussion is a **real meeting of real agents**:
 
 ### How it works
 
@@ -102,9 +112,11 @@ The discussion engine was completely rewritten in v0.9.0. Instead of the old rou
 |--------|---------------|
 | **Speaker spawns** | `hermes -p <profile> --yolo chat -q` — a full agent with tools, memory, and identity |
 | **Session continuity** | Workers use `--resume <session_id>` to carry conversation context across kanban tasks and discussions |
+| **Per-project isolation** | Leader has separate `session_id` per project — context doesn't bleed, but MEMORY.md/skills are shared |
 | **Chair (Leader)** | Stateless meta-caller — evaluates discussion state, picks next speaker, calls votes. No `--resume` needed |
-| **Role identity** | Comes from each worker's SOUL.md (including the **Discussion Protocol** section). Custom roles work automatically |
-| **Leader SOUL.md** | Includes a **Chair Protocol** section: open, evaluate, redirect, vote, summarize |
+| **Chair auto-resolve** | If `chair_profile` is omitted, auto-resolved from `project.heartbeat_member` |
+| **Role identity** | Comes from each worker's SOUL.md (including the **Discussion Protocol** section) |
+| **Leader SOUL.md** | Includes **Heartbeat Protocol** + **Chair Protocol** sections |
 | **Memory persistence** | Discussion decisions + action items written to each participant's MEMORY.md |
 | **Config inheritance** | Worker profiles inherit root `config.yaml` (compression, approvals, etc.) |
 
@@ -112,12 +124,33 @@ The discussion engine was completely rewritten in v0.9.0. Instead of the old rou
 
 The Dashboard discussion view shows the full event-driven flow: chair opening, speaker turns with guidance, vote calls, and final summary. A human can type into the discussion input box at any time — the message becomes part of the discussion history that the chair and speakers see.
 
+## Team Awareness (AGENTS.md)
+
+An `AGENTS.md` file is auto-generated in the project workdir. Hermes auto-loads it into every worker's system prompt, giving them awareness of:
+- Project name, goal, and status
+- Heartbeat member and interval
+- Team members table (name → role)
+- Workflow instructions (kanban check, task completion, blocking, raising motions)
+
+**Refreshed on:**
+- `start_project` (initial write)
+- Leader heartbeat (members may have been added/removed)
+- `kanban_task_claimed` hook (before worker spawns)
+
+## Kanban Hooks
+
+| Hook | When | Action |
+|------|------|--------|
+| `kanban_task_completed` | Worker finishes a task | Write discussion result as comment + memory entry; if no pending tasks remain, signal leader |
+| `kanban_task_claimed` | Dispatcher assigns a task (before worker spawns) | Log claim; refresh `AGENTS.md`; inject motion decision as task comment if applicable |
+| `kanban_task_blocked` | Worker blocks a task | If reason mentions "design decision" or "motion" → auto-create a discussion motion; otherwise log for leader |
+
 ## Dashboard Structure
 
 | Tab | Content |
 |-----|---------|
-| **Projects** | Project list, start new project, project detail (kanban/discussions/team) |
-| **Team** | Workers / Leaders / Teams management |
+| **Projects** (default) | Project list, start new project (with heartbeat config), project detail (kanban/discussions/team) |
+| **Team** | **Members** sub-tab (unified Workers + Leaders) / **Teams** sub-tab (team management) |
 | **Profiles** | Profile config (model/SOUL.md/skills) |
 
 ## Configuration
@@ -142,26 +175,26 @@ plugins:
 
 ```
 agora/
-├── plugin.yaml                  # Plugin manifest
-├── __init__.py                  # register(ctx)
-├── tools/__init__.py            # 18 tool definitions
+├── plugin.yaml                  # Plugin manifest (tools + hooks)
+├── __init__.py                  # register(ctx) — 18 tools + dashboard API + CLI + 3 hooks
+├── tools/__init__.py            # 18 tool definitions (unified: POST /workers only)
 ├── cli.py                       # hermes agora CLI
-├── hooks/__init__.py            # kanban_task_completed hook (memory + comment write-back)
-├── project_planner.py           # Project lifecycle
+├── hooks/__init__.py            # 3 kanban hooks: completed, claimed, blocked
+├── project_planner.py           # Project lifecycle + heartbeat config + AGENTS.md generation
 ├── agora/
 │   ├── utils.py                 # Shared utilities
-│   ├── discussion/              # Event-driven discussion engine (v0.9.0+)
+│   ├── discussion/              # Event-driven discussion engine
 │   │   ├── driver.py            #   DiscussionDriver: chair → speakers → evaluate → close
 │   │   ├── agent_spawn.py       #   Spawn real Hermes agent subprocesses (hermes -p chat -q)
 │   │   ├── chair.py             #   Chair (Leader) prompts: open, evaluate, vote, summary
 │   │   └── roles.py             #   Consensus checker + discussion templates
 │   ├── storage/                 # SQLite storage
-│   ├── worker_templates.py      # 8 templates + AI soul generation (Discussion/Chair Protocol)
-│   ├── worker_manager.py        # Worker lifecycle (profile inherits root config.yaml)
-│   ├── team_manager.py          # Team + round-robin dispatch
-│   ├── leader_manager.py        # Leader + auto cron
-│   └── leader_loop.py           # Heartbeat + completion detection
-├── dashboard/                   # Web UI + REST API (event-driven discussion flow)
+│   ├── session_manager.py       # Per-project session tracking + rotation
+│   ├── worker_templates.py      # 8 role templates (SOUL.md rendering)
+│   ├── worker_manager.py        # Worker lifecycle — unified (leader = worker with leader template)
+│   ├── team_manager.py          # Team + dispatch routing
+│   └── leader_loop.py           # Heartbeat spawn + PROJECT_COMPLETE detection
+├── dashboard/                   # Web UI + REST API (Members tab, StartProjectForm)
 └── skills/
 ```
 
