@@ -135,8 +135,6 @@
   // ========================================================================
 
   function AgoraDashboard() {
-    const [tab, setTab] = useState("projects");
-
     return React.createElement("div", { className: "agora-dashboard" },
       // Header
       React.createElement("div", { className: "agora-header" },
@@ -145,18 +143,19 @@
           "Multi-role deliberation — manage projects, agent teams, and discussions"
         ),
       ),
-      // Tabs
-      React.createElement(Tabs, { value: tab, onValueChange: setTab },
-        React.createElement(TabsList, null,
-          React.createElement(TabsTrigger, { value: "projects" }, "Projects"),
-          React.createElement(TabsTrigger, { value: "team" }, "Team"),
-          React.createElement(TabsTrigger, { value: "profiles" }, "Profiles"),
-        ),
-      ),
-      // Tab content
-      tab === "projects" && React.createElement(ProjectsTab),
-      tab === "team" && React.createElement(TeamTab),
-      tab === "profiles" && React.createElement(ProfilesTab),
+      // Tabs (Hermes v0.18: Tabs uses render-prop children(activeValue, setValue))
+      React.createElement(Tabs, { defaultValue: "projects" }, function(activeTab, setActiveTab) {
+        return [
+          React.createElement(TabsList, { key: "tabs" },
+            React.createElement(TabsTrigger, { value: "projects", active: activeTab === "projects", onClick: function() { setActiveTab("projects"); } }, "Projects"),
+            React.createElement(TabsTrigger, { value: "team", active: activeTab === "team", onClick: function() { setActiveTab("team"); } }, "Team"),
+            React.createElement(TabsTrigger, { value: "profiles", active: activeTab === "profiles", onClick: function() { setActiveTab("profiles"); } }, "Profiles"),
+          ),
+          activeTab === "projects" && React.createElement(ProjectsTab, { key: "content" }),
+          activeTab === "team" && React.createElement(TeamTab, { key: "content" }),
+          activeTab === "profiles" && React.createElement(ProfilesTab, { key: "content" }),
+        ];
+      }),
     );
   }
 
@@ -396,7 +395,6 @@
     const [project, setProject] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [subtab, setSubtab] = useState("overview");
 
     const load = useCallback(async () => {
       try {
@@ -436,18 +434,20 @@
         ),
       ),
       project.goal && React.createElement("p", { className: "agora-project-goal" }, project.goal),
-      React.createElement(Tabs, { value: subtab, onValueChange: setSubtab },
-        React.createElement(TabsList, null,
-          React.createElement(TabsTrigger, { value: "overview" }, "Overview"),
-          React.createElement(TabsTrigger, { value: "kanban" }, "Kanban (" + ((counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0)) + ")"),
-          React.createElement(TabsTrigger, { value: "discussions" }, "Discussions"),
-          React.createElement(TabsTrigger, { value: "team" }, "Team"),
-        ),
-      ),
-      subtab === "overview" && React.createElement(ProjectOverview, { project: project }),
-      subtab === "kanban" && React.createElement(ProjectKanban, { projectName: projectName }),
-      subtab === "discussions" && React.createElement(ProjectDiscussions, { projectName: projectName }),
-      subtab === "team" && React.createElement(ProjectTeam, { project: project }),
+      React.createElement(Tabs, { defaultValue: "overview" }, function(activeSubtab, setActiveSubtab) {
+        return [
+          React.createElement(TabsList, { key: "tabs" },
+            React.createElement(TabsTrigger, { value: "overview", active: activeSubtab === "overview", onClick: function() { setActiveSubtab("overview"); } }, "Overview"),
+            React.createElement(TabsTrigger, { value: "kanban", active: activeSubtab === "kanban", onClick: function() { setActiveSubtab("kanban"); } }, "Kanban (" + ((counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0)) + ")"),
+            React.createElement(TabsTrigger, { value: "discussions", active: activeSubtab === "discussions", onClick: function() { setActiveSubtab("discussions"); } }, "Discussions"),
+            React.createElement(TabsTrigger, { value: "team", active: activeSubtab === "team", onClick: function() { setActiveSubtab("team"); } }, "Team"),
+          ),
+          activeSubtab === "overview" && React.createElement(ProjectOverview, { key: "content", project: project }),
+          activeSubtab === "kanban" && React.createElement(ProjectKanban, { key: "content", projectName: projectName }),
+          activeSubtab === "discussions" && React.createElement(ProjectDiscussions, { key: "content", projectName: projectName }),
+          activeSubtab === "team" && React.createElement(ProjectTeam, { key: "content", project: project }),
+        ];
+      }),
     );
   }
 
@@ -889,18 +889,19 @@
   // ========================================================================
 
   function TeamTab() {
-    const [subtab, setSubtab] = useState("workers");
     return React.createElement("div", { className: "agora-team" },
-      React.createElement(Tabs, { value: subtab, onValueChange: setSubtab },
-        React.createElement(TabsList, null,
-          React.createElement(TabsTrigger, { value: "workers" }, "Workers"),
-          React.createElement(TabsTrigger, { value: "leaders" }, "Leaders"),
-          React.createElement(TabsTrigger, { value: "teams" }, "Teams"),
-        ),
-      ),
-      subtab === "workers" && React.createElement(WorkersTab),
-      subtab === "leaders" && React.createElement(LeadersTab),
-      subtab === "teams" && React.createElement(TeamsTab),
+      React.createElement(Tabs, { defaultValue: "workers" }, function(activeSubtab, setActiveSubtab) {
+        return [
+          React.createElement(TabsList, { key: "tabs" },
+            React.createElement(TabsTrigger, { value: "workers", active: activeSubtab === "workers", onClick: function() { setActiveSubtab("workers"); } }, "Workers"),
+            React.createElement(TabsTrigger, { value: "leaders", active: activeSubtab === "leaders", onClick: function() { setActiveSubtab("leaders"); } }, "Leaders"),
+            React.createElement(TabsTrigger, { value: "teams", active: activeSubtab === "teams", onClick: function() { setActiveSubtab("teams"); } }, "Teams"),
+          ),
+          activeSubtab === "workers" && React.createElement(WorkersTab, { key: "content" }),
+          activeSubtab === "leaders" && React.createElement(LeadersTab, { key: "content" }),
+          activeSubtab === "teams" && React.createElement(TeamsTab, { key: "content" }),
+        ];
+      }),
     );
   }
 
@@ -1706,7 +1707,6 @@
     const [config, setConfig] = useState(null);
     const [soul, setSoul] = useState(null);
     const [skills, setSkills] = useState(null);
-    const [subtab, setSubtab] = useState("config");
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -1728,16 +1728,18 @@
         React.createElement(CardTitle, null, "Profile: " + name),
       ),
       React.createElement(CardContent, null,
-        React.createElement(Tabs, { value: subtab, onValueChange: setSubtab },
-          React.createElement(TabsList, null,
-            React.createElement(TabsTrigger, { value: "config" }, "Config"),
-            React.createElement(TabsTrigger, { value: "soul" }, "SOUL.md"),
-            React.createElement(TabsTrigger, { value: "skills" }, "Skills"),
-          ),
-        ),
-        subtab === "config" && config && React.createElement(ConfigEditor, { name, config, onChanged }),
-        subtab === "soul" && soul && React.createElement(SoulEditor, { name, soul }),
-        subtab === "skills" && skills && React.createElement(SkillsList, { name, skills }),
+        React.createElement(Tabs, { defaultValue: "config" }, function(activeSubtab, setActiveSubtab) {
+          return [
+            React.createElement(TabsList, { key: "tabs" },
+              React.createElement(TabsTrigger, { value: "config", active: activeSubtab === "config", onClick: function() { setActiveSubtab("config"); } }, "Config"),
+              React.createElement(TabsTrigger, { value: "soul", active: activeSubtab === "soul", onClick: function() { setActiveSubtab("soul"); } }, "SOUL.md"),
+              React.createElement(TabsTrigger, { value: "skills", active: activeSubtab === "skills", onClick: function() { setActiveSubtab("skills"); } }, "Skills"),
+            ),
+            activeSubtab === "config" && config && React.createElement(ConfigEditor, { key: "content", name, config, onChanged }),
+            activeSubtab === "soul" && soul && React.createElement(SoulEditor, { key: "content", name, soul }),
+            activeSubtab === "skills" && skills && React.createElement(SkillsList, { key: "content", name, skills }),
+          ];
+        }),
       ),
     );
   }
