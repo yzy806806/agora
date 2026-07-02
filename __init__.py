@@ -17,7 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.10.0"
+__version__ = "0.11.1"
 
 
 def register(ctx) -> None:
