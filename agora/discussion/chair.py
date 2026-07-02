@@ -51,17 +51,23 @@ EVALUATE the discussion state:
 - Are there unresolved disagreements? If yes and stuck, call a vote.
 - Has enough been said to reach a conclusion? If yes, close.
 - Is someone going off-topic? If yes, redirect with guidance.
+- Do you need more information (web search, code reading, test results)?
+  If yes, dispatch a specific participant to gather it.
 
 Respond with JSON ONLY:
 {{
-  "action": "continue" | "vote" | "close",
+  "action": "continue" | "dispatch" | "vote" | "close",
   "next_speaker": "<profile_name or null>",
   "guidance": "<question/redirection for next speaker, or null>",
+  "dispatch_task": "<specific investigation task for the dispatched participant, or null>",
   "reason": "<1 sentence why you chose this action>"
 }}
 
 Rules:
 - "continue": pick the next speaker and optionally guide them.
+- "dispatch": send a participant to investigate (web search, read code, run tests).
+  Set next_speaker to the investigator, dispatch_task to the specific task.
+  The investigator will use their tools and report findings.
 - "vote": call a formal vote if the discussion is deadlocked.
 - "close": the discussion is ready to summarize.
 """

@@ -176,6 +176,49 @@ class DiscussionDriver:
                 logger.info("Chair called vote at step %d", step)
                 self._run_voting(title)
                 break
+            elif next_action == "dispatch":
+                # Chair sends a participant to investigate (web search, read
+                # code, run tests, etc.) — this is a regular speaker turn but
+                # with a specific investigation task instead of opinion.
+                investigator = action.get("next_speaker")
+                dispatch_task = action.get("dispatch_task", "")
+                if investigator and investigator in self.participants:
+                    logger.info(
+                        "Chair dispatched %s to investigate: %s",
+                        investigator, dispatch_task[:100],
+                    )
+                    db.save_discussion_state(
+                        self.motion_id, "investigating",
+                        next_speaker=investigator,
+                        last_guidance=dispatch_task,
+                        last_action="dispatch",
+                    )
+                    # The investigation is a speaker turn with a task-oriented prompt
+                    reply = self._investigator_speak(
+                        investigator, title, dispatch_task,
+                    )
+                    if not reply:
+                        reply = f"[{investigator} could not complete the investigation]"
+                    db.add_message(
+                        motion_id=self.motion_id,
+                        role=investigator,
+                        round_num=step,
+                        stance="investigation",
+                        content=reply,
+                        step_type="dispatch",
+                    )
+                else:
+                    # Invalid investigator — fall through to continue
+                    logger.warning(
+                        "Chair dispatch target '%s' not in participants, falling through",
+                        investigator,
+                    )
+                    db.save_discussion_state(
+                        self.motion_id, "discussing",
+                        next_speaker=action.get("next_speaker"),
+                        last_guidance=action.get("guidance"),
+                        last_action="continue",
+                    )
             else:  # continue
                 db.save_discussion_state(
                     self.motion_id, "discussing",
@@ -296,6 +339,49 @@ class DiscussionDriver:
         # Save the new session_id for future --resume
         if result.get("session_id"):
             self._update_worker_session(speaker, result["session_id"])
+
+        return result.get("reply", "")
+
+    def _investigator_speak(
+        self, investigator: str, title: str, dispatch_task: str,
+    ) -> str:
+        """Spawn a worker to investigate a specific question.
+
+        This is different from a normal speaker turn: instead of giving
+        an opinion, the worker uses its tools (web_search, read_file,
+        terminal, etc.) to gather concrete information and report findings.
+        """
+        history = self._build_history()
+        prompt = (
+            f"You are **{investigator}** in an Agora team discussion.\n"
+            f"The chair has dispatched you to investigate a specific question.\n"
+            f"Use your tools (web_search, read_file, terminal, skill_manage, etc.) "
+            f"to gather concrete information.\n\n"
+            f"## Topic\n{title}\n\n"
+            f"## Investigation Task\n{dispatch_task}\n\n"
+            f"## Discussion Context\n{history[:2000]}\n\n"
+            f"## Instructions\n"
+            f"1. Use your tools to investigate the task thoroughly.\n"
+            f"2. Report your findings clearly: what you found, with evidence.\n"
+            f"3. If you found relevant code, data, or test results, include specifics.\n"
+            f"4. Conclude with how your findings affect the discussion.\n\n"
+            f"After your investigation, output your report on a new line starting with:\n"
+            f"DISCUSSION_REPLY: <your findings>"
+        )
+
+        session_id = self._get_worker_session(investigator)
+
+        result = spawn_agent_speak(
+            profile_name=investigator,
+            prompt=prompt,
+            session_id=session_id,
+            workdir=self.workdir,
+            # Investigations may take longer (web search, running tests)
+            timeout=self.speak_timeout + 120,
+        )
+
+        if result.get("session_id"):
+            self._update_worker_session(investigator, result["session_id"])
 
         return result.get("reply", "")
 
