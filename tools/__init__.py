@@ -297,28 +297,46 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     source_profile = ctx.profile_name if hasattr(ctx, "profile_name") else "default"
     source = "agent" if source_task_id else "user"
 
-    # Try to auto-resolve participants and chair from the project team
+    # Try to auto-resolve participants and chair from the project
     if not participants or not chair:
         try:
-            from ..agora.team_manager import get_team_for_project
-            # Try to find the project from the source task
+            from project_planner import get_heartbeat_member, get_project
+            from agora.team_manager import get_team_for_project, get_team
             from hermes_cli import kanban_db
+
+            # 1. Resolve project name from source task
+            resolved_project = ""
             conn = kanban_db.connect()
             try:
                 if source_task_id:
                     task = kanban_db.get_task(conn, source_task_id)
                     if task and task.tenant:
-                        team = get_team_for_project(task.tenant)
-                        if team:
-                            if not participants:
-                                participants = [w["name"] for w in team.get("workers", [])]
-                            if not chair:
-                                for w in team.get("workers", []):
-                                    if w.get("role") == "leader":
-                                        chair = w["name"]
-                                        break
+                        resolved_project = task.tenant.replace("agora-", "")
             finally:
                 conn.close()
+
+            # 2. If no project from task, try the source_profile's active project
+            if not resolved_project:
+                try:
+                    from project_planner import list_projects
+                    for p in list_projects():
+                        if p.get("status") == "active":
+                            resolved_project = p["name"]
+                            break
+                except Exception:
+                    pass
+
+            # 3. Get heartbeat_member as default chair
+            if resolved_project and not chair:
+                chair = get_heartbeat_member(resolved_project) or ""
+
+            # 4. Get team participants
+            if resolved_project and not participants:
+                proj = get_project(resolved_project)
+                if proj and proj.get("team"):
+                    team = get_team(proj["team"])
+                    if team:
+                        participants = [w["name"] for w in team.get("workers", [])]
         except Exception:
             pass
 

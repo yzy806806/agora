@@ -505,16 +505,14 @@ class DiscussionDriver:
         return ""
 
     def _get_worker_session(self, worker_name: str) -> str | None:
-        """Get a worker's session_id from the registry.
+        """Get a worker's per-project session_id from the registry.
 
-        Before returning the session_id, checks whether the session has
-        grown too large (> 200 messages or > 500 KB).  If so, rotates it
-        — writes a memory summary and clears the stored session_id —
-        then returns ``None`` so the next spawn creates a fresh session.
+        Uses the project_name to isolate sessions across projects.
+        Falls back to the legacy global session_id for backward compat.
         """
         try:
             from ..worker_manager import get_worker_session
-            session_id = get_worker_session(worker_name)
+            session_id = get_worker_session(worker_name, self.project_name or None)
 
             # Check session size — rotate if too large
             if session_id:
@@ -523,8 +521,8 @@ class DiscussionDriver:
                     size_info = check_session_size(worker_name, session_id)
                     if size_info.get("needs_rotation"):
                         logger.info(
-                            "Rotating session for %s (messages=%d, size=%.1fKB)",
-                            worker_name,
+                            "Rotating session for %s/%s (messages=%d, size=%.1fKB)",
+                            worker_name, self.project_name,
                             size_info.get("message_count", 0),
                             size_info.get("size_kb", 0),
                         )
@@ -538,10 +536,10 @@ class DiscussionDriver:
             return None
 
     def _update_worker_session(self, worker_name: str, session_id: str) -> None:
-        """Update a worker's session_id in the registry."""
+        """Update a worker's per-project session_id in the registry."""
         try:
             from ..worker_manager import update_worker_session
-            update_worker_session(worker_name, session_id)
+            update_worker_session(worker_name, session_id, self.project_name or None)
         except Exception as exc:
             logger.debug("Failed to update session for %s: %s", worker_name, exc)
 
@@ -662,8 +660,15 @@ class DiscussionDriver:
                 assignee = owner if owner else None
                 if owner and self.project_name:
                     try:
-                        from ..team_manager import get_team_for_project, get_assignee_for_role
+                        from ..team_manager import get_team_for_project, get_team, get_assignee_for_role
+                        from project_planner import get_project
+                        # Try direct team_for_project match first
                         team = get_team_for_project(self.project_name)
+                        # If not found, try via project registry
+                        if not team:
+                            proj = get_project(self.project_name)
+                            if proj and proj.get("team"):
+                                team = get_team(proj["team"])
                         if team:
                             picked = get_assignee_for_role(team["name"], owner)
                             if picked:

@@ -351,23 +351,26 @@ def start_discussion(req: StartDiscussionRequest):
         import sys as _sys
         from agora.storage import motions as db
 
-        # Auto-resolve participants from team if not specified
+        # Auto-resolve participants and chair from the project
         participants = req.participants
         chair = req.chair
-        if not participants and req.project:
-            try:
-                from agora.team_manager import get_team_for_project
-                team = get_team_for_project(req.project)
-                if team:
-                    participants = [w["name"] for w in team.get("workers", [])]
+        if not participants or not chair:
+            if req.project:
+                try:
+                    from project_planner import get_heartbeat_member, get_project
+                    from agora.team_manager import get_team
+                    # Chair defaults to project's heartbeat_member
                     if not chair:
-                        # Find the leader in the team
-                        for w in team.get("workers", []):
-                            if w.get("role") == "leader":
-                                chair = w["name"]
-                                break
-            except Exception as exc:
-                logger.warning("Team lookup failed: %s", exc)
+                        chair = get_heartbeat_member(req.project) or ""
+                    # Participants from the project's team
+                    if not participants:
+                        proj = get_project(req.project)
+                        if proj and proj.get("team"):
+                            team = get_team(proj["team"])
+                            if team:
+                                participants = [w["name"] for w in team.get("workers", [])]
+                except Exception as exc:
+                    logger.warning("Project/chair lookup failed: %s", exc)
 
         if not participants:
             raise HTTPException(status_code=400, detail="No participants. Specify participants or provide a valid project with a team.")
