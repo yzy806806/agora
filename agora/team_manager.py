@@ -209,7 +209,7 @@ def get_assignee_for_role(team_name: str, role: str) -> str | None:
 def _bind_team_to_project(team_name: str, project_name: str) -> None:
     """Write the team name into the project registry file."""
     try:
-        from ..project_planner import _project_file, get_project
+        from project_planner import _project_file, get_project
         data = get_project(project_name)
         if data is None:
             logger.warning("Cannot bind team to project: project '%s' not found", project_name)
@@ -223,7 +223,7 @@ def _bind_team_to_project(team_name: str, project_name: str) -> None:
 def _unbind_team_from_project(team_name: str, project_name: str) -> None:
     """Remove the team binding from the project registry file."""
     try:
-        from ..project_planner import _project_file, get_project
+        from project_planner import _project_file, get_project
         data = get_project(project_name)
         if data is None:
             return

@@ -3,8 +3,11 @@
 Mounted at /api/plugins/agora/ by the Hermes dashboard plugin system.
 
 Provides REST endpoints for:
-  - Profile management (list, create, delete, config, SOUL, skills, toolsets)
-  - Motion management (list, show, result, discuss)
+  - Profile management (list, delete, config, SOUL, skills)
+  - Worker management (list, create, remove, templates, generate-soul)
+  - Team management (list, create, remove)
+  - Project management (list, start, stop, heartbeat control)
+  - Motion management (list, show, state, discuss)
 """
 from __future__ import annotations
 
@@ -33,15 +36,8 @@ if str(_PLUGIN_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PLUGIN_ROOT))
 
 # ---------------------------------------------------------------------------
-# Profile management
+# Profile management (generic Hermes profile CRUD — not Agora-specific)
 # ---------------------------------------------------------------------------
-
-class CreateProfileRequest(BaseModel):
-    name: str = Field(..., description="Profile name (lowercase, hyphens)")
-    clone_from: Optional[str] = Field(None, description="Source profile to clone")
-    clone_config: bool = Field(True, description="Copy config.yaml, .env, SOUL.md, skills")
-    description: Optional[str] = Field(None, description="Free-form description")
-    preset: Optional[str] = Field(None, description="Preset role: architect/developer/reviewer")
 
 class UpdateProfileConfigRequest(BaseModel):
     model: Optional[str] = None
@@ -86,38 +82,6 @@ def list_profiles():
         }
     except Exception as exc:
         logger.error("list_profiles failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/profiles")
-def create_profile(req: CreateProfileRequest):
-    """Create a new Hermes profile, optionally from a preset."""
-    try:
-        profiles_mod = _get_profiles_module()
-        profile_dir = profiles_mod.create_profile(
-            name=req.name,
-            clone_from=req.clone_from,
-            clone_config=req.clone_config,
-            description=req.description,
-        )
-
-        # Apply preset: write role-specific SOUL.md and config
-        if req.preset:
-            _apply_preset(profile_dir, req.preset)
-
-        return {
-            "name": req.name,
-            "path": str(profile_dir),
-            "preset": req.preset,
-            "message": f"Profile '{req.name}' created"
-                       + (f" with {req.preset} preset" if req.preset else ""),
-        }
-    except FileExistsError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        logger.error("create_profile failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -365,161 +329,6 @@ def get_motion(motion_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Preset logic
-# ---------------------------------------------------------------------------
-
-# NOTE: The _PRESETS dict below duplicates role definitions that also exist in
-# agora/worker_templates.py (TEMPLATES).  The dashboard presets are simpler
-# (just a soul string + description), while worker_templates have full SOUL.md
-# templates.  Future refactoring should unify these — the dashboard should
-# derive its presets from worker_templates rather than maintaining a second
-# copy here.
-
-_PRESETS = {
-    "architect": {
-        "soul": """You are the **Architect** in an Agora deliberation team.
-
-Your role is to provide architectural and design leadership.
-
-Focus areas:
-- System architecture and high-level design decisions
-- Technology stack selection and trade-offs
-- Scalability, maintainability, and extensibility
-- Interface contracts and module boundaries
-- Risk assessment from an architectural perspective
-
-Be specific and actionable. Reference concrete patterns and principles.
-When you disagree, explain your reasoning and propose alternatives.
-""",
-        "description": "Architecture and design leadership — makes tech stack and system design decisions.",
-    },
-    "developer": {
-        "soul": """You are the **Developer** in an Agora deliberation team.
-
-Your role is to provide implementation expertise and practical feasibility assessment.
-
-Focus areas:
-- Implementation details and code structure
-- API design and data models
-- Feasibility and effort estimation
-- Dependency management and integration points
-- Build, test, and deployment considerations
-
-Propose concrete approaches with pseudo-code when helpful.
-Challenge architectural decisions that are impractical.
-""",
-        "description": "Implementation expert — writes code, assesses feasibility, handles build/deploy.",
-    },
-    "reviewer": {
-        "soul": """You are the **Reviewer** in an Agora deliberation team.
-
-Your role is to provide quality assurance and critical analysis.
-
-Focus areas:
-- Code quality, readability, and maintainability
-- Security vulnerabilities and attack surfaces
-- Edge cases, failure modes, and error handling
-- Testing strategy and coverage requirements
-- Performance bottlenecks and resource constraints
-
-Be constructive: identify issues AND suggest remedies.
-Prioritize findings by severity.
-""",
-        "description": "Quality and security reviewer — finds edge cases, tests, and vulnerabilities.",
-    },
-}
-
-
-def _apply_preset(profile_dir: Path, preset: str) -> None:
-    """Apply a role preset to a profile directory."""
-    preset_data = _PRESETS.get(preset)
-    if not preset_data:
-        return
-
-    # Write SOUL.md
-    soul_path = profile_dir / "SOUL.md"
-    soul_path.write_text(preset_data["soul"])
-
-    # Update profile.yaml description
-    import yaml
-    profile_yaml_path = profile_dir / "profile.yaml"
-    meta = {}
-    if profile_yaml_path.exists():
-        with open(profile_yaml_path) as f:
-            meta = yaml.safe_load(f) or {}
-    meta["description"] = preset_data["description"]
-    meta["description_auto"] = False
-    with open(profile_yaml_path, "w") as f:
-        yaml.dump(meta, f, default_flow_style=False, allow_unicode=True)
-
-    logger.info("Applied preset '%s' to profile at %s", preset, profile_dir)
-
-
-@router.get("/presets")
-def list_presets():
-    """List available role presets."""
-    return {
-        "presets": [
-            {"name": k, "description": v["description"]}
-            for k, v in _PRESETS.items()
-        ]
-    }
-
-
-# ---------------------------------------------------------------------------
-# Create Agora team — one-click setup
-# ---------------------------------------------------------------------------
-
-class CreateTeamRequest(BaseModel):
-    clone_from: str = Field("default", description="Source profile to clone from")
-    models: Optional[dict[str, str]] = Field(None, description="Per-role model override, e.g. {architect: deepseekv4pro}")
-
-@router.post("/team")
-def create_agora_team(req: CreateTeamRequest):
-    """Create a full Agora team (architect + developer + reviewer profiles)."""
-    results = []
-    for preset_name in _PRESETS:
-        try:
-            profiles_mod = _get_profiles_module()
-            profile_dir = profiles_mod.create_profile(
-                name=preset_name,
-                clone_from=req.clone_from,
-                clone_config=True,
-                description=_PRESETS[preset_name]["description"],
-            )
-            _apply_preset(profile_dir, preset_name)
-
-            # Apply model override if provided
-            if req.models and preset_name in req.models:
-                config_path = profile_dir / "config.yaml"
-                import yaml
-                config = {}
-                if config_path.exists():
-                    with open(config_path) as f:
-                        config = yaml.safe_load(f) or {}
-                model_cfg = config.get("model", {})
-                if not isinstance(model_cfg, dict):
-                    model_cfg = {"default": model_cfg} if model_cfg else {}
-                model_cfg["default"] = req.models[preset_name]
-                config["model"] = model_cfg
-                with open(config_path, "w") as f:
-                    yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-
-            results.append({
-                "name": preset_name,
-                "path": str(profile_dir),
-                "model": req.models.get(preset_name) if req.models else None,
-                "created": True,
-            })
-        except FileExistsError:
-            results.append({"name": preset_name, "created": False, "error": "already exists"})
-        except Exception as exc:
-            results.append({"name": preset_name, "created": False, "error": str(exc)})
-
-    return {"team": results, "message": f"Created {sum(1 for r in results if r.get('created'))} profiles"}
-
-
-# ---------------------------------------------------------------------------
 # Start a discussion from dashboard
 # ---------------------------------------------------------------------------
 
@@ -654,146 +463,8 @@ def get_discussion_state_endpoint(motion_id: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# --------------------------------------------------------------------------- #
-#  Leader management                                                          #
-# --------------------------------------------------------------------------- #
-
-class CreateLeaderRequest(BaseModel):
-    name: str = Field(..., description="Leader profile name")
-    project: str = Field(..., description="Project name to manage")
-    clone_from: str = Field("coder", description="Source profile to clone")
-    heartbeat_minutes: int = Field(15, description="Heartbeat interval in minutes")
-    model: Optional[str] = Field(None, description="Override model")
-
-
-@router.get("/leaders")
-def list_leaders():
-    """List all registered team leaders with cron status."""
-    try:
-        import sys, json as _json
-        from agora.leader_manager import list_leaders as _list
-        leaders = _list()
-        cron_jobs_path = Path.home() / ".hermes" / "profiles" / "coder" / "cron" / "jobs.json"
-        cron_map = {}
-        try:
-            if cron_jobs_path.exists():
-                cron_data = _json.loads(cron_jobs_path.read_text())
-                for job in cron_data.get("jobs", []):
-                    cron_map[job.get("name", "")] = job
-        except Exception:
-            pass
-        for leader in leaders:
-            cron_name = "heartbeat-" + leader.get("name", "")
-            job = cron_map.get(cron_name)
-            leader["cron_enabled"] = job.get("enabled", False) if job else False
-            leader["cron_next_run"] = job.get("next_run_at") if job else None
-            leader["cron_last_run"] = job.get("last_run_at") if job else None
-            leader["cron_schedule"] = job.get("schedule_display") if job else None
-        return {"leaders": leaders}
-    except Exception as exc:
-        logger.error("list_leaders failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/leaders")
-def create_leader(req: CreateLeaderRequest):
-    """Create a team leader. Automatically creates a cron job for heartbeat."""
-    try:
-        from agora.leader_manager import create_leader as _create
-        result = _create(
-            name=req.name, project=req.project, clone_from=req.clone_from,
-            heartbeat_minutes=req.heartbeat_minutes, model=req.model,
-        )
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("create_leader failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.delete("/leaders/{name}")
-def remove_leader(name: str):
-    """Remove a leader and its cron job."""
-    try:
-        from agora.leader_manager import remove_leader as _remove
-        result = _remove(name)
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-class UpdateHeartbeatRequest(BaseModel):
-    minutes: int = Field(..., description="New heartbeat interval in minutes")
-
-@router.put("/leaders/{name}/heartbeat")
-def update_heartbeat(name: str, req: UpdateHeartbeatRequest):
-    """Update the heartbeat interval for a leader."""
-    try:
-        from agora.leader_manager import update_heartbeat_schedule
-        result = update_heartbeat_schedule(name, req.minutes)
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/leaders/{name}/heartbeat/trigger")
-def trigger_heartbeat(name: str):
-    """Manually trigger a leader heartbeat right now."""
-    try:
-        from agora.leader_loop import heartbeat
-        result = heartbeat(leader_name=name)
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.put("/leaders/{name}/pause")
-def pause_leader(name: str):
-    """Pause a leader's heartbeat cron job."""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["hermes", "cron", "pause", "heartbeat-" + name],
-            capture_output=True, text=True, timeout=10,
-        )
-        return {"name": name, "paused": result.returncode == 0,
-                "output": result.stdout.strip()}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.put("/leaders/{name}/resume")
-def resume_leader(name: str):
-    """Resume a leader's heartbeat cron job."""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["hermes", "cron", "resume", "heartbeat-" + name],
-            capture_output=True, text=True, timeout=10,
-        )
-        return {"name": name, "resumed": result.returncode == 0,
-                "output": result.stdout.strip()}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-# --------------------------------------------------------------------------- #
-#  Worker management                                                          #
+# ---------------------------------------------------------------------------
+# Worker management
 # --------------------------------------------------------------------------- #
 
 class CreateWorkerRequest(BaseModel):
@@ -854,8 +525,8 @@ def remove_worker(name: str, delete_profile: bool = True):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# --------------------------------------------------------------------------- #
-#  Team management                                                            #
+# ---------------------------------------------------------------------------
+# Team management
 # --------------------------------------------------------------------------- #
 
 class CreateTeamRequestV2(BaseModel):
@@ -905,8 +576,8 @@ def remove_team(team_name: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# --------------------------------------------------------------------------- #
-#  Project management                                                          #
+# ---------------------------------------------------------------------------
+# Project management (with heartbeat control)
 # --------------------------------------------------------------------------- #
 
 class StartProjectRequest(BaseModel):
@@ -914,17 +585,27 @@ class StartProjectRequest(BaseModel):
     goal: str = Field(..., description="Project goal")
     workdir: str = Field("/root", description="Working directory")
     team: Optional[str] = Field(None, description="Team name")
-    leader: Optional[str] = Field(None, description="Leader name")
     profile: str = Field("coder", description="Hermes profile for workers")
     max_rounds: int = Field(10, description="Max planning rounds")
+    heartbeat_member: Optional[str] = Field(None, description="Worker name to wake on heartbeat (usually a leader)")
+    heartbeat_minutes: int = Field(15, description="Heartbeat interval in minutes")
+
+
+class UpdateHeartbeatRequest(BaseModel):
+    minutes: int = Field(..., description="New heartbeat interval in minutes")
 
 
 @router.get("/projects")
 def list_projects_api():
-    """List all Agora projects."""
+    """List all Agora projects with cron status."""
     try:
-        from project_planner import list_projects
-        return {"projects": list_projects()}
+        from project_planner import list_projects, get_cron_status
+        projects = list_projects()
+        for proj in projects:
+            proj_name = proj.get("name", "")
+            if proj_name:
+                proj["cron_status"] = get_cron_status(proj_name)
+        return {"projects": projects}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -933,10 +614,11 @@ def list_projects_api():
 def get_project_api(name: str):
     """Get project detail."""
     try:
-        from project_planner import get_project
+        from project_planner import get_project, get_cron_status
         proj = get_project(name)
         if proj is None:
             raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+        proj["cron_status"] = get_cron_status(name)
         return proj
     except HTTPException:
         raise
@@ -956,11 +638,14 @@ def start_project_api(req: StartProjectRequest):
             profile=req.profile,
             max_rounds=req.max_rounds,
             team=req.team,
+            heartbeat_member=req.heartbeat_member,
+            heartbeat_minutes=req.heartbeat_minutes,
         )
-        if req.leader:
-            from agora.leader_manager import bind_leader_to_project
-            bind_leader_to_project(req.leader, req.name)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -980,8 +665,68 @@ def stop_project_api(name: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# --------------------------------------------------------------------------- #
-#  AI-generated SOUL.md                                                        #
+@router.put("/projects/{name}/heartbeat")
+def update_project_heartbeat(name: str, req: UpdateHeartbeatRequest):
+    """Update the heartbeat interval for a project."""
+    try:
+        from project_planner import update_heartbeat
+        result = update_heartbeat(name, req.minutes)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.put("/projects/{name}/pause")
+def pause_project_heartbeat(name: str):
+    """Pause a project's heartbeat cron job."""
+    try:
+        from project_planner import pause_heartbeat
+        result = pause_heartbeat(name)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.put("/projects/{name}/resume")
+def resume_project_heartbeat(name: str):
+    """Resume a project's heartbeat cron job."""
+    try:
+        from project_planner import resume_heartbeat
+        result = resume_heartbeat(name)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/projects/{name}/trigger")
+def trigger_project_heartbeat(name: str):
+    """Manually trigger a project heartbeat right now."""
+    try:
+        from project_planner import trigger_heartbeat
+        result = trigger_heartbeat(name)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# AI-generated SOUL.md
 # --------------------------------------------------------------------------- #
 
 class GenerateSoulRequest(BaseModel):
@@ -1070,8 +815,8 @@ def generate_soul_api(req: GenerateSoulRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# --------------------------------------------------------------------------- #
-#  Human discussion participation                                              #
+# ---------------------------------------------------------------------------
+# Human discussion participation
 # --------------------------------------------------------------------------- #
 
 class AddMessageRequest(BaseModel):

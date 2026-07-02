@@ -1,9 +1,9 @@
 {
   "name": "agora",
   "label": "Agora",
-  "description": "Multi-role self-driving team \u2014 projects, workers, leaders, discussions, human participation",
+  "description": "Unified worker/leader model — heartbeat on project, session isolation per project, shared experience across projects",
   "icon": "Landmark",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "tab": {
     "path": "/agora",
     "position": "after:kanban"

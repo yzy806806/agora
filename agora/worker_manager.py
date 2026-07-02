@@ -11,6 +11,12 @@ A "worker" is a Hermes profile with:
 Workers persist across projects. Their memory, skills, and identity are
 personal — they carry experience from one project to the next, just like
 a real employee.
+
+There is no separate "leader" concept at the profile level. A leader is
+simply a worker created from the "leader" template. Heartbeat scheduling
+lives on the *project*, not the profile — so the same leader profile can
+manage multiple projects with independent heartbeat intervals and
+sessions, while sharing a single MEMORY.md (experience).
 """
 from __future__ import annotations
 
@@ -65,7 +71,7 @@ def create_worker(
 
     Args:
         name:        Profile name (lowercase, alphanumeric, e.g. "alice")
-        role:        Template role key (architect/developer/reviewer/tester/devops)
+        role:        Template role key (architect/developer/reviewer/tester/devops/researcher/writer/leader)
         clone_from:  Source profile to clone config from (default: coder)
         model:       Override model for this worker (default: from template or inherit)
         extra_config: Additional config overrides (rarely needed)
@@ -186,6 +192,7 @@ def create_worker(
         patch_config_model(profile_dir / "config.yaml", effective_model)
 
     # Step 7: Register in the worker registry
+    is_leader = template.get("is_leader", False) if template else False
     worker_data = {
         "name": name,
         "role": role,
@@ -196,13 +203,14 @@ def create_worker(
         "profile_dir": str(profile_dir),
         "created_at": now_iso(),
         "projects": [],  # list of project names this worker participates in
-        "session_id": None,  # filled after first agent spawn, for --resume
+        "session_ids": {},  # project_name → session_id (per-project context isolation)
+        "is_leader": is_leader,
     }
     _worker_file(name).write_text(json.dumps(worker_data, indent=2))
 
     logger.info(
-        "Worker '%s' created (role=%s, model=%s, dir=%s)",
-        name, role, effective_model or "inherited", profile_dir,
+        "Worker '%s' created (role=%s, model=%s, dir=%s, is_leader=%s)",
+        name, role, effective_model or "inherited", profile_dir, is_leader,
     )
 
     return {"status": "created", "worker": worker_data}
@@ -284,11 +292,16 @@ def list_available_templates() -> list[dict]:
     return list_templates()
 
 
-def update_worker_session(name: str, session_id: str | None) -> None:
-    """Update a worker's session_id for future --resume calls.
+def update_worker_session(name: str, session_id: str | None, project: str | None = None) -> None:
+    """Update a worker's session_id for a specific project.
+
+    Per-project session isolation: the same worker (e.g. a leader) can
+    have different sessions for different projects.  If ``project`` is
+    None, updates the legacy top-level ``session_id`` field for backward
+    compatibility.
 
     Called after each agent spawn so the next spawn reuses the same
-    conversation context (kanban tasks + discussion share one session).
+    conversation context within that project.
     Pass ``None`` or empty string to clear the session (forces a fresh
     session on next spawn).
     """
@@ -296,14 +309,29 @@ def update_worker_session(name: str, session_id: str | None) -> None:
     if not wf.exists():
         return
     data = json.loads(wf.read_text())
-    data["session_id"] = session_id or None
+    if project:
+        session_map = data.get("session_ids", {})
+        if session_id:
+            session_map[project] = session_id
+        else:
+            session_map.pop(project, None)
+        data["session_ids"] = session_map
+    else:
+        data["session_id"] = session_id or None
     wf.write_text(json.dumps(data, indent=2))
 
 
-def get_worker_session(name: str) -> str | None:
-    """Get a worker's current session_id (or None if never spawned)."""
+def get_worker_session(name: str, project: str | None = None) -> str | None:
+    """Get a worker's session_id for a specific project (or legacy global).
+
+    Per-project isolation: if ``project`` is given, returns the session
+    stored under ``session_ids[project]``.  Falls back to the legacy
+    top-level ``session_id`` if the project-specific entry doesn't exist.
+    """
     wf = _worker_file(name)
     if not wf.exists():
         return None
     data = json.loads(wf.read_text())
+    if project:
+        return data.get("session_ids", {}).get(project) or data.get("session_id")
     return data.get("session_id")

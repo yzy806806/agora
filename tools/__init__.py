@@ -5,6 +5,16 @@ Tools:
   - agora_get_messages    — read discussion messages
   - agora_get_result      — read closed discussion result
   - agora_list_motions    — list active/closed discussions
+  - agora_start_project   — start a self-driving project
+  - agora_stop_project    — stop a project
+  - agora_project_status  — check project status
+  - agora_create_worker   — create a worker profile
+  - agora_list_workers    — list workers
+  - agora_remove_worker   — remove a worker
+  - agora_list_templates  — list role templates
+  - agora_create_team     — create a team
+  - agora_list_teams      — list teams
+  - agora_remove_team     — remove a team
 """
 from __future__ import annotations
 
@@ -243,9 +253,6 @@ def register_all_tools(ctx: Any) -> None:
 
     # --- Worker & team management tools ---
     _register_worker_tools(ctx)
-
-    # --- Leader management tools ---
-    _register_leader_tools(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +563,8 @@ _START_PROJECT_SCHEMA = {
         "goal": {"type": "string", "description": "High-level project goal", "default": ""},
         "initial_topic": {"type": "string", "description": "First discussion topic. If empty, planner auto-generates.", "default": ""},
         "max_rounds": {"type": "integer", "description": "Maximum planning rounds before stopping", "default": 10},
+        "heartbeat_member": {"type": "string", "description": "Worker name to wake on heartbeat (usually a leader). If omitted, no heartbeat is scheduled.", "default": ""},
+        "heartbeat_minutes": {"type": "integer", "description": "Heartbeat interval in minutes", "default": 15},
     },
     "required": ["name", "workdir"],
 }
@@ -586,12 +595,15 @@ def _register_project_tools(ctx: Any) -> None:
         goal = args.get("goal", "")
         initial_topic = args.get("initial_topic", "")
         max_rounds = args.get("max_rounds", 10)
+        heartbeat_member = args.get("heartbeat_member", "") or None
+        heartbeat_minutes = args.get("heartbeat_minutes", 15)
         profile = ctx.profile_name if hasattr(ctx, "profile_name") else "coder"
         if not name or not workdir:
             return {"error": "name and workdir are required"}
         return start_project(
             project_name=name, workdir=workdir, goal=goal,
             initial_topic=initial_topic, profile=profile, max_rounds=max_rounds,
+            heartbeat_member=heartbeat_member, heartbeat_minutes=heartbeat_minutes,
         )
 
     ctx.register_tool(
@@ -684,7 +696,9 @@ _CREATE_TEAM_SCHEMA = {
 _LIST_TEAMS_SCHEMA = {"type": "object", "properties": {}}
 _REMOVE_TEAM_SCHEMA = {
     "type": "object",
-    "properties": {"team_name": {"type": "string", "description": "Team name to remove"}},
+    "properties": {
+        "team_name": {"type": "string", "description": "Team name to remove"},
+    },
     "required": ["team_name"],
 }
 
@@ -779,98 +793,3 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     logger.info("Registered 7 worker & team management tools")
-
-
-# --------------------------------------------------------------------------- #
-#  Leader management tools                                                    #
-# --------------------------------------------------------------------------- #
-
-_CREATE_LEADER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "name": {"type": "string", "description": "Profile name (e.g. frank)"},
-        "project": {"type": "string", "description": "Project name this leader manages"},
-        "clone_from": {"type": "string", "description": "Source profile to clone", "default": "coder"},
-        "heartbeat_minutes": {"type": "integer", "description": "Heartbeat interval in minutes", "default": 15},
-        "model": {"type": "string", "description": "Override model (optional)", "default": ""},
-    },
-    "required": ["name", "project"],
-}
-
-_LIST_LEADERS_SCHEMA = {"type": "object", "properties": {}}
-
-_REMOVE_LEADER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "name": {"type": "string", "description": "Leader name to remove"},
-        "delete_profile": {"type": "boolean", "default": True},
-    },
-    "required": ["name"],
-}
-
-_LEADER_HEARTBEAT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "leader_name": {"type": "string", "description": "Specific leader to wake (optional)"},
-        "project": {"type": "string", "description": "Wake leader for this project (optional). If both omitted, wakes all."},
-    },
-}
-
-
-def _register_leader_tools(ctx: Any) -> None:
-    """Register leader management tools."""
-
-    async def _create_leader_handler(args: dict, **kwargs) -> dict:
-        from ..agora.leader_manager import create_leader
-        return create_leader(
-            name=args.get("name", ""),
-            project=args.get("project", ""),
-            clone_from=args.get("clone_from", "coder"),
-            heartbeat_minutes=args.get("heartbeat_minutes", 15),
-            model=args.get("model", "") or None,
-        )
-
-    ctx.register_tool(
-        name="agora_create_leader", toolset="agora", schema=_CREATE_LEADER_SCHEMA,
-        handler=_create_leader_handler, is_async=True,
-        description="Create a team leader for a project. Leader monitors progress, unblocks stuck tasks, and plans next phases. Gets woken up by heartbeat.",
-        emoji="\U0001f451",
-    )
-
-    def _list_leaders_handler(args: dict, **kwargs) -> dict:
-        from ..agora.leader_manager import list_leaders
-        return {"leaders": list_leaders()}
-
-    ctx.register_tool(
-        name="agora_list_leaders", toolset="agora", schema=_LIST_LEADERS_SCHEMA,
-        handler=_list_leaders_handler,
-        description="List all registered team leaders.",
-        emoji="\U0001f3af",
-    )
-
-    async def _remove_leader_handler(args: dict, **kwargs) -> dict:
-        from ..agora.leader_manager import remove_leader
-        return remove_leader(args.get("name", ""), delete_profile=args.get("delete_profile", True))
-
-    ctx.register_tool(
-        name="agora_remove_leader", toolset="agora", schema=_REMOVE_LEADER_SCHEMA,
-        handler=_remove_leader_handler, is_async=True,
-        description="Remove a leader from the registry.",
-        emoji="\U0001f5d1\ufe0f",
-    )
-
-    async def _leader_heartbeat_handler(args: dict, **kwargs) -> dict:
-        from ..agora.leader_loop import heartbeat
-        return heartbeat(
-            leader_name=args.get("leader_name", "") or None,
-            project=args.get("project", "") or None,
-        )
-
-    ctx.register_tool(
-        name="agora_leader_heartbeat", toolset="agora", schema=_LEADER_HEARTBEAT_SCHEMA,
-        handler=_leader_heartbeat_handler, is_async=True,
-        description="Trigger a leader heartbeat. The leader will check project health, unblock stuck tasks, and plan next steps. Wakes all leaders if no name/project specified.",
-        emoji="\U0001f493",
-    )
-
-    logger.info("Registered 4 leader management tools")
