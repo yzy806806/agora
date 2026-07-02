@@ -34,9 +34,9 @@ def test_infer_stance():
     # support=2 (agree, support), oppose=0 → 2 > 0+1 → "support"
     assert driver._infer_stance("I agree and support this approach") == "support"
 
-    # "disagree" contains "agree" as substring, so support=1, oppose=2 (disagree, oppose).
-    # Need oppose > support + 1 → need 3+ oppose words.  Add "reject" and "risk".
-    assert driver._infer_stance("I disagree and oppose, reject, risk") == "oppose"
+    # "disagree" should NOT count as "agree" (word-boundary fix).
+    # oppose=2 (disagree, oppose), support=0 → 2 > 0+1 → "oppose"
+    assert driver._infer_stance("I disagree and oppose this") == "oppose"
 
     # support=0, oppose=0 → "neutral"
     assert driver._infer_stance("This is interesting") == "neutral"

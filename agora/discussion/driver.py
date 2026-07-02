@@ -465,10 +465,22 @@ class DiscussionDriver:
         return "\n\n".join(lines)
 
     def _infer_stance(self, text: str) -> str:
-        """Simple heuristic to infer stance from response text."""
+        """Simple heuristic to infer stance from response text.
+
+        Uses word-boundary regex to avoid false positives (e.g. ``"disagree"``
+        contains the substring ``"agree"`` but should count as opposition, not
+        support).
+        """
+        import re
         lower = text.lower()
-        support = sum(1 for s in ["agree", "support", "recommend", "endorse", "approve"] if s in lower)
-        oppose = sum(1 for s in ["disagree", "oppose", "reject", "concern", "risk"] if s in lower)
+        support_words = ["agree", "support", "recommend", "endorse", "approve"]
+        oppose_words = ["disagree", "oppose", "reject", "concern", "risk"]
+        # Use negative lookbehind to avoid matching "agree" inside "disagree"
+        support = sum(
+            1 for w in support_words
+            if re.search(r'(?<!dis)' + re.escape(w) + r'\b', lower)
+        )
+        oppose = sum(1 for w in oppose_words if w in lower)
         if support > oppose + 1:
             return "support"
         elif oppose > support + 1:
