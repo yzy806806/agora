@@ -732,7 +732,7 @@ def _register_worker_tools(ctx: Any) -> None:
         return create_worker(
             name=args.get("name", ""),
             role=args.get("role", ""),
-            clone_from=args.get("clone_from", "coder"),
+            clone_from=args.get("clone_from"),  # None by default — copy global config.yaml
             model=args.get("model", "") or None,
         )
 

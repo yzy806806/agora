@@ -202,9 +202,10 @@ for p in /usr/local/lib/hermes-agent/venv/bin/python3 /home/ubuntu/.hermes/herme
 done
 [ -z "$PYTHON" ] && PYTHON=python3
 
+# Search for the agora plugin directory — must contain agora/ submodule
 PLUGIN=""
-for d in /root/.hermes/profiles/coder/plugins/agora /root/.hermes/plugins/agora; do
-    [ -d "$d" ] && PLUGIN="$d" && break
+for d in /root/agora /root/.hermes/profiles/coder/plugins/agora /root/.hermes/plugins/agora; do
+    [ -d "$d/agora" ] && PLUGIN="$d" && break
 done
 
 $PYTHON -c "

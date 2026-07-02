@@ -38,12 +38,18 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
 
     If neither is given, wakes ALL active projects' heartbeat members.
 
+    Before spawning, checks if the previous heartbeat output contained
+    PROJECT_COMPLETE. If so, calls on_project_complete to stop the project.
+
     Returns dict with spawn status.
     """
     from project_planner import list_projects, get_project, update_heartbeat_status, on_project_complete
 
     # Wake a specific project
     if project:
+        # Check if previous heartbeat signaled completion
+        check_project_complete(project)
+
         proj = get_project(project)
         if proj is None:
             return {"error": f"Project '{project}' not found"}
@@ -60,14 +66,22 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
                     if p.get("status") == "active" and p.get("heartbeat_member") == leader_name]
         if not projects:
             return {"error": f"No active projects with heartbeat_member='{leader_name}'"}
-        results = [_spawn_leader_agent(p) for p in projects]
+        results = []
+        for p in projects:
+            check_project_complete(p["name"])
+            if p.get("status") == "active":  # may have been completed by check
+                results.append(_spawn_leader_agent(p))
         return {"status": "batch", "results": results}
 
     # Wake ALL active projects
     projects = [p for p in list_projects() if p.get("status") == "active" and p.get("heartbeat_member")]
     if not projects:
         return {"error": "No active projects with heartbeat members"}
-    results = [_spawn_leader_agent(p) for p in projects]
+    results = []
+    for p in projects:
+        check_project_complete(p["name"])
+        if p.get("status") == "active":  # may have been completed by check
+            results.append(_spawn_leader_agent(p))
     return {"status": "batch", "results": results}
 
 
@@ -202,29 +216,97 @@ def _spawn_leader_agent(project: dict) -> dict:
 def check_project_complete(project_name: str) -> bool:
     """Check if a project's leader has output PROJECT_COMPLETE in its log.
 
-    Called by the heartbeat batch loop on subsequent runs to detect
-    project completion from the previous spawn's output.
+    Called by the heartbeat() function before spawning a new leader agent.
+    Uses a completion counter to require TWO consecutive PROJECT_COMPLETE
+    signals before actually stopping the project. This prevents premature
+    shutdown when the leader finds temporary idle periods.
+
+    The first PROJECT_COMPLETE increments the counter and lets the heartbeat
+    continue (so the leader gets another chance to find work). The second
+    consecutive one triggers on_project_complete.
     """
     try:
+        from project_planner import get_project, on_project_complete
+
+        proj = get_project(project_name)
+        if proj is None or proj.get("status") != "active":
+            return False
+
         log_path = get_registry_dir("projects") / f"heartbeat_{safe_name(project_name)}.log"
         if not log_path.exists():
             return False
 
-        # Read the last 5KB of the log
-        with open(log_path, "rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            f.seek(max(0, size - 5120))
-            tail = f.read().decode("utf-8", errors="replace")
+        # Check if this heartbeat's output contained PROJECT_COMPLETE.
+        # We track the last-seen position so we only detect NEW occurrences.
+        last_pos = proj.get("complete_check_pos", 0)
+        current_size = log_path.stat().st_size
 
-        if "PROJECT_COMPLETE" in tail:
-            from project_planner import on_project_complete
+        if current_size <= last_pos:
+            # No new output since last check
+            return False
+
+        # Read only the new portion
+        with open(log_path, "rb") as f:
+            f.seek(last_pos)
+            new_content = f.read().decode("utf-8", errors="replace")
+
+        # Update the check position regardless
+        _update_complete_check_pos(project_name, current_size)
+
+        if "PROJECT_COMPLETE" not in new_content:
+            # Reset counter — leader is actively working
+            if proj.get("complete_count", 0) > 0:
+                _update_complete_count(project_name, 0)
+            return False
+
+        # PROJECT_COMPLETE found in new output
+        count = proj.get("complete_count", 0) + 1
+        _update_complete_count(project_name, count)
+
+        if count >= 2:
+            logger.info(
+                "Project '%s' complete: %d consecutive PROJECT_COMPLETE signals",
+                project_name, count,
+            )
             on_project_complete(project_name)
-            logger.info("Project '%s' complete detected from leader output", project_name)
             return True
+        else:
+            logger.info(
+                "Project '%s': PROJECT_COMPLETE #%d (need 2 to stop) — giving leader another chance",
+                project_name, count,
+            )
+            return False
+
     except Exception as exc:
         logger.debug("check_project_complete failed for %s: %s", project_name, exc)
     return False
+
+
+def _update_complete_count(project_name: str, count: int) -> None:
+    """Update the consecutive PROJECT_COMPLETE counter for a project."""
+    try:
+        from project_planner import get_project
+        pf = get_registry_dir("projects") / f"{safe_name(project_name)}.json"
+        if not pf.exists():
+            return
+        data = json.loads(pf.read_text())
+        data["complete_count"] = count
+        pf.write_text(json.dumps(data, indent=2))
+    except Exception:
+        pass
+
+
+def _update_complete_check_pos(project_name: str, pos: int) -> None:
+    """Update the last-checked log position for PROJECT_COMPLETE detection."""
+    try:
+        pf = get_registry_dir("projects") / f"{safe_name(project_name)}.json"
+        if not pf.exists():
+            return
+        data = json.loads(pf.read_text())
+        data["complete_check_pos"] = pos
+        pf.write_text(json.dumps(data, indent=2))
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -239,5 +321,6 @@ Workdir: {workdir}
 
 Check current status and take action per your SOUL.md heartbeat protocol.
 If everything is running fine, say "ALL_GOOD" with a brief summary.
-If the goal is achieved, say "PROJECT_COMPLETE" with a summary.
+If tasks are all done, assess the project and plan the next valuable work.
+Only output "PROJECT_COMPLETE" if you've confirmed twice that there's truly nothing left to do.
 """
