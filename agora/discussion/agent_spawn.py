@@ -78,6 +78,13 @@ def spawn_agent_speak(
     if workdir and os.path.isabs(workdir) and os.path.isdir(workdir):
         env["TERMINAL_CWD"] = workdir
 
+    # Set HERMES_KANBAN_BOARD if the project has a dedicated board.
+    # This gives agents project-scoped kanban isolation.  We try to
+    # look up the board name from the project registry via the workdir
+    # or project name.  The caller can also pass it directly via extra_env.
+    if "HERMES_KANBAN_BOARD" not in env:
+        _set_project_board_env(env, workdir)
+
     logger.info(
         "Spawning agent: profile=%s session=%s timeout=%ds",
         profile_name, session_id or "(new)", timeout,
@@ -160,6 +167,31 @@ def spawn_chair_speak(
     )
 
 
+def _set_project_board_env(env: dict[str, str], workdir: str | None) -> None:
+    """Look up the project's kanban board name and set HERMES_KANBAN_BOARD.
+
+    Tries to find a project whose workdir matches, then reads its ``board``
+    field.  Falls back gracefully if the project registry can't be read.
+    """
+    try:
+        import json
+        from ..utils import get_registry_dir
+        projects_dir = get_registry_dir("projects")
+        for pf in projects_dir.glob("*.json"):
+            try:
+                proj = json.loads(pf.read_text())
+                # Match by workdir or by board field existence
+                if workdir and proj.get("workdir") == workdir:
+                    board = proj.get("board")
+                    if board:
+                        env["HERMES_KANBAN_BOARD"] = board
+                        return
+            except Exception:
+                continue
+    except Exception:
+        pass  # non-fatal — agents just won't have board-scoped kanban
+
+
 def _extract_reply(text: str) -> str:
     """Extract the content after DISCUSSION_REPLY: marker."""
     idx = text.find(REPLY_MARKER)
@@ -169,3 +201,106 @@ def _extract_reply(text: str) -> str:
     # Strip trailing session_id line if present
     reply = re.sub(r"\nsession_id:\s*\S+$", "", reply).strip()
     return reply
+
+
+# --------------------------------------------------------------------------- #
+#  spawn_discussion_driver — shared background-spawn for DiscussionDriver     #
+# --------------------------------------------------------------------------- #
+
+def spawn_discussion_driver(
+    motion_id: str,
+    chair: str,
+    participants: list[str],
+    workdir: str = "",
+    project_name: str = "",
+    max_steps: int = 30,
+) -> dict:
+    """Spawn the DiscussionDriver as a background process.
+
+    Writes a runner script to ``~/.hermes/agora/run_discussion_<motion_id>.py``
+    and Popen's it with stdout/stderr redirected to a log file.  This is the
+    shared spawn logic used by both the ``/agora`` tool (``agora_raise_motion``)
+    and the dashboard's ``start_discussion`` endpoint.
+
+    Args:
+        motion_id:     The motion to discuss.
+        chair:         Chair (leader) profile name.
+        participants:  List of worker profile names.
+        workdir:       Working directory for the discussion.
+        project_name:  Project name (for logging/context).
+        max_steps:     Max discussion steps.
+
+    Returns:
+        dict with keys:
+          - status:   "spawned" | "error"
+          - log:      path to the log file (str)
+          - runner:   path to the runner script (str)
+          - error:    error message (only when status == "error")
+    """
+    import os
+    import sys
+    from pathlib import Path
+
+    try:
+        # Determine the agora plugin root for sys.path insertion in the runner
+        # agent_spawn.py lives at <plugin_root>/agora/discussion/agent_spawn.py
+        plugin_root = Path(__file__).resolve().parent.parent.parent
+
+        # Determine HERMES_HOME for the runner/log paths
+        hermes_home = os.environ.get(
+            "HERMES_HOME", str(Path.home() / ".hermes"),
+        )
+        agora_dir = Path(hermes_home) / "agora"
+        agora_dir.mkdir(parents=True, exist_ok=True)
+
+        runner_path = agora_dir / f"run_discussion_{motion_id}.py"
+        log_path = agora_dir / f"discussion_{motion_id}.log"
+
+        # Build the runner script content
+        # Use repr() for safe string embedding
+        runner_script = f'''\
+#!/usr/bin/env python3
+"""Auto-generated discussion runner for motion {motion_id}."""
+import sys
+sys.path.insert(0, {str(plugin_root)!r})
+from agora.discussion.driver import DiscussionDriver
+driver = DiscussionDriver(
+    motion_id={motion_id!r},
+    chair_profile={chair!r},
+    participants={participants!r},
+    workdir={workdir!r},
+    project_name={project_name!r},
+    max_steps={max_steps!r},
+)
+result = driver.run()
+print(f"Discussion result: {{result.decision}} ({{result.steps_completed}} steps)")
+'''
+        runner_path.write_text(runner_script)
+
+        # Spawn it in the background
+        log_fd = open(log_path, "a")
+        _proc = subprocess.Popen(
+            ["python3", str(runner_path)],
+            stdout=log_fd,
+            stderr=log_fd,
+            start_new_session=True,
+            cwd=workdir if workdir and os.path.isabs(workdir) and os.path.isdir(workdir) else None,
+        )
+
+        logger.info(
+            "Discussion driver spawned for motion %s (PID %s, log=%s)",
+            motion_id, _proc.pid, log_path,
+        )
+        return {
+            "status": "spawned",
+            "log": str(log_path),
+            "runner": str(runner_path),
+        }
+    except Exception as exc:
+        logger.error("Failed to spawn discussion driver for motion %s: %s", motion_id, exc)
+        return {
+            "status": "error",
+            "log": str(log_path) if "log_path" in locals() else "",
+            "runner": str(runner_path) if "runner_path" in locals() else "",
+            "error": str(exc),
+        }

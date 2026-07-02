@@ -29,6 +29,7 @@ from .utils import (
     now_iso,
     patch_config_model,
     safe_name,
+    ensure_in_place_compression,
 )
 from .worker_templates import TEMPLATES, get_template, render_soul, list_templates
 
@@ -133,6 +134,10 @@ def create_worker(
                 shutil.copy2(root_config, profile_config)
         except Exception as exc:
             logger.warning("Failed to copy config.yaml to profile %s: %s", name, exc)
+
+    # Step 1c: Ensure compression.in_place: true so session IDs don't change
+    # on context compression — --resume <session_id> always works.
+    ensure_in_place_compression(profile_dir / "config.yaml")
 
     # Step 2: Write SOUL.md
     if template is not None:
@@ -275,17 +280,19 @@ def list_available_templates() -> list[dict]:
     return list_templates()
 
 
-def update_worker_session(name: str, session_id: str) -> None:
+def update_worker_session(name: str, session_id: str | None) -> None:
     """Update a worker's session_id for future --resume calls.
 
     Called after each agent spawn so the next spawn reuses the same
     conversation context (kanban tasks + discussion share one session).
+    Pass ``None`` or empty string to clear the session (forces a fresh
+    session on next spawn).
     """
     wf = _worker_file(name)
     if not wf.exists():
         return
     data = json.loads(wf.read_text())
-    data["session_id"] = session_id
+    data["session_id"] = session_id or None
     wf.write_text(json.dumps(data, indent=2))
 
 

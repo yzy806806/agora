@@ -6,6 +6,7 @@ and project_planner.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -90,6 +91,93 @@ def patch_config_model(config_path: Path, model: str) -> None:
         pass
 
 
+def ensure_in_place_compression(config_path: Path) -> None:
+    """Ensure a profile's config.yaml has compression.in_place: true.
+
+    When Hermes compresses conversation context, ``in_place: true`` ensures
+    the session ID does NOT change — so ``--resume <session_id>`` always
+    works for worker/leader agents that are spawned repeatedly.
+
+    This function:
+      - Reads the config.yaml at ``config_path``
+      - Creates a ``compression`` section if it doesn't exist
+      - Sets ``compression.in_place: true`` if not already set
+      - Writes back only if a change was made
+      - Uses yaml.safe_load / yaml.safe_dump
+      - Swallows errors with a warning log (never crashes the caller)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        import yaml
+        if not config_path.exists():
+            logger.debug("ensure_in_place_compression: config not found at %s", config_path)
+            return
+
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        if config is None:
+            config = {}
+        if not isinstance(config, dict):
+            logger.warning("ensure_in_place_compression: config at %s is not a dict, skipping", config_path)
+            return
+
+        compression = config.get("compression")
+        if compression is None:
+            compression = {}
+        if not isinstance(compression, dict):
+            logger.warning("ensure_in_place_compression: compression section is not a dict, skipping")
+            return
+
+        changed = False
+        if "in_place" not in compression:
+            compression["in_place"] = True
+            changed = True
+        elif compression["in_place"] is not True:
+            compression["in_place"] = True
+            changed = True
+
+        if changed:
+            config["compression"] = compression
+            with open(config_path, "w") as f:
+                yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True)
+            logger.info("Set compression.in_place=true in %s", config_path)
+    except Exception as exc:
+        logger.warning("ensure_in_place_compression failed for %s: %s", config_path, exc)
+
+
 def safe_name(name: str) -> str:
     """Sanitize a name for use as a filename."""
     return name.replace("/", "-").replace(" ", "_")
+
+
+def parse_json_response(text: str) -> dict | None:
+    """Extract and parse a JSON object from an LLM response string.
+
+    Handles common LLM output quirks:
+      - Strips markdown code fences (```json ... ```)
+      - Finds the first ``{...}`` block via regex (DOTALL)
+      - Returns ``None`` if the text is not valid JSON
+
+    Extracted from ``agora/discussion/driver.py::_parse_json`` so all
+    callers share one robust implementation.
+    """
+    import re
+
+    text = text.strip()
+
+    # Strip markdown code blocks
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = [l for l in lines[1:] if not l.strip().startswith("```")]
+        text = "\n".join(lines)
+
+    # Try to find JSON object in the text
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        text = match.group(0)
+
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None

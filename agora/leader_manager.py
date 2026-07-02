@@ -30,6 +30,7 @@ from .utils import (
     now_iso,
     patch_config_model,
     safe_name,
+    ensure_in_place_compression,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,10 @@ def create_leader(
     # Step 4: Override model if specified
     if model:
         patch_config_model(profile_dir / "config.yaml", model)
+
+    # Step 4b: Ensure compression.in_place: true so session IDs don't change
+    # on context compression — the leader's --resume always works.
+    ensure_in_place_compression(profile_dir / "config.yaml")
 
     # Step 5: Register leader
     leader_data = {
@@ -295,6 +300,23 @@ def get_leader_for_project(project: str) -> dict | None:
         if leader.get("project") == project and leader.get("status") == "active":
             return leader
     return None
+
+
+def bind_leader_to_project(name: str, project: str) -> dict:
+    """Bind (or rebind) a leader to a project in the registry.
+
+    Reads the leader JSON, updates the ``project`` field, and writes it back.
+    Returns a status dict.  This replaces the fragile inline read-modify-write
+    pattern that callers (e.g. ``plugin_api.start_project_api``) used to do
+    directly with ``_leader_file``.
+    """
+    leader = get_leader(name)
+    if leader is None:
+        return {"error": f"Leader '{name}' not found"}
+    leader["project"] = project
+    _leader_file(name).write_text(json.dumps(leader, indent=2))
+    logger.info("Leader '%s' bound to project '%s'", name, project)
+    return {"status": "bound", "leader": name, "project": project}
 
 
 def update_heartbeat(name: str, pid: int | None = None) -> None:

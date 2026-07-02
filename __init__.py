@@ -17,7 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.9.1"
+__version__ = "0.10.0"
 
 
 def register(ctx) -> None:
@@ -39,4 +39,4 @@ def register(ctx) -> None:
         description="Manage Agora discussions: list, show, discuss, result",
     )
 
-    logger.info("Agora plugin v%s registered (18 tools + dashboard API + /agora command + CLI + hooks)", __version__)
+    logger.info("Agora plugin v%s registered (18 tools + dashboard API + /agora command + CLI + 3 hooks + session manager + project boards)", __version__)

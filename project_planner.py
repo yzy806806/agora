@@ -37,6 +37,24 @@ def _project_file(project_name: str) -> Path:
     return get_registry_dir("projects") / f"{safe_name(project_name)}.json"
 
 
+def _ensure_project_board(project_name: str) -> str:
+    """Create a kanban board for the project if it doesn't exist.
+
+    Returns the board name.  Since Hermes kanban doesn't have a ``boards``
+    table, we use a prefixed tenant string (``agora-<project>``) for
+    harder isolation between projects.  The board name is stored in the
+    project registry and used as the ``tenant`` value when creating tasks.
+    """
+    board_name = f"agora-{safe_name(project_name)}"
+    # NOTE: Hermes kanban_db.create_task accepts a `board` parameter,
+    #       but there is no `boards` table in the kanban DB to INSERT into.
+    #       We therefore use the tenant field with a prefixed board name
+    #       for project isolation.  If a `boards` table is added in the
+    #       future, this function can be extended to create a real board.
+    logger.info("Project board ensured: %s", board_name)
+    return board_name
+
+
 def start_project(
     project_name: str,
     workdir: str,
@@ -60,6 +78,7 @@ def start_project(
         dict with status and project info
     """
     pf = _project_file(project_name)
+    board_name = _ensure_project_board(project_name)
     data = {
         "name": project_name,
         "workdir": workdir,
@@ -73,6 +92,7 @@ def start_project(
         "last_planner_pid": None,
         "last_planner_at": None,
         "team": team,  # optional team name for assignee routing
+        "board": board_name,  # kanban board/tenant for project isolation
     }
     pf.write_text(json.dumps(data, indent=2))
     logger.info("Project %s started: %s", project_name, workdir)

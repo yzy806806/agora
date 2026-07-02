@@ -348,6 +348,74 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         except Exception as exc:
             logger.warning("Failed to block source task: %s", exc)
 
+    # Event-driven discussion trigger: spawn the discussion driver immediately
+    # if we know both the chair and participants.  This avoids waiting up to
+    # 15 minutes for the leader heartbeat to pick it up.
+    spawn_status = None
+    if chair and participants:
+        try:
+            from ..agora.discussion.agent_spawn import spawn_discussion_driver
+
+            # Resolve workdir from the project registry if possible
+            spawn_workdir = ""
+            spawn_project = ""
+            try:
+                from ..agora.utils import get_registry_dir, safe_name
+                if source_task_id:
+                    from hermes_cli import kanban_db
+                    conn = kanban_db.connect()
+                    try:
+                        task = kanban_db.get_task(conn, source_task_id)
+                        if task and task.tenant:
+                            spawn_project = task.tenant
+                    finally:
+                        conn.close()
+                if spawn_project:
+                    proj_file = get_registry_dir("projects") / f"{safe_name(spawn_project)}.json"
+                    if proj_file.exists():
+                        import json as _json
+                        proj = _json.loads(proj_file.read_text())
+                        spawn_workdir = proj.get("workdir", "")
+            except Exception:
+                pass
+
+            spawn_status = spawn_discussion_driver(
+                motion_id=motion_id,
+                chair=chair,
+                participants=participants,
+                workdir=spawn_workdir,
+                project_name=spawn_project,
+                max_steps=max_steps,
+            )
+            logger.info(
+                "Event-driven discussion spawned for motion %s: %s",
+                motion_id, spawn_status.get("status"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to spawn discussion driver for motion %s: %s "
+                "(motion created, will be picked up by leader heartbeat)",
+                motion_id, exc,
+            )
+
+    # Build the return message
+    if spawn_status and spawn_status.get("status") == "spawned":
+        msg = (
+            "Motion created and discussion driver spawned immediately. "
+            f"Chair: {chair}. Log: {spawn_status.get('log', '')}. "
+            "Use agora_get_result to check the outcome."
+        )
+    elif chair and participants:
+        msg = (
+            "Motion created. Discussion driver spawn failed — will be "
+            "triggered by the leader heartbeat. Use agora_get_result to check."
+        )
+    else:
+        msg = (
+            "Motion created. The discussion will be triggered by the leader "
+            "heartbeat or the plugin API. Use agora_get_result to check the outcome."
+        )
+
     return {
         "motion_id": motion_id,
         "title": title,
@@ -355,10 +423,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         "chair": chair or "(unassigned — will be resolved by leader heartbeat)",
         "participants": participants or ["architect", "developer", "reviewer"],
         "max_steps": max_steps,
-        "message": (
-            "Motion created. The discussion will be triggered by the leader "
-            "heartbeat or the plugin API. Use agora_get_result to check the outcome."
-        ),
+        "message": msg,
     }
 
 

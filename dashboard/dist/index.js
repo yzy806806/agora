@@ -50,6 +50,87 @@
   }
 
   // ========================================================================
+  // UI helper functions — reduce repetitive React.createElement patterns
+  // ========================================================================
+
+  // Card wrapper: card(title, children...) or card(title, { props }, children...)
+  function card(title, children) {
+    var props = {};
+    if (children && !Array.isArray(children) && typeof children === "object" && !children.$$typeof) {
+      props = children;
+      children = Array.prototype.slice.call(arguments, 2);
+    } else {
+      children = Array.prototype.slice.call(arguments, 1);
+    }
+    return React.createElement(Card, props,
+      React.createElement(CardHeader, null,
+        React.createElement(CardTitle, null, title),
+      ),
+      React.createElement(CardContent, null, children),
+    );
+  }
+
+  // Colored badge: badge(text, colorClass?)
+  function badge(text, colorClass) {
+    return React.createElement(Badge, colorClass ? { className: colorClass } : null, text);
+  }
+
+  // Button: button(text, onClick, variant?)
+  function button(text, onClick, variant) {
+    var props = { onClick: onClick };
+    if (variant) props.variant = variant;
+    return React.createElement(Button, props, text);
+  }
+
+  // Input field: input(props)
+  function input(props) {
+    return React.createElement(Input, props);
+  }
+
+  // Loading spinner
+  function spinner(text) {
+    return React.createElement("p", null, text || "Loading...");
+  }
+
+  // ========================================================================
+  // useFetch — extract the repeated fetch + setState + loading pattern
+  // ========================================================================
+  // Usage: const { data, loading, error, reload } = useFetch("/path", { interval: 5000 });
+  function useFetch(path, options) {
+    options = options || {};
+    var deps = options.deps || [];
+    var interval = options.interval || 0;
+    var fetcher = options.fetcher || apiGet;
+
+    var [data, setData] = useState(null);
+    var [loading, setLoading] = useState(true);
+    var [error, setError] = useState(null);
+
+    var load = useCallback(async function () {
+      setLoading(true);
+      setError(null);
+      try {
+        var result = await fetcher(path);
+        setData(result);
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    }, deps.concat([path]));
+
+    useEffect(function () { load(); }, [load]);
+
+    // Optional polling
+    useEffect(function () {
+      if (!interval) return;
+      var id = setInterval(load, interval);
+      return function () { clearInterval(id); };
+    }, [load, interval]);
+
+    return { data: data, loading: loading, error: error, reload: load, setData: setData };
+  }
+
+  // ========================================================================
   // Main Component
   // ========================================================================
 

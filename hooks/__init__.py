@@ -7,11 +7,24 @@ Hooks registered:
     3. **Self-drive**: if the task belongs to an active Agora project and
        no more pending tasks remain, spawn a planner agent to decide the
        next development phase (raise a new motion → new tasks → loop).
+
+  - kanban_task_claimed — fires in the dispatcher BEFORE the worker spawns:
+    1. Log the claim (task_id, assignee, board).
+    2. If the task belongs to an Agora project, record the claim time.
+    3. If the task has a source motion, inject the motion decision as a
+       comment on the task body.
+
+  - kanban_task_blocked — fires in the worker process when a task is blocked:
+    1. Log the block (task_id, reason, board).
+    2. If the reason mentions 'design decision' or 'motion', auto-trigger
+       a discussion by creating a new motion.
+    3. Otherwise, log it for the leader to handle on next heartbeat.
 """
 from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -20,7 +33,12 @@ logger = logging.getLogger(__name__)
 def register_hooks(ctx: Any) -> None:
     """Register Agora's lifecycle hooks with the Hermes plugin manager."""
     ctx.register_hook("kanban_task_completed", _on_task_completed)
-    logger.info("Agora hook registered: kanban_task_completed (with self-drive)")
+    ctx.register_hook("kanban_task_claimed", _on_task_claimed)
+    ctx.register_hook("kanban_task_blocked", _on_task_blocked)
+    logger.info(
+        "Agora hooks registered: kanban_task_completed, "
+        "kanban_task_claimed, kanban_task_blocked"
+    )
 
 
 def _on_task_completed(
@@ -29,6 +47,10 @@ def _on_task_completed(
     assignee: str | None = None,
     run_id: int | None = None,
     summary: str | None = None,
+    # Hermes v0.18 hooks receive kwargs, not a ctx object.  profile_name is
+    # passed by the kanban dispatcher.  If a future Hermes version provides
+    # ctx to hooks, switch to ctx.profile_name here for consistency with
+    # tool handlers.
     profile_name: str = "default",
     **_kwargs: Any,
 ) -> None:
@@ -174,3 +196,178 @@ def _write_to_memory(
             )
     except Exception as exc:
         logger.debug("Failed to write memory for motion %s: %s", motion_id, exc)
+
+
+# --------------------------------------------------------------------------- #
+#  kanban_task_claimed — fires in the dispatcher BEFORE worker spawns          #
+# --------------------------------------------------------------------------- #
+
+def _on_task_claimed(
+    task_id: str,
+    assignee: str | None = None,
+    board: str | None = None,
+    profile_name: str = "default",
+    **_kwargs: Any,
+) -> None:
+    """Callback for kanban_task_claimed.
+
+    1. Log the claim (task_id, assignee, board).
+    2. If the task belongs to an Agora project (tenant field), record claim time.
+    3. If the task has a source motion, inject the motion decision as a comment.
+    """
+    try:
+        logger.info(
+            "kanban_task_claimed: task=%s assignee=%s board=%s",
+            task_id, assignee or "(none)", board or "(none)",
+        )
+
+        # Look up the task to check tenant and source motion
+        tenant = None
+        try:
+            from hermes_cli import kanban_db
+            conn = kanban_db.connect()
+            try:
+                task = kanban_db.get_task(conn, task_id)
+                if task:
+                    tenant = getattr(task, "tenant", None) or task.__dict__.get("tenant")
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.debug("Failed to look up task %s for claim hook: %s", task_id, exc)
+
+        # Check if the task belongs to an Agora project
+        is_agora = False
+        if tenant:
+            try:
+                from ..project_planner import get_project
+                proj = get_project(tenant)
+                if proj is not None and proj.get("status") == "active":
+                    is_agora = True
+                    logger.info(
+                        "Agora claim: task %s claimed by %s for project %s at %s",
+                        task_id, assignee or "(none)", tenant,
+                        datetime.now(timezone.utc).isoformat(),
+                    )
+            except Exception:
+                pass
+
+        # If the task has a source motion, inject the motion decision as a comment
+        try:
+            from ..agora.storage import motions as db
+            motion = _find_motion_for_task(task_id, db)
+            if motion is not None and motion.get("status") == "closed":
+                decision = motion.get("decision", "")
+                rationale = motion.get("rationale", "")
+                if decision:
+                    comment = (
+                        f"[Agora Motion {motion['id']}] Source motion decision: {decision}\n"
+                        f"Rationale: {rationale}\n"
+                    )
+                    try:
+                        from hermes_cli import kanban_db
+                        conn = kanban_db.connect()
+                        try:
+                            kanban_db.add_comment(conn, task_id, comment)
+                            conn.commit()
+                        finally:
+                            conn.close()
+                    except Exception as exc:
+                        logger.debug("Failed to inject motion comment for task %s: %s", task_id, exc)
+        except ImportError:
+            pass
+
+    except Exception as exc:
+        logger.error("kanban_task_claimed hook error for task %s: %s", task_id, exc)
+
+
+# --------------------------------------------------------------------------- #
+#  kanban_task_blocked — fires in the worker when a task gets blocked          #
+# --------------------------------------------------------------------------- #
+
+def _on_task_blocked(
+    task_id: str,
+    reason: str | None = None,
+    board: str | None = None,
+    profile_name: str = "default",
+    **_kwargs: Any,
+) -> None:
+    """Callback for kanban_task_blocked.
+
+    1. Log the block (task_id, reason, board).
+    2. If the reason mentions 'design decision' or 'motion', auto-trigger
+       a discussion by creating a new motion.
+    3. Otherwise, just log it for the leader to handle on next heartbeat.
+    """
+    try:
+        block_reason = reason or "(no reason)"
+        logger.info(
+            "kanban_task_blocked: task=%s reason=%s board=%s",
+            task_id, block_reason, board or "(none)",
+        )
+
+        # Check if the task belongs to an Agora project
+        tenant = None
+        try:
+            from hermes_cli import kanban_db
+            conn = kanban_db.connect()
+            try:
+                task = kanban_db.get_task(conn, task_id)
+                if task:
+                    tenant = getattr(task, "tenant", None) or task.__dict__.get("tenant")
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.debug("Failed to look up task %s for block hook: %s", task_id, exc)
+
+        is_agora = False
+        if tenant:
+            try:
+                from ..project_planner import get_project
+                proj = get_project(tenant)
+                if proj is not None and proj.get("status") == "active":
+                    is_agora = True
+            except Exception:
+                pass
+
+        reason_lower = block_reason.lower()
+        should_motion = (
+            "design decision" in reason_lower
+            or "motion" in reason_lower
+        )
+
+        if should_motion and is_agora:
+            logger.info(
+                "kanban_task_blocked: auto-triggering discussion for task %s "
+                "(reason contains 'design decision' or 'motion')",
+                task_id,
+            )
+            try:
+                from ..agora.storage import motions as db
+                motion = db.create_motion(
+                    title=f"Unblock: {block_reason[:80]}",
+                    description=(
+                        f"Task {task_id} was blocked with reason: {block_reason}\n\n"
+                        f"This motion was auto-triggered by the kanban_task_blocked hook."
+                    ),
+                    source="agent",
+                    source_task_id=task_id,
+                    source_profile=profile_name,
+                    blocking=True,
+                )
+                logger.info(
+                    "kanban_task_blocked: created motion %s for blocked task %s",
+                    motion["id"], task_id,
+                )
+            except Exception as exc:
+                logger.error(
+                    "kanban_task_blocked: failed to create motion for task %s: %s",
+                    task_id, exc,
+                )
+        else:
+            logger.info(
+                "kanban_task_blocked: task %s logged for leader heartbeat (reason: %s)",
+                task_id, block_reason,
+            )
+
+    except Exception as exc:
+        logger.error("kanban_task_blocked hook error for task %s: %s", task_id, exc)

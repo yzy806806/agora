@@ -19,13 +19,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 from ..storage import motions as db
-from ..utils import get_global_root
+from ..utils import get_global_root, parse_json_response
 from .agent_spawn import spawn_agent_speak, spawn_chair_speak
 from .chair import (
     CHAIR_EVALUATE_PROMPT,
@@ -211,7 +210,7 @@ class DiscussionDriver:
             logger.error("Chair open failed: %s", result["error"])
             return None
 
-        data = _parse_json(result["reply"])
+        data = parse_json_response(result["reply"])
         if data is None:
             logger.error("Chair open returned non-JSON: %s", result["reply"][:200])
             return None
@@ -245,7 +244,7 @@ class DiscussionDriver:
             logger.error("Chair evaluate failed: %s", result["error"])
             return None
 
-        data = _parse_json(result["reply"])
+        data = parse_json_response(result["reply"])
         if data is None:
             logger.warning("Chair evaluate returned non-JSON, defaulting to close")
             return {"action": "close", "reason": "Chair returned non-JSON, forcing close"}
@@ -334,7 +333,7 @@ class DiscussionDriver:
             if result.get("session_id"):
                 self._update_worker_session(participant, result["session_id"])
 
-            vote_data = _parse_json(result.get("reply", ""))
+            vote_data = parse_json_response(result.get("reply", ""))
             if vote_data is None:
                 vote_data = {"vote": "abstain", "reason": "No clear vote"}
 
@@ -391,7 +390,7 @@ class DiscussionDriver:
 
         summary_data: dict[str, Any] = {}
         if result.get("reply"):
-            summary_data = _parse_json(result["reply"]) or {}
+            summary_data = parse_json_response(result["reply"]) or {}
 
         if not summary_data:
             summary_data = {
@@ -494,10 +493,35 @@ class DiscussionDriver:
         return ""
 
     def _get_worker_session(self, worker_name: str) -> str | None:
-        """Get a worker's session_id from the registry."""
+        """Get a worker's session_id from the registry.
+
+        Before returning the session_id, checks whether the session has
+        grown too large (> 200 messages or > 500 KB).  If so, rotates it
+        — writes a memory summary and clears the stored session_id —
+        then returns ``None`` so the next spawn creates a fresh session.
+        """
         try:
             from ..worker_manager import get_worker_session
-            return get_worker_session(worker_name)
+            session_id = get_worker_session(worker_name)
+
+            # Check session size — rotate if too large
+            if session_id:
+                try:
+                    from ..session_manager import check_session_size, rotate_session
+                    size_info = check_session_size(worker_name, session_id)
+                    if size_info.get("needs_rotation"):
+                        logger.info(
+                            "Rotating session for %s (messages=%d, size=%.1fKB)",
+                            worker_name,
+                            size_info.get("message_count", 0),
+                            size_info.get("size_kb", 0),
+                        )
+                        rotate_session(worker_name, worker_name)
+                        return None  # force new session on next spawn
+                except Exception as exc:
+                    logger.debug("Session size check failed for %s: %s", worker_name, exc)
+
+            return session_id
         except Exception:
             return None
 
@@ -594,6 +618,19 @@ class DiscussionDriver:
             logger.warning("kanban_db not available — skipping task creation")
             return []
 
+        # Determine the board/tenant for this project.
+        # Uses the project's board name (e.g. "agora-myproject") for isolation.
+        # Falls back to the raw project name for backward compatibility.
+        tenant = self.project_name if self.project_name else None
+        if self.project_name:
+            try:
+                from project_planner import get_project
+                proj = get_project(self.project_name)
+                if proj and proj.get("board"):
+                    tenant = proj["board"]
+            except Exception:
+                pass  # fall back to raw project name
+
         created: dict[int, str] = {}
         conn = kanban_db.connect()
         try:
@@ -640,7 +677,7 @@ class DiscussionDriver:
                     assignee=assignee,
                     workspace_kind="scratch",
                     parents=parent_ids,
-                    tenant=self.project_name if self.project_name else None,
+                    tenant=tenant,
                 )
                 created[idx] = task_id
                 logger.info("Created kanban task %s: %s", task_id, item_title[:80])
@@ -657,24 +694,3 @@ class DiscussionDriver:
         db.update_motion_state(self.motion_id, "closed")
         logger.error("Discussion aborted: %s", reason)
         return DiscussionResult(motion_id=self.motion_id, decision="error")
-
-
-def _parse_json(text: str) -> dict | None:
-    """Extract and parse JSON from LLM response text."""
-    text = text.strip()
-
-    # Strip markdown code blocks
-    if text.startswith("```"):
-        lines = text.split("\n")
-        lines = [l for l in lines[1:] if not l.strip().startswith("```")]
-        text = "\n".join(lines)
-
-    # Try to find JSON object in the text
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        text = match.group(0)
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None

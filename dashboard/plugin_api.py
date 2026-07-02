@@ -368,6 +368,13 @@ def get_motion(motion_id: str):
 # Preset logic
 # ---------------------------------------------------------------------------
 
+# NOTE: The _PRESETS dict below duplicates role definitions that also exist in
+# agora/worker_templates.py (TEMPLATES).  The dashboard presets are simpler
+# (just a soul string + description), while worker_templates have full SOUL.md
+# templates.  Future refactoring should unify these — the dashboard should
+# derive its presets from worker_templates rather than maintaining a second
+# copy here.
+
 _PRESETS = {
     "architect": {
         "soul": """You are the **Architect** in an Agora deliberation team.
@@ -533,7 +540,6 @@ def start_discussion(req: StartDiscussionRequest):
     """
     try:
         import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.storage import motions as db
 
         # Auto-resolve participants from team if not specified
@@ -581,50 +587,28 @@ def start_discussion(req: StartDiscussionRequest):
             max_steps=req.max_steps,
         )
 
-        # Spawn the discussion driver as a background process
-        # The driver is a Python script that imports DiscussionDriver and runs it
+        # Spawn the discussion driver as a background process using the
+        # shared spawn function (same logic used by the agora_raise_motion tool).
         try:
-            import subprocess as _sp
-            import os as _os
-            hermes_bin = None
-            try:
-                from agora.utils import find_hermes_binary
-                hermes_bin = find_hermes_binary()
-            except Exception:
-                pass
-
-            # Write a small runner script
-            runner_path = Path(_os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "agora" / "run_discussion.py"
-            runner_path.parent.mkdir(parents=True, exist_ok=True)
-            runner_path.write_text(f'''\
-#!/usr/bin/env python3
-"""Auto-generated discussion runner."""
-import sys
-sys.path.insert(0, "{str(Path(__file__).parent.parent)}")
-from agora.discussion.driver import DiscussionDriver
-driver = DiscussionDriver(
-    motion_id="{motion["id"]}",
-    chair_profile="{chair}",
-    participants={participants!r},
-    workdir="{workdir}",
-    project_name="{req.project}",
-    max_steps={req.max_steps},
-)
-result = driver.run()
-print(f"Discussion result: {{result.decision}} ({{result.steps_completed}} steps)")
-''')
-
-            # Spawn it in the background
-            log_path = Path(_os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "agora" / f"discussion_{motion['id']}.log"
-            log_fd = open(log_path, "a")
-            _sp.Popen(
-                ["python3", str(runner_path)],
-                stdout=log_fd,
-                stderr=log_fd,
-                start_new_session=True,
-                cwd=workdir or None,
+            from agora.discussion.agent_spawn import spawn_discussion_driver
+            spawn_result = spawn_discussion_driver(
+                motion_id=motion["id"],
+                chair=chair,
+                participants=participants,
+                workdir=workdir,
+                project_name=req.project,
+                max_steps=req.max_steps,
             )
-            logger.info("Discussion driver spawned for motion %s (log=%s)", motion["id"], log_path)
+            if spawn_result.get("status") == "spawned":
+                logger.info(
+                    "Discussion driver spawned for motion %s (log=%s)",
+                    motion["id"], spawn_result.get("log"),
+                )
+            else:
+                logger.warning(
+                    "Failed to spawn driver: %s (motion created, run manually)",
+                    spawn_result.get("error", "unknown"),
+                )
         except Exception as exc:
             logger.warning("Failed to spawn driver: %s (motion created, run manually)", exc)
 
@@ -687,7 +671,6 @@ def list_leaders():
     """List all registered team leaders with cron status."""
     try:
         import sys, json as _json
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.leader_manager import list_leaders as _list
         leaders = _list()
         cron_jobs_path = Path.home() / ".hermes" / "profiles" / "coder" / "cron" / "jobs.json"
@@ -940,7 +923,7 @@ class StartProjectRequest(BaseModel):
 def list_projects_api():
     """List all Agora projects."""
     try:
-        from project_planner import list_projects
+        from ..project_planner import list_projects
         return {"projects": list_projects()}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -950,7 +933,7 @@ def list_projects_api():
 def get_project_api(name: str):
     """Get project detail."""
     try:
-        from project_planner import get_project
+        from ..project_planner import get_project
         proj = get_project(name)
         if proj is None:
             raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
@@ -965,7 +948,7 @@ def get_project_api(name: str):
 def start_project_api(req: StartProjectRequest):
     """Start a new self-driving project."""
     try:
-        from project_planner import start_project
+        from ..project_planner import start_project
         result = start_project(
             project_name=req.name,
             workdir=req.workdir,
@@ -975,12 +958,8 @@ def start_project_api(req: StartProjectRequest):
             team=req.team,
         )
         if req.leader:
-            import json
-            from agora.leader_manager import get_leader, _leader_file
-            leader = get_leader(req.leader)
-            if leader:
-                leader["project"] = req.name
-                _leader_file(req.leader).write_text(json.dumps(leader, indent=2))
+            from agora.leader_manager import bind_leader_to_project
+            bind_leader_to_project(req.leader, req.name)
         return result
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -990,7 +969,7 @@ def start_project_api(req: StartProjectRequest):
 def stop_project_api(name: str):
     """Stop a project."""
     try:
-        from project_planner import stop_project
+        from ..project_planner import stop_project
         result = stop_project(name)
         if "error" in result:
             raise HTTPException(status_code=404, detail=result["error"])
@@ -1018,7 +997,6 @@ def generate_soul_api(req: GenerateSoulRequest):
     """Generate a custom SOUL.md using LLM, then create the worker profile."""
     try:
         import sys, subprocess, os
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from agora.worker_templates import generate_soul_prompt
 
         prompt = generate_soul_prompt(req.name, req.description)

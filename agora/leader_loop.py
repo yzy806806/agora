@@ -90,6 +90,22 @@ def _spawn_leader_agent(leader: dict) -> dict:
     except Exception:
         pass
 
+    # Check leader session size — rotate if too large to prevent bloat
+    try:
+        from .session_manager import check_session_size, rotate_session
+        # Leaders don't store a session_id in the registry (they use
+        # stateless chat calls), so pass None to use the heuristic
+        # (motions messages + completed kanban tasks).
+        size_info = check_session_size(name, None)
+        if size_info.get("needs_rotation"):
+            logger.info(
+                "Leader '%s' session activity high (count=%d) — rotating",
+                name, size_info.get("message_count", 0),
+            )
+            rotate_session(name, name)
+    except Exception as exc:
+        logger.debug("Leader session size check failed for %s: %s", name, exc)
+
     # Build the heartbeat prompt
     prompt = _HEARTBEAT_PROMPT.format(
         leader_name=name,
@@ -103,8 +119,18 @@ def _spawn_leader_agent(leader: dict) -> dict:
     if not hermes_bin:
         return {"error": "Cannot find hermes binary"}
 
-    # Build command
-    cmd = [hermes_bin, "-p", name, "chat", "-q", prompt]
+    # Build command — must include --yolo and --accept-hooks for unattended
+    # operation (otherwise the leader will prompt for approval on every shell
+    # command and hang forever).  -Q gives quiet mode (only final response).
+    # This is consistent with spawn_agent_speak in agent_spawn.py.
+    cmd = [
+        hermes_bin,
+        "-p", name,
+        "--yolo",           # bypass command approval (unattended)
+        "--accept-hooks",   # auto-approve shell hooks
+        "-Q",               # quiet mode: only final response + session info
+        "chat", "-q", prompt,
+    ]
 
     # Environment — set HERMES_HOME to the leader's profile
     env = dict(os.environ)
