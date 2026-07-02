@@ -923,7 +923,7 @@ class StartProjectRequest(BaseModel):
 def list_projects_api():
     """List all Agora projects."""
     try:
-        from ..project_planner import list_projects
+        from project_planner import list_projects
         return {"projects": list_projects()}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -933,7 +933,7 @@ def list_projects_api():
 def get_project_api(name: str):
     """Get project detail."""
     try:
-        from ..project_planner import get_project
+        from project_planner import get_project
         proj = get_project(name)
         if proj is None:
             raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
@@ -948,7 +948,7 @@ def get_project_api(name: str):
 def start_project_api(req: StartProjectRequest):
     """Start a new self-driving project."""
     try:
-        from ..project_planner import start_project
+        from project_planner import start_project
         result = start_project(
             project_name=req.name,
             workdir=req.workdir,
@@ -969,7 +969,7 @@ def start_project_api(req: StartProjectRequest):
 def stop_project_api(name: str):
     """Stop a project."""
     try:
-        from ..project_planner import stop_project
+        from project_planner import stop_project
         result = stop_project(name)
         if "error" in result:
             raise HTTPException(status_code=404, detail=result["error"])

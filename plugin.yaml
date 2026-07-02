@@ -1,12 +1,16 @@
 author: yzy806806
-description: Multi-role self-driving team plugin. 8 role templates, AI-generated custom roles, project lifecycle, leader-as-planner,
-  human discussion participation, dashboard with projects/kanban/discussions.
+description: Multi-role self-driving team plugin. 8 role templates with minimal self-evolving SOULs,
+  event-driven discussions with real agent subprocesses, project lifecycle with leader-as-planner,
+  session management, per-project kanban boards, human discussion participation, dashboard with
+  projects/kanban/discussions.
 has_api: true
 has_dashboard: true
 kind: backend
 name: agora
 provides_hooks:
 - kanban_task_completed
+- kanban_task_claimed
+- kanban_task_blocked
 provides_tools:
 - agora_raise_motion
 - agora_get_messages
@@ -26,4 +30,4 @@ provides_tools:
 - agora_list_leaders
 - agora_remove_leader
 - agora_leader_heartbeat
-version: 0.9.1
+version: 0.10.2
