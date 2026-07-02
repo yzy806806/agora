@@ -189,7 +189,7 @@ class DiscussionDriver:
         # close or vote), force a formal vote before finalizing.
         if step >= self.max_steps:
             logger.info("Max steps (%d) reached, forcing vote", self.max_steps)
-            self._run_voting(title)
+            self._run_forced_vote(title)
 
         return self._finalize(title, motion)
 
@@ -371,6 +371,105 @@ class DiscussionDriver:
             )
 
         logger.info("Voting complete: %s", votes)
+        return votes
+
+    def _run_forced_vote(self, title: str) -> list[dict]:
+        """Force a vote when max_steps is reached without chair closing.
+
+        Unlike _run_voting (where chair voluntarily calls vote and announces
+        what's being voted on), here the chair is forced to:
+        1. Read the full discussion history
+        2. Summarize the key points of agreement/disagreement
+        3. Formulate a concrete proposal
+        4. Ask participants to vote adopt/reject on that proposal
+
+        This ensures the vote has clear content even when the discussion
+        was cut short.
+        """
+        db.update_motion_state(self.motion_id, "voting")
+        history = self._build_history()
+
+        # Chair: summarize discussion + formulate a concrete proposal
+        forced_prompt = (
+            f"You are chairing an Agora discussion that has reached the step limit.\n"
+            f"The discussion must end now with a vote.\n\n"
+            f"## Topic\n{title}\n\n"
+            f"## Full Discussion\n{history[:4000]}\n\n"
+            f"Your job:\n"
+            f"1. Summarize the key points of agreement and disagreement (2-3 sentences)\n"
+            f"2. Formulate ONE concrete proposal that captures the best path forward\n"
+            f"3. Ask participants to vote adopt or reject on this proposal\n\n"
+            f"Be specific. The proposal must be actionable, not vague.\n"
+            f"Output your summary and proposal in 3-5 sentences.\n"
+        )
+
+        call_result = spawn_chair_speak(
+            self.chair_profile, forced_prompt,
+            workdir=self.workdir,
+            timeout=self.chair_timeout,
+        )
+        if call_result.get("reply"):
+            db.add_message(
+                motion_id=self.motion_id,
+                role=self.chair_profile,
+                round_num=0,
+                stance="neutral",
+                content=call_result["reply"],
+                step_type="vote_call",
+                is_chair=True,
+            )
+
+        # Each participant votes on the chair's proposal
+        chair_proposal = call_result.get("reply", "")
+        votes = []
+        for participant in self.participants:
+            vote_prompt = (
+                f"You are **{participant}** in an Agora discussion. The chair has "
+                f"proposed the following. Please vote.\n\n"
+                f"## Topic\n{title}\n\n"
+                f"## Chair's Proposal\n{chair_proposal}\n\n"
+                f"## Discussion Context\n{history[:2000]}\n\n"
+                f"Cast your vote. Respond with JSON ONLY:\n"
+                f'{{"vote": "adopt" | "reject" | "abstain", "reason": "<1-2 sentences>"}}\n'
+            )
+            session_id = self._get_worker_session(participant)
+
+            result = spawn_agent_speak(
+                profile_name=participant,
+                prompt=vote_prompt,
+                session_id=session_id,
+                workdir=self.workdir,
+                timeout=min(self.speak_timeout, 120),
+            )
+
+            if result.get("session_id"):
+                self._update_worker_session(participant, result["session_id"])
+
+            vote_data = parse_json_response(result.get("reply", ""))
+            if vote_data is None:
+                vote_data = {"vote": "abstain", "reason": "No clear vote"}
+
+            vote = vote_data.get("vote", "abstain")
+            reason = vote_data.get("reason", "")
+
+            db.add_vote(
+                motion_id=self.motion_id,
+                role=participant,
+                vote=vote,
+                reason=reason,
+            )
+            votes.append({"role": participant, "vote": vote, "reason": reason})
+
+            db.add_message(
+                motion_id=self.motion_id,
+                role=participant,
+                round_num=0,
+                stance=vote,
+                content=f"Vote: {vote} — {reason}",
+                step_type="vote",
+            )
+
+        logger.info("Forced voting complete: %s", votes)
         return votes
 
     # ------------------------------------------------------------------ #
