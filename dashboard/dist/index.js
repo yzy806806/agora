@@ -1540,10 +1540,10 @@
     if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
 
     return React.createElement("div", { className: "agora-profiles" },
+      React.createElement("p", { className: "agora-section-hint", style: { marginBottom: "0.75rem" } },
+        "Profiles are created from the Team tab — pick a role template to auto-generate SOUL.md, config, and skills."
+      ),
       React.createElement("div", { className: "agora-actions" },
-        React.createElement("p", { className: "agora-section-hint" },
-          "Profiles are created from the Team tab — pick a role template to auto-generate SOUL.md, config, and skills."
-        ),
         React.createElement(Button, {
           variant: "outline",
           onClick: async () => {
@@ -1584,7 +1584,13 @@
         await apiDelete("/profiles/" + profile.name);
         onDeleted();
       } catch (e) {
-        alert("Delete failed: " + e.message);
+        // Fallback: try workers API (profile may have been created via worker registry)
+        try {
+          await apiDelete("/workers/" + profile.name);
+          onDeleted();
+        } catch (e2) {
+          alert("Delete failed: " + e2.message);
+        }
       }
       setDeleting(false);
     };
