@@ -63,11 +63,10 @@ def spawn_agent_speak(
         "-p", profile_name,
         "--yolo",           # bypass command approval (unattended)
         "--accept-hooks",   # auto-approve shell hooks
-        "-Q",               # quiet mode: only final response + session info
     ]
     if session_id:
         cmd.extend(["--resume", session_id])
-    cmd.extend(["chat", "-q", prompt])
+    cmd.extend(["chat", "-Q", "-q", prompt])  # -Q after chat (subcommand flag)
 
     # Build environment
     env = dict(os.environ)

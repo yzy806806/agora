@@ -121,15 +121,13 @@ def _spawn_leader_agent(leader: dict) -> dict:
 
     # Build command — must include --yolo and --accept-hooks for unattended
     # operation (otherwise the leader will prompt for approval on every shell
-    # command and hang forever).  -Q gives quiet mode (only final response).
-    # This is consistent with spawn_agent_speak in agent_spawn.py.
+    # command and hang forever).  -Q (after chat) gives quiet mode.
     cmd = [
         hermes_bin,
         "-p", name,
         "--yolo",           # bypass command approval (unattended)
         "--accept-hooks",   # auto-approve shell hooks
-        "-Q",               # quiet mode: only final response + session info
-        "chat", "-q", prompt,
+        "chat", "-Q", "-q", prompt,  # -Q after chat (subcommand flag)
     ]
 
     # Environment — set HERMES_HOME to the leader's profile

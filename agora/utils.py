@@ -59,6 +59,7 @@ def find_hermes_binary() -> str:
     """Find the hermes executable."""
     candidates = [
         os.environ.get("HERMES_BIN", ""),
+        "/usr/local/lib/hermes-agent/venv/bin/hermes",
         "/home/ubuntu/.hermes/hermes-agent/venv/bin/hermes",
         "/root/.hermes/hermes-agent/venv/bin/hermes",
         "/usr/local/bin/hermes",

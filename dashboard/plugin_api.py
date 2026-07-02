@@ -1017,7 +1017,7 @@ def generate_soul_api(req: GenerateSoulRequest):
 
         profile = req.clone_from or "coder"
         result = subprocess.run(
-            [hermes_bin, "-p", profile, "chat", "-q", prompt],
+            [hermes_bin, "-p", profile, "--yolo", "chat", "-Q", "-q", prompt],
             capture_output=True, text=True, timeout=120,
         )
 
