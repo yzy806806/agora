@@ -356,7 +356,8 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async function(silent) {
+      if (!silent) setLoading(true);
       try {
         const data = await apiGet("/projects/" + projectName);
         setProject(data);
@@ -371,7 +372,7 @@
 
     // Auto-refresh every 10 seconds when viewing project detail
     useEffect(() => {
-      var interval = setInterval(load, 10000);
+      var interval = setInterval(function() { load(true); }, 10000);
       return function () { clearInterval(interval); };
     }, [load]);
 
@@ -560,7 +561,8 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async function(silent) {
+      if (!silent) setLoading(true);
       try {
         const data = await fetchJSON("/api/kanban/tasks?project=" + encodeURIComponent(projectName));
         setTasks(data.tasks || []);
@@ -577,7 +579,7 @@
 
     // Poll every 5 seconds for task updates
     useEffect(() => {
-      var interval = setInterval(load, 5000);
+      var interval = setInterval(function() { load(true); }, 5000);
       return function () { clearInterval(interval); };
     }, [load]);
 
@@ -673,7 +675,8 @@
       setCreating(false);
     };
 
-    const load = useCallback(async () => {
+    const load = useCallback(async function(silent) {
+      if (!silent) setLoading(true);
       try {
         const data = await apiGet("/motions?status=all&limit=50");
         // Filter motions by project field (fallback to source for backward compat)
@@ -693,7 +696,7 @@
 
     // Poll every 5 seconds for real-time discussion updates
     useEffect(function () {
-      var interval = setInterval(load, 5000);
+      var interval = setInterval(function() { load(true); }, 5000);
       return function () { clearInterval(interval); };
     }, [load]);
 
@@ -778,7 +781,8 @@
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef(null);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async function(silent) {
+      if (!silent) setLoading(true);
       try {
         var d = await apiGet("/motions/" + motionId);
         setData(d);
@@ -798,7 +802,7 @@
       if (loading) return;
       var isActive = data && data.status !== "closed";
       if (!isActive) return;
-      var interval = setInterval(load, 3000);
+      var interval = setInterval(function() { load(true); }, 3000);
       return function () { clearInterval(interval); };
     }, [load, data, loading]);
 
@@ -931,7 +935,8 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async function(silent) {
+      if (!silent) setLoading(true);
       try {
         var data = await apiGet("/workers");
         var allWorkers = data.workers || [];
@@ -951,7 +956,7 @@
 
     // Poll every 10 seconds
     useEffect(() => {
-      var interval = setInterval(load, 10000);
+      var interval = setInterval(function() { load(true); }, 10000);
       return function () { clearInterval(interval); };
     }, [load]);
 
@@ -1022,8 +1027,8 @@
     const [error, setError] = useState(null);
     const [showCreate, setShowCreate] = useState(false);
 
-    const load = useCallback(async () => {
-      setLoading(true);
+    const load = useCallback(async function(silent) {
+      if (!silent) setLoading(true);
       setError(null);
       try {
         const [w, t] = await Promise.all([
@@ -1040,9 +1045,9 @@
 
     useEffect(function() { load(); }, [load]);
 
-    // Poll every 15 seconds
+    // Poll every 15 seconds (silent — don't disrupt form input)
     useEffect(function () {
-      var interval = setInterval(load, 15000);
+      var interval = setInterval(function() { load(true); }, 15000);
       return function () { clearInterval(interval); };
     }, [load]);
 
@@ -1254,8 +1259,8 @@
     const [error, setError] = useState(null);
     const [showCreate, setShowCreate] = useState(false);
 
-    const load = useCallback(async () => {
-      setLoading(true);
+    const load = useCallback(async function(silent) {
+      if (!silent) setLoading(true);
       setError(null);
       try {
         const [t, w] = await Promise.all([
@@ -1272,9 +1277,9 @@
 
     useEffect(() => { load(); }, [load]);
 
-    // Poll every 15 seconds
+    // Poll every 15 seconds (silent — don't disrupt form input)
     useEffect(function () {
-      var interval = setInterval(load, 15000);
+      var interval = setInterval(function() { load(true); }, 15000);
       return function () { clearInterval(interval); };
     }, [load]);
 
