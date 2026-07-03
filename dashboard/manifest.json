@@ -3,7 +3,7 @@
   "label": "Agora",
   "description": "Unified worker/leader model — heartbeat on project, session isolation per project, shared experience across projects",
   "icon": "Landmark",
-  "version": "0.11.2",
+  "version": "1.0.0",
   "tab": {
     "path": "/agora",
     "position": "after:kanban"

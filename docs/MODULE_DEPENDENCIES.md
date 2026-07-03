@@ -1,7 +1,7 @@
 # Agora 模块依赖树文档
 
 > 生成时间：2026-07-03  
-> 版本：v0.13.0  
+> 版本：v1.0.0  
 > 分析覆盖：21 个 Python 文件 + 2 个配置文件 + 2 个 Skill 文档
 
 ---
@@ -419,7 +419,7 @@ Kanban 任务阻塞
 | `leader_manager.py` 已废弃 | LOW | 零被导入，纯 shim 代码。可安全删除，减少维护负担 |
 | `project_planner.py` 过大 (619行) | MED | 承担了项目注册、心跳管理、cron 管理、会话管理、完成检测等多重职责。可考虑拆分为 `project_registry.py` + `heartbeat_manager.py` |
 | `discussion/driver.py` 依赖 7 个内部模块 | MED | 是最复杂的模块。虽然作为独立脚本运行隔离了运行时复杂性，但测试覆盖较难 |
-| `dashboard/manifest.json` 版本号 (0.11.2) 与 `plugin.yaml` 版本 (0.13.0) 不一致 | LOW | 需要同步 |
+| ~~`dashboard/manifest.json` 版本号与 `plugin.yaml` 不一致~~ | FIXED | 已统一为 v1.0.0 |
 | `hermes_cli` 依赖分散在 6 个模块中 | LOW | 每个模块各自 inline import，没有统一封装层 |
 
 ### 8.3 依赖方向验证
@@ -436,4 +436,4 @@ Kanban 任务阻塞
 
 ---
 
-*本文档由代码静态分析自动生成，覆盖 v0.13.0 全部 21 个 Python 源文件。*
+*本文档由代码静态分析自动生成，覆盖 v1.0.0 全部 21 个 Python 源文件。*
