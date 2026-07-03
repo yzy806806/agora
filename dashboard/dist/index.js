@@ -314,7 +314,7 @@
           React.createElement("div", { className: "agora-field" },
             React.createElement(Label, null, "Heartbeat Member"),
             workers.length === 0
-              ? React.createElement("p", { className: "agora-hint", style: { color: "var(--midground)" } }, "No members available.")
+              ? React.createElement("p", { className: "agora-hint",  }, "No members available.")
               : React.createElement(Select, { value: heartbeatMember, onValueChange: setHeartbeatMember },
                   React.createElement(SelectOption, { value: "" }, "— Select Member —"),
                   workers.map(function(w) {
@@ -333,7 +333,7 @@
             onChange: function(e) { setHeartbeatMinutes(e.target.value); },
             placeholder: "15",
           }),
-          React.createElement("p", { className: "agora-hint", style: { color: "var(--midground)" } },
+          React.createElement("p", { className: "agora-hint",  },
             "A cron job will be auto-created to wake this member every " + (heartbeatMinutes || "15") + " minutes."
           ),
         ),
@@ -949,7 +949,7 @@
 
     useEffect(function() { load(); }, [load]);
 
-    if (loading) return React.createElement("p", { style: { color: "var(--midground)" } }, "Loading members...");
+    if (loading) return React.createElement("p", {  }, "Loading members...");
     if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
 
     return React.createElement("div", { className: "agora-workers" },
@@ -961,7 +961,7 @@
       ),
       // Templates gallery
       !showCreate && templates.length > 0 && React.createElement("div", { className: "agora-templates-gallery" },
-        React.createElement("p", { className: "agora-section-hint", style: { color: "var(--midground)" } },
+        React.createElement("p", { className: "agora-section-hint",  },
           "Available role templates — click \"Create Profile\" to instantiate one"
         ),
         React.createElement("div", { className: "agora-template-cards" },
@@ -977,7 +977,7 @@
                   React.createElement("span", { className: "agora-template-name" }, t.display_name),
                   t.is_leader && React.createElement(Badge, { className: "agora-badge-blue" }, "leader"),
                 ),
-                React.createElement("p", { className: "agora-template-desc", style: { color: "var(--midground)" } }, t.description),
+                React.createElement("p", { className: "agora-template-desc",  }, t.description),
               ),
             );
           }),
@@ -990,7 +990,7 @@
       }),
       // Member list
       !showCreate && React.createElement("div", { className: "agora-worker-list" },
-        workers.length === 0 && React.createElement("p", { className: "agora-empty-hint", style: { color: "var(--midground)" } },
+        workers.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
           "No members yet. Create one from a template above."
         ),
         workers.map(function(w) {
@@ -1060,10 +1060,10 @@
             }),
           ),
         ),
-        selectedTemplate && React.createElement("p", { className: "agora-template-preview", style: { color: "var(--midground)" } },
+        selectedTemplate && React.createElement("p", { className: "agora-template-preview",  },
           selectedTemplate.description
         ),
-        isLeader && React.createElement("p", { className: "agora-hint", style: { color: "var(--midground)" } },
+        isLeader && React.createElement("p", { className: "agora-hint",  },
           "💡 Leader template. After creation, assign this member as a project's heartbeat member to enable self-driving."
         ),
         React.createElement("div", { className: "agora-field" },
@@ -1135,7 +1135,7 @@
             disabled: deletingRef,
           }, deletingRef ? "..." : "Delete"),
         ),
-        React.createElement("p", { className: "agora-worker-desc", style: { color: "var(--midground)" } }, worker.description || ""),
+        React.createElement("p", { className: "agora-worker-desc",  }, worker.description || ""),
         React.createElement("div", { className: "agora-worker-meta" },
           worker.projects && worker.projects.length > 0
             ? React.createElement("span", null, "📦 ", worker.projects.join(", "))
