@@ -141,6 +141,10 @@ def _migrate_add_columns(conn: sqlite3.Connection) -> None:
         if not _has_column("messages", col):
             conn.execute(f"ALTER TABLE messages ADD COLUMN {col} {typedef}")
 
+    # motions: project association
+    if not _has_column("motions", "project"):
+        conn.execute("ALTER TABLE motions ADD COLUMN project TEXT DEFAULT ''")
+
     conn.commit()
 
 
@@ -159,6 +163,7 @@ def create_motion(
     participants: list[str] | None = None,
     chair: str = "",
     max_steps: int = 30,
+    project: str = "",
 ) -> dict:
     """Create a new motion record. Returns the motion dict."""
     motion_id = f"motion-{uuid.uuid4().hex[:12]}"
@@ -171,12 +176,12 @@ def create_motion(
             """INSERT INTO motions
                (id, title, description, max_rounds, source, source_task_id,
                 source_profile, blocking, participants, created_at,
-                chair, state, step_count, max_steps)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                chair, state, step_count, max_steps, project)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (motion_id, title, description, max_rounds, source,
              source_task_id or None, source_profile or None,
              1 if blocking else 0, json.dumps(participants), now,
-             chair, "discussing", 0, max_steps),
+             chair, "discussing", 0, max_steps, project),
         )
         conn.commit()
     finally:
@@ -376,6 +381,7 @@ def _row_to_motion(row: dict) -> dict:
         "state": row.get("state", "discussing"),
         "step_count": row.get("step_count", 0),
         "max_steps": row.get("max_steps", 30),
+        "project": row.get("project", ""),
     }
 
 

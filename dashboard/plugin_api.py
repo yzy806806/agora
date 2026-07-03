@@ -279,6 +279,10 @@ def list_motions(
                     "decision": m.get("decision"),
                     "source": m.get("source"),
                     "source_task_id": m.get("source_task_id"),
+                    "project": m.get("project", ""),
+                    "state": m.get("state", "discussing"),
+                    "step_count": m.get("step_count", 0),
+                    "chair": m.get("chair", ""),
                     "created_at": m.get("created_at"),
                 }
                 for m in motions
@@ -401,6 +405,7 @@ def start_discussion(req: StartDiscussionRequest):
             participants=participants,
             chair=chair,
             max_steps=max_steps,
+            project=req.project,
         )
 
         # Spawn the discussion driver as a background process using the

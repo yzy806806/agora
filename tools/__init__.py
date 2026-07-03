@@ -355,6 +355,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         participants=participants,
         chair=chair,
         max_steps=max_steps,
+        project=resolved_project if 'resolved_project' in dir() else "",
     )
 
     motion_id = motion["id"]

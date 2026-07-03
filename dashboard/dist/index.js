@@ -611,9 +611,10 @@
     const load = useCallback(async () => {
       try {
         const data = await apiGet("/motions?status=all&limit=50");
-        // Filter motions by project name in the source field
+        // Filter motions by project field (fallback to source for backward compat)
         var filtered = (data.motions || []).filter(function (m) {
-          return m.source === projectName || (m.source && m.source.indexOf(projectName) >= 0);
+          return m.project === projectName || (m.source === projectName) ||
+                 (m.source && m.source.indexOf(projectName) >= 0);
         });
         setMotions(filtered);
         setError(null);

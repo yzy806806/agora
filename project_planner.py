@@ -311,16 +311,22 @@ def start_project(
         data.get("heartbeat_cron_id"),
     )
 
-    # If team is specified, bind team to project and add project to workers
+    # If team is specified, bind team to project and add ALL team members
+    # to the project's worker list (not just the heartbeat member).
     if team:
         try:
-            from agora.team_manager import _bind_team_to_project
+            from agora.team_manager import _bind_team_to_project, get_team
             _bind_team_to_project(team, project_name)
+            # Add project to every team member's projects list
+            tm = get_team(team)
+            if tm:
+                for w in tm.get("workers", []):
+                    _add_project_to_worker(w["name"], project_name)
         except Exception as exc:
             logger.warning("Failed to bind team to project: %s", exc)
 
-    # Add project to heartbeat_member's project list
-    if heartbeat_member:
+    # Also add heartbeat_member if not in a team
+    if heartbeat_member and not team:
         _add_project_to_worker(heartbeat_member, project_name)
 
     # Write AGENTS.md to workdir so workers auto-load team context
