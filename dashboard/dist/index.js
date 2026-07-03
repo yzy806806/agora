@@ -476,6 +476,39 @@
     var total = (counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0);
     var progressPct = total > 0 ? Math.round(((counts.done || 0) / total) * 100) : 0;
 
+    var hbState = useState({ minutes: project.heartbeat_minutes || 15, paused: false, loading: false });
+    var hb = hbState[0], setHb = hbState[1];
+
+    var updateHb = async function(newMin) {
+      setHb(Object.assign({}, hb, { loading: true }));
+      try {
+        await apiPut("/projects/" + project.name + "/heartbeat", { minutes: newMin });
+        setHb({ minutes: newMin, paused: hb.paused, loading: false });
+      } catch (e) { alert("Failed: " + e.message); setHb(Object.assign({}, hb, { loading: false })); }
+    };
+
+    var togglePause = async function() {
+      setHb(Object.assign({}, hb, { loading: true }));
+      try {
+        if (hb.paused) {
+          await apiPut("/projects/" + project.name + "/resume");
+        } else {
+          await apiPut("/projects/" + project.name + "/pause");
+        }
+        setHb({ minutes: hb.minutes, paused: !hb.paused, loading: false });
+      } catch (e) { alert("Failed: " + e.message); setHb(Object.assign({}, hb, { loading: false })); }
+    };
+
+    var triggerNow = async function() {
+      try {
+        await apiPost("/projects/" + project.name + "/trigger", {});
+        alert("Heartbeat triggered — leader is waking up.");
+      } catch (e) { alert("Failed: " + e.message); }
+    };
+
+    var hbInput = useState(String(hb.minutes));
+    var hbInputVal = hbInput[0], setHbInputVal = hbInput[1];
+
     return React.createElement(Card, { className: "agora-project-overview" },
       React.createElement(CardContent, null,
         React.createElement("div", { className: "agora-overview-grid" },
@@ -512,6 +545,42 @@
         ),
         project.created_at && React.createElement("div", { className: "agora-project-meta" },
           React.createElement("span", null, "🕒 Created ", isoTimeAgo(project.created_at)),
+        ),
+        /* Heartbeat control panel */
+        project.heartbeat_member && React.createElement("div", { className: "agora-hb-control" },
+          React.createElement("h4", { className: "agora-sidebar-title" }, "💓 Heartbeat Control"),
+          React.createElement("div", { className: "agora-hb-row" },
+            React.createElement("span", { className: "agora-hb-label" }, "Interval:"),
+            React.createElement("input", {
+              type: "number",
+              min: "1",
+              max: "1440",
+              value: hbInputVal,
+              onChange: function(e) { setHbInputVal(e.target.value); },
+              className: "agora-hb-input",
+            }),
+            React.createElement("span", { className: "agora-hb-label" }, "min"),
+            React.createElement(Button, {
+              size: "sm",
+              disabled: hb.loading || hbInputVal === String(hb.minutes),
+              onClick: function() { updateHb(parseInt(hbInputVal) || 15); },
+            }, "Save"),
+            React.createElement(Button, {
+              size: "sm",
+              variant: "outline",
+              disabled: hb.loading,
+              onClick: togglePause,
+            }, hb.paused ? "▶ Resume" : "⏸ Pause"),
+            React.createElement(Button, {
+              size: "sm",
+              variant: "outline",
+              onClick: triggerNow,
+            }, "⚡ Trigger Now"),
+          ),
+          React.createElement("p", { className: "agora-hint" },
+            "Leader \"" + project.heartbeat_member + "\" is woken every " + hb.minutes + " minutes. ",
+            hb.paused ? "Currently paused." : "Currently active."
+          ),
         ),
       ),
     );
