@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v0.11.1**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v0.13.0**
 
 [中文文档](./README_CN.md)
 
@@ -20,10 +20,11 @@ Agora turns Hermes into a self-driving team: multiple AI roles — each a **real
 | **Memory persistence** | Discussion decisions and action items written to each participant's MEMORY.md for accumulated team knowledge |
 | **8 role templates** | Architect, Developer, Reviewer, Tester, DevOps, Researcher, Writer, Leader |
 | **Self-driving** | Heartbeat cron wakes leader to check kanban, unblock, plan, dispatch |
-| **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when goal achieved → cron auto-paused |
+| **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when goal achieved → **double confirmation required** (2 consecutive signals) → cron auto-paused |
 | **3 kanban hooks** | `kanban_task_completed` (memory + comment write-back), `kanban_task_claimed` (log + AGENTS.md refresh), `kanban_task_blocked` (auto-trigger discussion if design decision) |
+| **Bundled skills** | Plugin ships with `agora-awareness` and `agora-deliberation` skills — auto-deployed to `~/.hermes/skills/collaboration/` on register, seeded into every new worker's profile |
 | **Human participation** | Jump into discussions anytime via Dashboard input box |
-| **Dashboard** | Projects tab (default), Team tab (Members + Teams sub-tabs), Profiles tab |
+| **Dashboard** | Projects tab (default) + Team tab (Members + Teams + Profiles sub-tabs), real-time polling, toast notifications, heartbeat control panel |
 
 ## Install
 
@@ -149,9 +150,8 @@ An `AGENTS.md` file is auto-generated in the project workdir. Hermes auto-loads 
 
 | Tab | Content |
 |-----|---------|
-| **Projects** (default) | Project list, start new project (with heartbeat config), project detail (kanban/discussions/team) |
-| **Team** | **Members** sub-tab (unified Workers + Leaders) / **Teams** sub-tab (team management) |
-| **Profiles** | Profile config (model/SOUL.md/skills) |
+| **Projects** (default) | Project list, start new project (with heartbeat config), project detail (overview/kanban/discussions/team) |
+| **Team** | **Members** sub-tab (unified Workers + Leaders) / **Teams** sub-tab (team management) / **Profiles** sub-tab (profile config — model/SOUL.md/skills) |
 
 ## Configuration
 
@@ -194,8 +194,10 @@ agora/
 │   ├── worker_manager.py        # Worker lifecycle — unified (leader = worker with leader template)
 │   ├── team_manager.py          # Team + dispatch routing
 │   └── leader_loop.py           # Heartbeat spawn + PROJECT_COMPLETE detection
-├── dashboard/                   # Web UI + REST API (Members tab, StartProjectForm)
+├── dashboard/                   # Web UI + REST API
 └── skills/
+    ├── agora-awareness/         # Framework overview — every worker gets this
+    └── agora-deliberation/      # Discussion methodology — when/how to raise motions
 ```
 
 ## License
