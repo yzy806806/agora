@@ -313,14 +313,17 @@ def get_motion(motion_id: str):
             "rationale": motion.get("rationale"),
             "action_items": motion.get("action_items", []),
             "source": motion.get("source"),
+            "chair": motion.get("chair", ""),
             "messages": [
                 {
                     "id": m["id"],
                     "role": m["role"],
-                    "round": m["round_num"],
+                    "round_num": m["round_num"],
                     "stance": m["stance"],
                     "content": m["content"],
                     "timestamp": m["timestamp"],
+                    "step_type": m.get("step_type", "speak"),
+                    "is_chair": bool(m.get("is_chair", 0)),
                 }
                 for m in messages
             ],

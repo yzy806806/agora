@@ -22,6 +22,32 @@
   const API = "/api/plugins/agora";
 
   // ========================================================================
+  // Toast notification system (replaces alert())
+  // ========================================================================
+
+  var toastContainer = null;
+  function ensureToastContainer() {
+    if (toastContainer) return toastContainer;
+    toastContainer = document.querySelector(".agora-toast-container");
+    if (!toastContainer) {
+      toastContainer = document.createElement("div");
+      toastContainer.className = "agora-toast-container";
+      document.body.appendChild(toastContainer);
+    }
+    return toastContainer;
+  }
+  function toast(message, type) {
+    var container = ensureToastContainer();
+    var el = document.createElement("div");
+    el.className = "agora-toast agora-toast-" + (type || "info");
+    el.textContent = message;
+    container.appendChild(el);
+    setTimeout(function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 3500);
+  }
+
+  // ========================================================================
   // API helpers
   // ========================================================================
 
@@ -50,87 +76,6 @@
   }
 
   // ========================================================================
-  // UI helper functions — reduce repetitive React.createElement patterns
-  // ========================================================================
-
-  // Card wrapper: card(title, children...) or card(title, { props }, children...)
-  function card(title, children) {
-    var props = {};
-    if (children && !Array.isArray(children) && typeof children === "object" && !children.$$typeof) {
-      props = children;
-      children = Array.prototype.slice.call(arguments, 2);
-    } else {
-      children = Array.prototype.slice.call(arguments, 1);
-    }
-    return React.createElement(Card, props,
-      React.createElement(CardHeader, null,
-        React.createElement(CardTitle, null, title),
-      ),
-      React.createElement(CardContent, null, children),
-    );
-  }
-
-  // Colored badge: badge(text, colorClass?)
-  function badge(text, colorClass) {
-    return React.createElement(Badge, colorClass ? { className: colorClass } : null, text);
-  }
-
-  // Button: button(text, onClick, variant?)
-  function button(text, onClick, variant) {
-    var props = { onClick: onClick };
-    if (variant) props.variant = variant;
-    return React.createElement(Button, props, text);
-  }
-
-  // Input field: input(props)
-  function input(props) {
-    return React.createElement(Input, props);
-  }
-
-  // Loading spinner
-  function spinner(text) {
-    return React.createElement("p", null, text || "Loading...");
-  }
-
-  // ========================================================================
-  // useFetch — extract the repeated fetch + setState + loading pattern
-  // ========================================================================
-  // Usage: const { data, loading, error, reload } = useFetch("/path", { interval: 5000 });
-  function useFetch(path, options) {
-    options = options || {};
-    var deps = options.deps || [];
-    var interval = options.interval || 0;
-    var fetcher = options.fetcher || apiGet;
-
-    var [data, setData] = useState(null);
-    var [loading, setLoading] = useState(true);
-    var [error, setError] = useState(null);
-
-    var load = useCallback(async function () {
-      setLoading(true);
-      setError(null);
-      try {
-        var result = await fetcher(path);
-        setData(result);
-      } catch (e) {
-        setError(e.message);
-      }
-      setLoading(false);
-    }, deps.concat([path]));
-
-    useEffect(function () { load(); }, [load]);
-
-    // Optional polling
-    useEffect(function () {
-      if (!interval) return;
-      var id = setInterval(load, interval);
-      return function () { clearInterval(id); };
-    }, [load, interval]);
-
-    return { data: data, loading: loading, error: error, reload: load, setData: setData };
-  }
-
-  // ========================================================================
   // Main Component
   // ========================================================================
 
@@ -149,11 +94,9 @@
           React.createElement(TabsList, { key: "tabs" },
             React.createElement(TabsTrigger, { value: "projects", active: activeTab === "projects", onClick: function() { setActiveTab("projects"); } }, "Projects"),
             React.createElement(TabsTrigger, { value: "team", active: activeTab === "team", onClick: function() { setActiveTab("team"); } }, "Team"),
-            React.createElement(TabsTrigger, { value: "profiles", active: activeTab === "profiles", onClick: function() { setActiveTab("profiles"); } }, "Profiles"),
           ),
           activeTab === "projects" && React.createElement(ProjectsTab, { key: "content" }),
           activeTab === "team" && React.createElement(TeamTab, { key: "content" }),
-          activeTab === "profiles" && React.createElement(ProfilesTab, { key: "content" }),
         ];
       }),
     );
@@ -370,7 +313,7 @@
       if (!confirm("Stop and delete project '" + project.name + "'?")) return;
       setDeleting(true);
       try { await apiDelete("/projects/" + project.name); onDeleted(); }
-      catch (e) { alert("Delete failed: " + e.message); }
+      catch (e) { toast("Delete failed: " + e.message, "error"); }
       setDeleting(false);
     };
 
@@ -398,6 +341,7 @@
           counts.todo > 0 && React.createElement("span", null, "📝 ", counts.todo, " todo"),
           counts.blocked > 0 && React.createElement("span", { className: "agora-count-blocked" }, "🚫 ", counts.blocked, " blocked"),
           project.workdir && React.createElement("span", null, "📂 ", project.workdir),
+          project.last_heartbeat_at && React.createElement("span", null, "💓 ", isoTimeAgo(project.last_heartbeat_at)),
         ),
       ),
     );
@@ -476,15 +420,26 @@
     var total = (counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0);
     var progressPct = total > 0 ? Math.round(((counts.done || 0) / total) * 100) : 0;
 
-    var hbState = useState({ minutes: project.heartbeat_minutes || 15, paused: false, loading: false });
+    // Read initial paused state from cron_status.enabled (false = paused)
+    var cronStatus = project.cron_status || {};
+    var initialPaused = !cronStatus.enabled;
+    var hbState = useState({ minutes: project.heartbeat_minutes || 15, paused: initialPaused, loading: false });
     var hb = hbState[0], setHb = hbState[1];
+
+    var statusMsgState = useState("");
+    var statusMsg = statusMsgState[0], setStatusMsg = statusMsgState[1];
+    var showStatus = function(text) {
+      setStatusMsg(text);
+      setTimeout(function() { setStatusMsg(""); }, 3000);
+    };
 
     var updateHb = async function(newMin) {
       setHb(Object.assign({}, hb, { loading: true }));
       try {
         await apiPut("/projects/" + project.name + "/heartbeat", { minutes: newMin });
         setHb({ minutes: newMin, paused: hb.paused, loading: false });
-      } catch (e) { alert("Failed: " + e.message); setHb(Object.assign({}, hb, { loading: false })); }
+        showStatus("✓ Interval saved");
+      } catch (e) { showStatus("Failed: " + e.message); setHb(Object.assign({}, hb, { loading: false })); }
     };
 
     var togglePause = async function() {
@@ -496,14 +451,14 @@
           await apiPut("/projects/" + project.name + "/pause");
         }
         setHb({ minutes: hb.minutes, paused: !hb.paused, loading: false });
-      } catch (e) { alert("Failed: " + e.message); setHb(Object.assign({}, hb, { loading: false })); }
+      } catch (e) { showStatus("Failed: " + e.message); setHb(Object.assign({}, hb, { loading: false })); }
     };
 
     var triggerNow = async function() {
       try {
         await apiPost("/projects/" + project.name + "/trigger", {});
-        alert("Heartbeat triggered — leader is waking up.");
-      } catch (e) { alert("Failed: " + e.message); }
+        showStatus("✓ Heartbeat triggered — leader is waking up");
+      } catch (e) { showStatus("Failed: " + e.message); }
     };
 
     var hbInput = useState(String(hb.minutes));
@@ -577,9 +532,19 @@
               onClick: triggerNow,
             }, "⚡ Trigger Now"),
           ),
+          statusMsg && React.createElement("p", { className: "agora-hb-status" }, statusMsg),
           React.createElement("p", { className: "agora-hint" },
             "Leader \"" + project.heartbeat_member + "\" is woken every " + hb.minutes + " minutes. ",
-            hb.paused ? "Currently paused." : "Currently active."
+            hb.paused ? "Currently paused." : "Currently active.",
+          ),
+          project.last_heartbeat_at && React.createElement("p", { className: "agora-hint" },
+            "🕐 Last heartbeat: ", isoTimeAgo(project.last_heartbeat_at),
+          ),
+          cronStatus.last_run && React.createElement("p", { className: "agora-hint" },
+            "📋 Last cron run: ", isoTimeAgo(cronStatus.last_run),
+          ),
+          cronStatus.next_run && !hb.paused && React.createElement("p", { className: "agora-hint" },
+            "⏭️ Next cron run: ", isoTimeAgo(cronStatus.next_run),
           ),
         ),
       ),
@@ -653,7 +618,8 @@
                   React.createElement("div", { className: "agora-kanban-task-title" }, t.title || t.id),
                   t.description && React.createElement("p", { className: "agora-kanban-task-desc" }, t.description),
                   React.createElement("div", { className: "agora-kanban-task-meta" },
-                    t.assignee && React.createElement(Badge, { className: "agora-badge-blue" }, t.assignee),
+                    t.assignee && React.createElement("span", { className: "agora-kanban-assignee" }, "👤 ", t.assignee),
+                    t.status && React.createElement("span", { className: cn("agora-kanban-status", "agora-kanban-status-" + t.status) }, t.status),
                     t.priority && React.createElement(Badge, null, t.priority),
                   ),
                 );
@@ -676,6 +642,36 @@
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedMotion, setSelectedMotion] = useState(null);
+    const [showNewForm, setShowNewForm] = useState(false);
+    const [newTitle, setNewTitle] = useState("");
+    const [newDesc, setNewDesc] = useState("");
+    const [creating, setCreating] = useState(false);
+    const [discStatus, setDiscStatus] = useState("");
+
+    var showDiscStatus = function(text) {
+      setDiscStatus(text);
+      setTimeout(function() { setDiscStatus(""); }, 3000);
+    };
+
+    var handleCreate = async function () {
+      if (!newTitle.trim()) return;
+      setCreating(true);
+      try {
+        await apiPost("/motions", {
+          title: newTitle.trim(),
+          description: newDesc.trim(),
+          source: projectName,
+          project: projectName,
+          max_steps: 30,
+        });
+        setNewTitle("");
+        setNewDesc("");
+        setShowNewForm(false);
+        showDiscStatus("✓ Discussion created");
+        load();
+      } catch (e) { showDiscStatus("Failed: " + e.message); }
+      setCreating(false);
+    };
 
     const load = useCallback(async () => {
       try {
@@ -695,6 +691,12 @@
 
     useEffect(() => { load(); }, [load]);
 
+    // Poll every 5 seconds for real-time discussion updates
+    useEffect(function () {
+      var interval = setInterval(load, 5000);
+      return function () { clearInterval(interval); };
+    }, [load]);
+
     if (loading) return React.createElement("p", null, "Loading discussions...");
 
     return React.createElement("div", { className: "agora-project-discussions" },
@@ -702,15 +704,31 @@
         React.createElement(Button, { variant: "outline", onClick: load }, "↻ Refresh"),
         React.createElement(Button, {
           variant: "outline",
-          onClick: async function () {
-            var title = prompt("Discussion topic for project '" + projectName + "':");
-            if (!title) return;
-            try {
-              await apiPost("/motions", { title: title, source: projectName, project: projectName, max_steps: 30 });
-              load();
-            } catch (e) { alert("Failed: " + e.message); }
-          },
-        }, "+ New Discussion"),
+          onClick: function () { setShowNewForm(!showNewForm); },
+        }, showNewForm ? "✕ Cancel" : "+ New Discussion"),
+      ),
+      showNewForm && React.createElement("div", { className: "agora-new-discussion-form" },
+        React.createElement("input", {
+          type: "text",
+          className: "agora-input",
+          placeholder: "Discussion topic (title)...",
+          value: newTitle,
+          onChange: function (e) { setNewTitle(e.target.value); },
+          autoFocus: true,
+        }),
+        React.createElement("textarea", {
+          className: "agora-textarea",
+          placeholder: "Detailed description (optional) — what should be discussed, any context, constraints...",
+          value: newDesc,
+          onChange: function (e) { setNewDesc(e.target.value); },
+          rows: 3,
+        }),
+        React.createElement("div", { className: "agora-actions" },
+          React.createElement(Button, {
+            onClick: handleCreate,
+            disabled: creating || !newTitle.trim(),
+          }, creating ? "Creating..." : "✓ Create Discussion"),
+        ),
       ),
       error && React.createElement("p", { className: "agora-error" }, "Error: " + error),
       React.createElement("div", { className: "agora-discussion-layout" },
@@ -786,8 +804,8 @@
 
     // Scroll to bottom on new messages
     useEffect(function () {
-      if (messagesEndRef.current) {
-        messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
+      if (messagesEndRef.current && data && (data.messages || []).length > 0) {
+        messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
       }
     }, [data]);
 
@@ -802,7 +820,7 @@
         setUserInput("");
         load(); // immediately refresh
       } catch (e) {
-        alert("Failed to send message: " + e.message);
+        toast("Failed to send message: " + e.message, "error");
       }
       setSending(false);
     };
@@ -846,9 +864,10 @@
           "No messages yet. The chair will open the discussion shortly."
         ),
         messages.map(function (msg) {
-          var isUser = msg.role === "user";
-          var isChair = msg.is_chair;
+          var isUser = msg.role === "user" || msg.step_type === "human_input";
+          var isChair = msg.is_chair || (data.chair && msg.role === data.chair);
           var stepType = msg.step_type || "speak";
+          var speakerName = msg.role || "unknown";
           var stepIcon = {
             opening: "\xF0\x9F\x93\xA2",     // 📢
             speak: "\xF0\x9F\x92\xAC",        // 💬
@@ -858,6 +877,9 @@
             summary: "\xF0\x9F\x93\x8B",      // 📋
             human_input: "\xF0\x9F\x91\xA4",  // 👤
           }[stepType] || "\xF0\x9F\x92\xAC";
+          var speakerIcon = isChair ? "\xF0\x9F\x8E\xAD" : "\xF0\x9F\x8E\xAD"; // 🎭
+          var headerText = speakerIcon + " " + speakerName;
+          if (isChair) headerText = "\xF0\x9F\x91\x91 " + speakerName; // 👑 for chair
           return React.createElement("div", {
             key: msg.id || (msg.role + "-" + msg.round_num + "-" + messages.indexOf(msg)),
             className: cn(
@@ -868,13 +890,11 @@
             ),
           },
             React.createElement("div", { className: "agora-message-header" },
-              React.createElement("strong", null,
-                stepIcon + " ",
-                isChair ? "[Chair] " + msg.role : isUser ? msg.role : msg.role
+              React.createElement("strong", { className: isChair ? "agora-speaker-chair" : "agora-speaker" },
+                headerText + " \xC2\xB7 Round " + (msg.round_num || 0)
               ),
-              msg.round_num > 0 && React.createElement("span", { className: "agora-message-round" }, "S" + msg.round_num),
+              stepType !== "speak" && stepType !== "human_input" && React.createElement(Badge, null, stepType),
               msg.stance && stepType === "speak" && React.createElement(Badge, null, msg.stance),
-              stepType !== "speak" && React.createElement(Badge, null, stepType),
             ),
             React.createElement("div", { className: "agora-message-content" }, msg.content),
           );
@@ -971,7 +991,7 @@
   }
 
   // ========================================================================
-  // Team Tab — Members + Teams
+  // Team Tab — Members + Teams + Profiles
   // ========================================================================
 
   function TeamTab() {
@@ -981,9 +1001,11 @@
           React.createElement(TabsList, { key: "tabs" },
             React.createElement(TabsTrigger, { value: "members", active: activeSubtab === "members", onClick: function() { setActiveSubtab("members"); } }, "Members"),
             React.createElement(TabsTrigger, { value: "teams", active: activeSubtab === "teams", onClick: function() { setActiveSubtab("teams"); } }, "Teams"),
+            React.createElement(TabsTrigger, { value: "profiles", active: activeSubtab === "profiles", onClick: function() { setActiveSubtab("profiles"); } }, "Profiles"),
           ),
           activeSubtab === "members" && React.createElement(MembersTab, { key: "content" }),
           activeSubtab === "teams" && React.createElement(TeamsTab, { key: "content" }),
+          activeSubtab === "profiles" && React.createElement(ProfilesTab, { key: "content" }),
         ];
       }),
     );
@@ -1017,6 +1039,12 @@
     }, []);
 
     useEffect(function() { load(); }, [load]);
+
+    // Poll every 15 seconds
+    useEffect(function () {
+      var interval = setInterval(load, 15000);
+      return function () { clearInterval(interval); };
+    }, [load]);
 
     if (loading) return React.createElement("p", {  }, "Loading members...");
     if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
@@ -1076,7 +1104,7 @@
   function CreateMemberForm({ templates, onCreated }) {
     const [name, setName] = useState("");
     const [role, setRole] = useState("");
-    const [cloneFrom, setCloneFrom] = useState("coder");
+    const [cloneFrom, setCloneFrom] = useState("");
     const [model, setModel] = useState("");
     const [error, setError] = useState(null);
     const [creating, setCreating] = useState(false);
@@ -1093,7 +1121,7 @@
         await apiPost("/workers", {
           name: name.trim(),
           role: role,
-          clone_from: cloneFrom || "coder",
+          clone_from: cloneFrom || undefined,
           model: model || null,
         });
         setName(""); setRole(""); setModel("");
@@ -1148,7 +1176,7 @@
           React.createElement(Input, {
             value: cloneFrom,
             onChange: function(e) { setCloneFrom(e.target.value); },
-            placeholder: "coder",
+            placeholder: "auto (copy global config)",
           }),
         ),
         React.createElement("div", { className: "agora-field" },
@@ -1182,7 +1210,7 @@
           await apiDelete("/profiles/" + worker.name);
           onDeleted();
         } catch (e2) {
-          alert("Delete failed: " + e.message);
+          toast("Delete failed: " + e.message, "error");
         }
       }
       setDeleting(false);
@@ -1243,6 +1271,12 @@
     }, []);
 
     useEffect(() => { load(); }, [load]);
+
+    // Poll every 15 seconds
+    useEffect(function () {
+      var interval = setInterval(load, 15000);
+      return function () { clearInterval(interval); };
+    }, [load]);
 
     if (loading) return React.createElement("p", null, "Loading teams...");
     if (error) return React.createElement("p", { className: "agora-error" }, "Error: " + error);
@@ -1356,7 +1390,7 @@
       if (!confirm(`Delete team '${team.name}'?`)) return;
       setDeleting(true);
       try { await apiDelete("/teams/" + team.name); onDeleted(); }
-      catch (e) { alert("Delete failed: " + e.message); }
+      catch (e) { toast("Delete failed: " + e.message, "error"); }
       setDeleting(false);
     };
 
@@ -1414,19 +1448,6 @@
       React.createElement("p", { className: "agora-section-hint", style: { marginBottom: "0.75rem" } },
         "Profiles are created from the Team tab — pick a role template to auto-generate SOUL.md, config, and skills."
       ),
-      React.createElement("div", { className: "agora-actions" },
-        React.createElement(Button, {
-          variant: "outline",
-          onClick: async () => {
-            if (!confirm("Create a full Agora team (architect + developer + reviewer)?")) return;
-            try {
-              const result = await apiPost("/team", { clone_from: "default" });
-              alert(result.message);
-              load();
-            } catch (e) { alert("Failed: " + e.message); }
-          },
-        }, "⚡ Quick Team Setup"),
-      ),
       React.createElement("div", { className: "agora-profile-list" },
         profiles.length === 0 && React.createElement("p", { className: "agora-empty-hint" },
           "No profiles yet. Go to the Team tab to create one."
@@ -1460,7 +1481,7 @@
           await apiDelete("/workers/" + profile.name);
           onDeleted();
         } catch (e2) {
-          alert("Delete failed: " + e2.message);
+          toast("Delete failed: " + e2.message, "error");
         }
       }
       setDeleting(false);
@@ -1558,7 +1579,7 @@
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       } catch (e) {
-        alert("Save failed: " + e.message);
+        toast("Save failed: " + e.message, "error");
       }
       setSaving(false);
     };
@@ -1619,7 +1640,7 @@
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       } catch (e) {
-        alert("Save failed: " + e.message);
+        toast("Save failed: " + e.message, "error");
       }
       setSaving(false);
     };

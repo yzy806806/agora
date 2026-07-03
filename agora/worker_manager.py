@@ -191,12 +191,12 @@ def create_worker(
     except Exception as exc:
         logger.warning("Failed to write memories/USER.md for %s: %s", name, exc)
 
-    # Step 5: Ensure skills/ dir exists (profile-local, independent)
+    # Step 5: Ensure skills/ dir exists and seed with agora-awareness skill
     skills_dir = profile_dir / "skills"
     try:
         skills_dir.mkdir(parents=True, exist_ok=True)
-        # Create a .gitkeep so the dir isn't empty
-        (skills_dir / ".gitkeep").touch()
+        # Seed the agora-awareness skill so every worker understands the system
+        _seed_agora_skill(skills_dir)
     except Exception as exc:
         logger.warning("Failed to create skills dir for %s: %s", name, exc)
 
@@ -349,3 +349,37 @@ def get_worker_session(name: str, project: str | None = None) -> str | None:
     if project:
         return data.get("session_ids", {}).get(project) or data.get("session_id")
     return data.get("session_id")
+
+
+def _seed_agora_skill(skills_dir: Path) -> None:
+    """Copy the agora-awareness skill into a worker's skills directory.
+
+    This gives every new worker an understanding of how Agora works:
+    the team structure, kanban commands, discussion protocol, and
+    available tools.
+    """
+    import shutil
+
+    # The global skill lives in ~/.hermes/skills/collaboration/agora-awareness/
+    global_skills = Path.home() / ".hermes" / "skills"
+    source = global_skills / "collaboration" / "agora-awareness" / "SKILL.md"
+
+    if not source.exists():
+        # Try alternate locations
+        for alt in [
+            Path.home() / ".hermes" / "skills" / "agora-awareness" / "SKILL.md",
+        ]:
+            if alt.exists():
+                source = alt
+                break
+
+    if not source.exists():
+        logger.warning("agora-awareness skill not found — skipping seed")
+        return
+
+    dest_dir = skills_dir / "agora-awareness"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "SKILL.md"
+    if not dest.exists():
+        shutil.copy2(source, dest)
+        logger.info("Seeded agora-awareness skill to %s", dest)

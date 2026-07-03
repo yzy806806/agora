@@ -17,7 +17,38 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
+
+
+def _deploy_skills() -> None:
+    """Copy bundled skills (agora-awareness, agora-deliberation) to the global
+    ~/.hermes/skills/ directory so they're available to all profiles.
+
+    Called once at plugin registration. Overwrites stale copies silently;
+    existing user-edited skills under different names are never touched.
+    """
+    import shutil
+    from pathlib import Path
+
+    plugin_skills = Path(__file__).resolve().parent / "skills"
+    if not plugin_skills.is_dir():
+        return
+
+    global_skills = Path.home() / ".hermes" / "skills"
+    global_skills.mkdir(parents=True, exist_ok=True)
+
+    for skill_dir in plugin_skills.iterdir():
+        if not skill_dir.is_dir():
+            continue
+        # agora-awareness → collaboration/agora-awareness
+        # agora-deliberation → collaboration/agora-deliberation
+        dest = global_skills / "collaboration" / skill_dir.name
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in skill_dir.iterdir():
+            if f.is_file():
+                shutil.copy2(f, dest / f.name)
+
+    logger.debug("Agora skills deployed to %s", global_skills)
 
 
 def register(ctx) -> None:
@@ -30,6 +61,9 @@ def register(ctx) -> None:
     register_all_tools(ctx)
     register_hooks(ctx)
 
+    # Deploy bundled skills to global ~/.hermes/skills/
+    _deploy_skills()
+
     # Register `hermes agora` CLI subcommand
     ctx.register_cli_command(
         "agora",
@@ -39,4 +73,4 @@ def register(ctx) -> None:
         description="Manage Agora discussions: list, show, discuss, result",
     )
 
-    logger.info("Agora plugin v%s registered (18 tools + dashboard API + /agora command + CLI + 3 hooks + session manager + project boards)", __version__)
+    logger.info("Agora plugin v%s registered (18 tools + dashboard API + /agora command + CLI + 3 hooks + session manager + project boards + skills)", __version__)

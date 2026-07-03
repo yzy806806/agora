@@ -895,6 +895,44 @@
   padding: 0.5rem;
 }
 
+.agora-kanban-assignee {
+  font-size: 0.72rem;
+  color: var(--agora-text-dim);
+  background: var(--agora-bg-input);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  border: 1px solid var(--agora-border);
+}
+
+.agora-kanban-status {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.agora-kanban-status-todo {
+  background: #3a3a3a;
+  color: #ccc;
+}
+
+.agora-kanban-status-running {
+  background: #1a3a5c;
+  color: #6cb6ff;
+}
+
+.agora-kanban-status-blocked {
+  background: #5c1a1a;
+  color: #ff6c6c;
+}
+
+.agora-kanban-status-done {
+  background: #1a4c2e;
+  color: #6cff9e;
+}
+
 /* Discussion layout */
 .agora-discussion-layout {
   display: flex;
@@ -1013,6 +1051,48 @@
   background: rgba(245, 158, 11, 0.1);
 }
 
+/* Speaker name in message header */
+.agora-speaker {
+  color: var(--agora-text-bright);
+  font-weight: 600;
+}
+
+.agora-speaker-chair {
+  color: #c4b5fd;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* New discussion form */
+.agora-new-discussion-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: var(--agora-bg-card);
+  border: 1px solid var(--agora-border);
+  border-radius: 0.375rem;
+}
+
+.agora-new-discussion-form input,
+.agora-new-discussion-form textarea {
+  width: 100%;
+  padding: 0.5rem;
+  background: var(--agora-bg-input);
+  color: var(--agora-text);
+  border: 1px solid var(--agora-border);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.agora-new-discussion-form textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
 .agora-discussion-input {
   margin-top: 0.5rem;
   display: flex;
@@ -1089,3 +1169,19 @@
   padding: 0.25rem 0.5rem;
   font-size: 0.85rem;
 }
+
+/* Toast notifications */
+.agora-toast-container {
+  position: fixed; top: 16px; right: 16px; z-index: 10000;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.agora-toast {
+  padding: 10px 16px; border-radius: 8px; font-size: 13px;
+  color: #fff; background: #1a1a2e; border: 1px solid var(--agora-border, #1a1a2e);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4); max-width: 360px;
+  animation: agora-toast-in 0.2s ease-out; pointer-events: auto;
+}
+.agora-toast-info { border-left: 3px solid var(--agora-accent, #3b82f6); }
+.agora-toast-error { border-left: 3px solid var(--agora-danger, #ef4444); background: #2a1010; }
+@keyframes agora-toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
