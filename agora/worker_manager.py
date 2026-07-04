@@ -159,6 +159,13 @@ def create_worker(
     # on context compression — --resume <session_id> always works.
     ensure_in_place_compression(profile_dir / "config.yaml")
 
+    # Step 1d: Inject skills.external_dirs so the worker can read global
+    # shared skills (~/.hermes/skills/) while keeping its own profile-local
+    # skills/ directory for skills it creates via skill_manage.
+    # Without this, a worker spawned with -p <profile> would only see its
+    # own (nearly empty) skills/ dir and be blind to the 40+ shared skills.
+    _inject_external_skills(profile_dir / "config.yaml", profiles_root.parent)
+
     # Step 2: Write SOUL.md
     if template is not None:
         soul_path = profile_dir / "SOUL.md"
@@ -383,3 +390,41 @@ def _seed_agora_skill(skills_dir: Path) -> None:
     if not dest.exists():
         shutil.copy2(source, dest)
         logger.info("Seeded agora-awareness skill to %s", dest)
+
+
+def _inject_external_skills(config_path: Path, hermes_root: Path) -> None:
+    """Inject skills.external_dirs into the profile's config.yaml.
+
+    Workers spawned with -p <profile> have HERMES_HOME pointing at their
+    profile directory, so ``get_skills_dir()`` returns the profile-local
+    skills/ dir (nearly empty for new workers).  By adding the global
+    ~/.hermes/skills/ as an external dir, workers can read all shared
+    skills while keeping their own skills/ dir for personal skills they
+    create via skill_manage.
+    """
+    try:
+        import yaml
+
+        with open(config_path, "r") as f:
+            cfg = yaml.safe_load(f)
+        if not isinstance(cfg, dict):
+            return
+
+        skills_cfg = cfg.get("skills")
+        if not isinstance(skills_cfg, dict):
+            skills_cfg = {}
+
+        global_skills = str(hermes_root / "skills")
+        ext_dirs = skills_cfg.get("external_dirs", [])
+        if not isinstance(ext_dirs, list):
+            ext_dirs = []
+        if global_skills not in ext_dirs:
+            ext_dirs.append(global_skills)
+            skills_cfg["external_dirs"] = ext_dirs
+            cfg["skills"] = skills_cfg
+
+            with open(config_path, "w") as f:
+                yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+            logger.info("Injected skills.external_dirs=%s into %s", ext_dirs, config_path)
+    except Exception as exc:
+        logger.warning("Failed to inject external_dirs into %s: %s", config_path, exc)

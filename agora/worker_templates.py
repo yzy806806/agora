@@ -396,10 +396,16 @@ def list_templates() -> list[dict]:
     ]
 
 
+_SELF_GROWTH_SECTION = """\n## Self-Growth\nYou evolve through experience. Three channels are available to you:\n\n1. **Memory** — Use the `memory` tool to record durable facts, conventions,\n   and lessons learned. Your memory lives at\n   `~/.hermes/profiles/{name}/memories/MEMORY.md` and persists across\n   projects. Record things like: project conventions, tool quirks,\n   environment details, and corrections you received.\n\n2. **Skills** — Use `skill_manage(action='create')` to save reusable\n   procedures. Skills you create are stored in your personal\n   `~/.hermes/profiles/{name}/skills/` directory — they are yours alone,\n   not shared with other workers. You can also read shared global skills\n   from `~/.hermes/skills/`. Save a skill when you discover a workflow\n   worth reusing.\n\n3. **SOUL.md** — Your identity lives at\n   `~/.hermes/profiles/{name}/SOUL.md`. Use `patch` or `write_file` to\n   edit it when you want to permanently adjust your working style,\n   priorities, or protocols. This is your constitution — evolve it\n   deliberately, not impulsively.\n"""
+
+
 def render_soul(template: dict, name: str, **kwargs) -> str:
     """Render SOUL.md content for a named worker from a template.
 
     Extra kwargs (e.g. project=) are substituted into the template.
+    The Self-Growth section is appended to every role's SOUL so workers
+    know the exact paths for their personal memory, skills, and SOUL.md.
     """
     fmt_args = {"name": name, **kwargs}
-    return template["soul_template"].format(**fmt_args)
+    body = template["soul_template"].format(**fmt_args)
+    return body + _SELF_GROWTH_SECTION.format(**fmt_args)

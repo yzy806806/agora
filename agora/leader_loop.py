@@ -167,10 +167,13 @@ def _spawn_leader_agent(project: dict) -> dict:
     if session_id:
         cmd.extend(["--resume", session_id])
 
-    # Environment
+    # Environment — do NOT override HERMES_HOME here.
+    # The -p flag makes Hermes set HERMES_HOME to the profile directory
+    # (~/.hermes/profiles/<name>/), giving each worker isolated memory,
+    # skills, and sessions. Overriding it back to the global root would
+    # destroy that isolation (all workers sharing one MEMORY.md, one
+    # skills pool, one sessions DB).
     env = dict(os.environ)
-    profiles_root = Path(profile_dir).parent
-    env["HERMES_HOME"] = str(profiles_root.parent)
 
     kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
     if kanban_db:
