@@ -181,6 +181,8 @@
   function StartProjectForm({ teams, workers, onCreated }) {
     const [name, setName] = useState("");
     const [goal, setGoal] = useState("");
+    const [description, setDescription] = useState("");
+    const [stopCondition, setStopCondition] = useState("");
     const [workdir, setWorkdir] = useState("");
     const [team, setTeam] = useState("");
     const [heartbeatMember, setHeartbeatMember] = useState("");
@@ -198,6 +200,8 @@
         const result = await apiPost("/projects", {
           name: name.trim(),
           goal: goal.trim(),
+          description: description.trim(),
+          stop_condition: stopCondition.trim(),
           workdir: workdir.trim(),
           team: team || null,
           heartbeat_member: heartbeatMember || null,
@@ -226,12 +230,30 @@
         ),
         React.createElement("div", { className: "agora-field" },
           React.createElement(Label, null, "Goal"),
-          React.createElement("textarea", {
-            className: "agora-textarea agora-textarea-sm",
+          React.createElement(Input, {
             value: goal,
             onChange: function(e) { setGoal(e.target.value); },
+            placeholder: "One-liner: e.g. Build a doc-aware search API",
+          }),
+        ),
+        React.createElement("div", { className: "agora-field" },
+          React.createElement(Label, null, "Description"),
+          React.createElement("textarea", {
+            className: "agora-textarea agora-textarea-sm",
+            value: description,
+            onChange: function(e) { setDescription(e.target.value); },
             rows: 3,
-            placeholder: "What should the team accomplish? e.g. Build a doc-aware search API with React frontend",
+            placeholder: "Detailed project description — what to build, key features, scope...",
+          }),
+        ),
+        React.createElement("div", { className: "agora-field" },
+          React.createElement(Label, null, "Stop Condition"),
+          React.createElement("textarea", {
+            className: "agora-textarea agora-textarea-sm",
+            value: stopCondition,
+            onChange: function(e) { setStopCondition(e.target.value); },
+            rows: 2,
+            placeholder: "When should the project stop? e.g. All tests pass, README written, and CI is green",
           }),
         ),
         React.createElement("div", { className: "agora-field" },

@@ -653,6 +653,8 @@ def remove_team(team_name: str):
 class StartProjectRequest(BaseModel):
     name: str = Field(..., description="Project name")
     goal: str = Field(..., description="Project goal")
+    description: str = Field("", description="Detailed project description")
+    stop_condition: str = Field("", description="When should the project stop?")
     workdir: str = Field("/root", description="Working directory")
     team: Optional[str] = Field(None, description="Team name")
     profile: str = Field("coder", description="Hermes profile for workers")
@@ -705,6 +707,8 @@ def start_project_api(req: StartProjectRequest):
             project_name=req.name,
             workdir=req.workdir,
             goal=req.goal,
+            description=req.description,
+            stop_condition=req.stop_condition,
             profile=req.profile,
             max_rounds=req.max_rounds,
             team=req.team,
@@ -727,7 +731,7 @@ def stop_project_api(name: str):
         from project_planner import stop_project
         result = stop_project(name)
         if "error" in result:
-            raise HTTPException(status_code=404, detail=result["error"])
+            raise HTTPException(status_code=400, detail=result["error"])
         return result
     except HTTPException:
         raise

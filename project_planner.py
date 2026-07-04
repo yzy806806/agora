@@ -96,6 +96,19 @@ def update_project_agents_md(project_name: str) -> dict:
         "",
     ]
 
+    if proj.get("description"):
+        lines.append("## Description")
+        lines.append("")
+        lines.append(proj["description"])
+        lines.append("")
+
+    if proj.get("stop_condition"):
+        lines.append("## Stop Condition")
+        lines.append("")
+        lines.append(f"The project should stop when: {proj['stop_condition']}")
+        lines.append("Before stopping, all team members must vote on whether this condition is met.")
+        lines.append("")
+
     if proj.get("heartbeat_member"):
         lines.append(f"**Heartbeat Member:** {proj['heartbeat_member']} (woken every {proj.get('heartbeat_minutes', '?')} min)")
         lines.append("")
@@ -244,6 +257,8 @@ def start_project(
     project_name: str,
     workdir: str,
     goal: str = "",
+    description: str = "",
+    stop_condition: str = "",
     initial_topic: str = "",
     profile: str = "coder",
     max_rounds: int = 10,
@@ -256,7 +271,11 @@ def start_project(
     Args:
         project_name:      Short name (e.g. "docmind")
         workdir:           Absolute path to the project repo
-        goal:              High-level goal
+        goal:              High-level goal (one-liner shown in project list)
+        description:       Detailed project description (shown in AGENTS.md)
+        stop_condition:    Natural-language stop condition (e.g. "All tests
+                           pass and README is written"). Workers vote on
+                           whether this is met before stopping.
         initial_topic:     First discussion topic (auto-generated if empty)
         profile:           Hermes profile to use for workers
         max_rounds:        Maximum planning rounds before stopping
@@ -287,6 +306,8 @@ def start_project(
         "name": project_name,
         "workdir": workdir,
         "goal": goal,
+        "description": description,
+        "stop_condition": stop_condition,
         "profile": profile,
         "max_rounds": max_rounds,
         "current_round": 0,
@@ -342,13 +363,12 @@ def start_project(
 
 
 def stop_project(project_name: str) -> dict:
-    """Stop a self-driving project and pause its heartbeat."""
+    """Stop a project and pause its heartbeat."""
     pf = _project_file(project_name)
     if not pf.exists():
         return {"error": f"Project '{project_name}' not found"}
     data = json.loads(pf.read_text())
 
-    # Pause cron job
     cron_id = data.get("heartbeat_cron_id")
     if cron_id:
         _remove_heartbeat_cron(cron_id)
