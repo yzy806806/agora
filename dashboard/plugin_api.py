@@ -230,23 +230,78 @@ def update_profile_soul(name: str, req: UpdateSoulRequest):
 
 @router.get("/profiles/{name}/skills")
 def get_profile_skills(name: str):
-    """List skills available to a profile."""
+    """List skills available to a profile.
+
+    Scans the profile-local skills/ directory plus any external_dirs
+    configured in the profile's config.yaml. Skills listed in
+    skills.disabled are filtered out.
+    """
     try:
+        import yaml as _yaml
+        from pathlib import Path as _Path
+
         profiles_mod = _get_profiles_module()
         profile_dir = profiles_mod.get_profile_dir(name)
         if not profile_dir.exists():
             raise HTTPException(status_code=404, detail=f"Profile '{name}' not found")
 
-        skills_dir = profile_dir / "skills"
+        # Read disabled list and external_dirs from the profile's config.yaml
+        config_path = profile_dir / "config.yaml"
+        disabled: set[str] = set()
+        external_dirs: list[_Path] = []
+        if config_path.exists():
+            with open(config_path) as f:
+                cfg = _yaml.safe_load(f) or {}
+            skills_cfg = cfg.get("skills", {})
+            if isinstance(skills_cfg, dict):
+                disabled = set(skills_cfg.get("disabled", []) or [])
+                for d in (skills_cfg.get("external_dirs") or []):
+                    p = _Path(d)
+                    if p.is_dir():
+                        external_dirs.append(p)
+
+        def _parse_skill_name(md_path: _Path) -> str:
+            """Extract the frontmatter 'name' field, fall back to dir name."""
+            try:
+                content = md_path.read_text(encoding="utf-8")[:2000]
+                if content.startswith("---"):
+                    end = content.find("---", 3)
+                    if end > 0:
+                        fm = content[3:end]
+                        for line in fm.split("\n"):
+                            line = line.strip()
+                            if line.startswith("name:"):
+                                return line.split(":", 1)[1].strip().strip("\"'")
+            except Exception:
+                pass
+            return md_path.parent.name
+
         skills = []
-        if skills_dir.is_dir():
-            for sf in sorted(skills_dir.rglob("SKILL.md")):
-                skill_dir = sf.parent
-                rel = str(skill_dir.relative_to(skills_dir))
+        seen_names: set[str] = set()
+
+        # Scan local dir first, then external dirs (local takes precedence)
+        dirs_to_scan = [profile_dir / "skills"] + external_dirs
+        for scan_dir in dirs_to_scan:
+            if not scan_dir.is_dir():
+                continue
+            for sf in sorted(scan_dir.rglob("SKILL.md")):
+                skill_name = _parse_skill_name(sf)
+                dir_name = sf.parent.name
+                # Check both frontmatter name and dir name against disabled
+                if skill_name in disabled or dir_name in disabled:
+                    continue
+                if skill_name in seen_names or dir_name in seen_names:
+                    continue
+                seen_names.add(skill_name)
+                seen_names.add(dir_name)
+                rel = str(sf.parent.relative_to(scan_dir))
                 skills.append({
                     "name": rel,
+                    "skill_name": skill_name,
                     "path": str(sf),
+                    "source": "local" if scan_dir == profile_dir / "skills" else "external",
                 })
+
         return {"name": name, "skills": skills, "count": len(skills)}
     except HTTPException:
         raise
@@ -665,12 +720,27 @@ def start_project_api(req: StartProjectRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.delete("/projects/{name}")
+@router.post("/projects/{name}/stop")
 def stop_project_api(name: str):
-    """Stop a project."""
+    """Stop a project (pause heartbeat, mark as stopped)."""
     try:
         from project_planner import stop_project
         result = stop_project(name)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/projects/{name}")
+def delete_project_api(name: str):
+    """Permanently delete a project."""
+    try:
+        from project_planner import delete_project
+        result = delete_project(name)
         if "error" in result:
             raise HTTPException(status_code=404, detail=result["error"])
         return result

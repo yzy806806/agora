@@ -308,14 +308,34 @@
     var counts = project.task_counts || {};
     var total = (counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0);
 
+    const handleStop = async (e) => {
+      e.stopPropagation();
+      if (!confirm("Stop project '" + project.name + "'?")) return;
+      setDeleting(true);
+      try { await apiPost("/projects/" + project.name + "/stop", {}); onDeleted(); }
+      catch (e) { toast("Stop failed: " + e.message, "error"); }
+      setDeleting(false);
+    };
     const handleDelete = async (e) => {
       e.stopPropagation();
-      if (!confirm("Stop and delete project '" + project.name + "'?")) return;
+      if (!confirm("Permanently delete project '" + project.name + "'? This cannot be undone.")) return;
       setDeleting(true);
       try { await apiDelete("/projects/" + project.name); onDeleted(); }
       catch (e) { toast("Delete failed: " + e.message, "error"); }
       setDeleting(false);
     };
+
+    var actionButton;
+    if (project.status === "active") {
+      actionButton = React.createElement(Button, {
+        variant: "ghost", size: "sm", onClick: handleStop, disabled: deleting,
+      }, deleting ? "..." : "Stop");
+    } else {
+      actionButton = React.createElement(Button, {
+        variant: "ghost", size: "sm", onClick: handleDelete, disabled: deleting,
+        className: "agora-btn-danger",
+      }, deleting ? "..." : "Delete");
+    }
 
     return React.createElement(Card, {
       className: "agora-project-card",
@@ -329,9 +349,7 @@
             project.team && React.createElement(Badge, { className: "agora-badge-blue" }, "👥 " + project.team),
             project.heartbeat_member && React.createElement(Badge, null, "👨‍💼 " + project.heartbeat_member),
           ),
-          React.createElement(Button, {
-            variant: "ghost", size: "sm", onClick: handleDelete, disabled: deleting,
-          }, deleting ? "..." : "Stop"),
+          actionButton,
         ),
         project.goal && React.createElement("p", { className: "agora-project-goal" }, project.goal),
         React.createElement("div", { className: "agora-project-meta" },

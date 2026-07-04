@@ -267,6 +267,12 @@ def start_project(
     Returns:
         dict with status and project info
     """
+    # Ensure workdir exists
+    import os
+    if workdir and not os.path.exists(workdir):
+        os.makedirs(workdir, exist_ok=True)
+        logger.info("Created project workdir: %s", workdir)
+
     pf = _project_file(project_name)
     board_name = _ensure_project_board(project_name)
 
@@ -351,6 +357,55 @@ def stop_project(project_name: str) -> dict:
     pf.write_text(json.dumps(data, indent=2))
     logger.info("Project %s stopped", project_name)
     return {"status": "stopped", "project": data}
+
+
+def delete_project(project_name: str) -> dict:
+    """Permanently delete a project — stop heartbeat, remove registry file,
+    and remove the project from all workers' projects lists."""
+    pf = _project_file(project_name)
+    if not pf.exists():
+        return {"error": f"Project '{project_name}' not found"}
+    data = json.loads(pf.read_text())
+
+    # Pause cron job
+    cron_id = data.get("heartbeat_cron_id")
+    if cron_id:
+        _remove_heartbeat_cron(cron_id)
+
+    # Remove project from all workers' projects lists
+    team = data.get("team")
+    if team:
+        try:
+            from agora.team_manager import get_team
+            tm = get_team(team)
+            if tm:
+                for w in tm.get("workers", []):
+                    _remove_project_from_worker(w["name"], project_name)
+        except Exception:
+            pass
+    heartbeat_member = data.get("heartbeat_member")
+    if heartbeat_member and not team:
+        _remove_project_from_worker(heartbeat_member, project_name)
+
+    # Delete the project registry file
+    pf.unlink()
+    logger.info("Project %s deleted", project_name)
+    return {"status": "deleted", "project": project_name}
+
+
+def _remove_project_from_worker(worker_name: str, project_name: str) -> None:
+    """Remove a project from a worker's projects list."""
+    from agora.worker_manager import _worker_file
+    wf = _worker_file(worker_name)
+    if not wf.exists():
+        return
+    try:
+        data = json.loads(wf.read_text())
+        if project_name in data.get("projects", []):
+            data["projects"].remove(project_name)
+            wf.write_text(json.dumps(data, indent=2))
+    except Exception:
+        pass
 
 
 def get_project(project_name: str) -> dict | None:
