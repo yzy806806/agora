@@ -67,8 +67,8 @@ class DiscussionDriver:
         workdir: str = "",
         project_name: str = "",
         max_steps: int = 30,
-        speak_timeout: int = 300,
-        chair_timeout: int = 120,
+        speak_timeout: int = 600,
+        chair_timeout: int = 240,
     ) -> None:
         self.motion_id = motion_id
         self.chair_profile = chair_profile
@@ -377,7 +377,7 @@ class DiscussionDriver:
             session_id=session_id,
             workdir=self.workdir,
             # Investigations may take longer (web search, running tests)
-            timeout=self.speak_timeout + 120,
+            timeout=self.speak_timeout + 240,
         )
 
         if result.get("session_id"):
@@ -426,7 +426,7 @@ class DiscussionDriver:
                 prompt=vote_prompt,
                 session_id=session_id,
                 workdir=self.workdir,
-                timeout=min(self.speak_timeout, 120),
+                timeout=min(self.speak_timeout, 240),
             )
 
             if result.get("session_id"):
@@ -525,7 +525,7 @@ class DiscussionDriver:
                 prompt=vote_prompt,
                 session_id=session_id,
                 workdir=self.workdir,
-                timeout=min(self.speak_timeout, 120),
+                timeout=min(self.speak_timeout, 240),
             )
 
             if result.get("session_id"):
