@@ -158,7 +158,6 @@ def create_motion(
     max_rounds: int = 3,
     source: str = "user",
     source_task_id: str = "",
-    source_profile: str = "",
     blocking: bool = False,
     participants: list[str] | None = None,
     chair: str = "",
@@ -179,7 +178,7 @@ def create_motion(
                 chair, state, step_count, max_steps, project)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (motion_id, title, description, max_rounds, source,
-             source_task_id or None, source_profile or None,
+             source_task_id or None, None,
              1 if blocking else 0, json.dumps(participants), now,
              chair, "discussing", 0, max_steps, project),
         )

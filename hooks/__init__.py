@@ -102,8 +102,7 @@ def _on_task_completed(
     try:
         from ..project_planner import on_task_completed as _planner_hook
         _planner_hook(task_id, board=board, assignee=assignee,
-                      run_id=run_id, summary=summary,
-                      profile_name=profile_name)
+                      run_id=run_id, summary=summary)
     except Exception as exc:
         logger.debug("Self-drive planner hook skipped: %s", exc)
 
@@ -352,7 +351,6 @@ def _on_task_blocked(
                     ),
                     source="agent",
                     source_task_id=task_id,
-                    source_profile=profile_name,
                     blocking=True,
                 )
                 logger.info(

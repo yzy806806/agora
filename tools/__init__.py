@@ -26,6 +26,7 @@ import importlib.util as _importlib_util
 from pathlib import Path as _Path
 from typing import Any
 
+
 # Make the `agora` subpackage and top-level plugin modules importable in
 # worker processes without adding the plugin root to sys.path (which would
 # shadow Hermes' own `cli` module).
@@ -326,7 +327,6 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
 
     # Detect source: if running inside a kanban task, attribute to agent
     source_task_id = os.environ.get("HERMES_KANBAN_TASK", "")
-    source_profile = ctx.profile_name if hasattr(ctx, "profile_name") else "default"
     source = "agent" if source_task_id else "user"
 
     # Try to auto-resolve participants and chair from the project
@@ -347,7 +347,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
             finally:
                 conn.close()
 
-            # 2. If no project from task, try the source_profile's active project
+            # 2. If no project from task, try the active project
             if not resolved_project:
                 try:
                     from project_planner import list_projects
@@ -382,7 +382,6 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         max_rounds=rounds,
         source=source,
         source_task_id=source_task_id or "",
-        source_profile=source_profile,
         blocking=blocking,
         participants=participants,
         chair=chair,
@@ -654,12 +653,11 @@ def _register_project_tools(ctx: Any) -> None:
         max_rounds = args.get("max_rounds", 10)
         heartbeat_member = args.get("heartbeat_member", "") or None
         heartbeat_minutes = args.get("heartbeat_minutes", 15)
-        profile = ctx.profile_name if hasattr(ctx, "profile_name") else "coder"
         if not name or not workdir:
             return {"error": "name and workdir are required"}
         return start_project(
             project_name=name, workdir=workdir, goal=goal,
-            initial_topic=initial_topic, profile=profile, max_rounds=max_rounds,
+            initial_topic=initial_topic, max_rounds=max_rounds,
             heartbeat_member=heartbeat_member, heartbeat_minutes=heartbeat_minutes,
         )
 

@@ -657,7 +657,6 @@ class StartProjectRequest(BaseModel):
     stop_condition: str = Field("", description="When should the project stop?")
     workdir: str = Field("/root", description="Working directory")
     team: Optional[str] = Field(None, description="Team name")
-    profile: str = Field("coder", description="Hermes profile for workers")
     max_rounds: int = Field(10, description="Max planning rounds")
     heartbeat_member: Optional[str] = Field(None, description="Worker name to wake on heartbeat (usually a leader)")
     heartbeat_minutes: int = Field(15, description="Heartbeat interval in minutes")
@@ -667,9 +666,29 @@ class UpdateHeartbeatRequest(BaseModel):
     minutes: int = Field(..., description="New heartbeat interval in minutes")
 
 
+def _count_tasks() -> dict:
+    """Count tasks by status on the default kanban board."""
+    import sqlite3
+    counts = {"todo": 0, "running": 0, "blocked": 0, "done": 0}
+    try:
+        conn = sqlite3.connect("/root/.hermes/kanban.db")
+        try:
+            for r in conn.execute(
+                "SELECT status, COUNT(*) AS n FROM tasks WHERE status != 'archived' GROUP BY status"
+            ):
+                s = r[0]
+                if s in counts:
+                    counts[s] = r[1]
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return counts
+
+
 @router.get("/projects")
 def list_projects_api():
-    """List all Agora projects with cron status."""
+    """List all Agora projects with cron status and task counts."""
     try:
         from project_planner import list_projects, get_cron_status
         projects = list_projects()
@@ -677,6 +696,7 @@ def list_projects_api():
             proj_name = proj.get("name", "")
             if proj_name:
                 proj["cron_status"] = get_cron_status(proj_name)
+                proj["task_counts"] = _count_tasks()
         return {"projects": projects}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -684,13 +704,14 @@ def list_projects_api():
 
 @router.get("/projects/{name}")
 def get_project_api(name: str):
-    """Get project detail."""
+    """Get project detail with cron status and task counts."""
     try:
         from project_planner import get_project, get_cron_status
         proj = get_project(name)
         if proj is None:
             raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
         proj["cron_status"] = get_cron_status(name)
+        proj["task_counts"] = _count_tasks()
         return proj
     except HTTPException:
         raise
@@ -709,7 +730,6 @@ def start_project_api(req: StartProjectRequest):
             goal=req.goal,
             description=req.description,
             stop_condition=req.stop_condition,
-            profile=req.profile,
             max_rounds=req.max_rounds,
             team=req.team,
             heartbeat_member=req.heartbeat_member,
@@ -808,6 +828,72 @@ def trigger_project_heartbeat(name: str):
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
         return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/projects/{name}/tasks")
+def get_project_tasks_api(name: str):
+    """Get kanban tasks for a project.
+
+    Tasks are stored on the default kanban board.  We query by
+    board slug (``agora-{project_name}``) and fall back to listing
+    all non-archived tasks on the default board when the project's
+    board doesn't exist yet (tasks created before board isolation
+    was implemented have no board/tenant set).
+    """
+    try:
+        import sqlite3
+        from project_planner import get_project
+
+        proj = get_project(name)
+        if proj is None:
+            raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+        board = proj.get("board", f"agora-{name}")
+
+        # Try the kanban board API first
+        try:
+            import sys
+            sys.path.insert(0, "/usr/local/lib/hermes-agent")
+            from hermes_cli import kanban_db
+            boards = kanban_db.list_boards()
+            board_slugs = [b["slug"] for b in boards]
+        except Exception:
+            board_slugs = ["default"]
+
+        db_path = "/root/.hermes/kanban.db"
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            # List all non-archived tasks (tasks on this instance are
+            # shared on the default board; Agora uses tenant/board for
+            # isolation but legacy tasks may not have it set).
+            rows = conn.execute(
+                "SELECT * FROM tasks WHERE status != 'archived' ORDER BY priority DESC, created_at ASC"
+            ).fetchall()
+            tasks = []
+            counts = {"todo": 0, "running": 0, "blocked": 0, "done": 0}
+            for r in rows:
+                t = dict(r)
+                status = t.get("status", "todo")
+                if status in counts:
+                    counts[status] += 1
+                tasks.append({
+                    "id": t.get("id"),
+                    "title": t.get("title"),
+                    "status": status,
+                    "assignee": t.get("assignee"),
+                    "priority": t.get("priority", 0),
+                    "created_at": t.get("created_at"),
+                    "started_at": t.get("started_at"),
+                    "completed_at": t.get("completed_at"),
+                })
+            return {"tasks": tasks, "task_counts": counts}
+        finally:
+            conn.close()
     except HTTPException:
         raise
     except Exception as exc:

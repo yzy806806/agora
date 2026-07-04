@@ -604,7 +604,7 @@
     const load = useCallback(async function(silent) {
       if (!silent) setLoading(true);
       try {
-        const data = await fetchJSON("/api/kanban/tasks?project=" + encodeURIComponent(projectName));
+        const data = await fetchJSON(API + "/projects/" + encodeURIComponent(projectName) + "/tasks");
         setTasks(data.tasks || []);
         setError(null);
       } catch (e) {

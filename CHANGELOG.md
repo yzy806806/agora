@@ -2,6 +2,32 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.2.1] — 2026-07-05
+
+### Dashboard fixes
+
+- **Kanban tasks not showing in Agora tab**: frontend was calling
+  non-existent `/api/kanban/tasks?project=` endpoint. Added
+  `/projects/{name}/tasks` API that queries the kanban DB directly.
+- **Task counts always 0**: `list_projects` and `get_project` API
+  now populate `task_counts` (todo/running/blocked/done) from the
+  kanban DB.
+- **Heartbeat always shows "Currently paused"**: `get_cron_status`
+  was hardcoded to read `~/.hermes/profiles/coder/cron/jobs.json`
+  which doesn't exist. Now reads `~/.hermes/cron/jobs.json` (default
+  profile).
+
+### Dead code cleanup
+
+- Removed `profile` parameter from `start_project()` — it was written
+  to `project.json` but never read back by any code. Worker profiles
+  are determined by worker name (set at creation time), not by this
+  field.
+- Removed `source_profile` from `create_motion()` — written to DB
+  but never read for any logic. DB column retained for compatibility.
+- Removed hardcoded `profiles/coder/` path from heartbeat script.
+- Removed `_get_active_profile()` helper (no longer referenced).
+
 ## [1.1.0] — 2026-07-04
 
 ### Discussion engine: infinite loop fix

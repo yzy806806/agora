@@ -217,7 +217,7 @@ done
 
 # Search for the agora plugin directory — must contain agora/ submodule
 PLUGIN=""
-for d in /root/agora /root/.hermes/profiles/coder/plugins/agora /root/.hermes/plugins/agora; do
+for d in /root/agora /root/.hermes/plugins/agora; do
     [ -d "$d/agora" ] && PLUGIN="$d" && break
 done
 
@@ -278,7 +278,6 @@ def start_project(
     description: str = "",
     stop_condition: str = "",
     initial_topic: str = "",
-    profile: str = "coder",
     max_rounds: int = 10,
     team: str | None = None,
     heartbeat_member: str | None = None,
@@ -295,7 +294,6 @@ def start_project(
                            pass and README is written"). Workers vote on
                            whether this is met before stopping.
         initial_topic:     First discussion topic (auto-generated if empty)
-        profile:           Hermes profile to use for workers
         max_rounds:        Maximum planning rounds before stopping
         team:              Team name for assignee routing
         heartbeat_member:  Worker name to wake on heartbeat (usually a leader)
@@ -326,7 +324,6 @@ def start_project(
         "goal": goal,
         "description": description,
         "stop_condition": stop_condition,
-        "profile": profile,
         "max_rounds": max_rounds,
         "current_round": 0,
         "status": "active",
@@ -603,21 +600,25 @@ def on_project_complete(project_name: str) -> None:
 def get_cron_status(project_name: str) -> dict:
     """Get cron job status for a project's heartbeat."""
     import json as _json
-    cron_jobs_path = Path.home() / ".hermes" / "profiles" / "coder" / "cron" / "jobs.json"
     cron_name = f"heartbeat-{safe_name(project_name)}"
-    try:
-        if cron_jobs_path.exists():
-            cron_data = _json.loads(cron_jobs_path.read_text())
-            for job in cron_data.get("jobs", []):
-                if job.get("name") == cron_name:
-                    return {
-                        "enabled": job.get("enabled", False),
-                        "next_run": job.get("next_run_at"),
-                        "last_run": job.get("last_run_at"),
-                        "schedule": job.get("schedule_display"),
-                    }
-    except Exception:
-        pass
+    # Check both the default profile and named profiles
+    cron_paths = [
+        Path.home() / ".hermes" / "cron" / "jobs.json",
+    ]
+    for cron_jobs_path in cron_paths:
+        try:
+            if cron_jobs_path.exists():
+                cron_data = _json.loads(cron_jobs_path.read_text())
+                for job in cron_data.get("jobs", []):
+                    if job.get("name") == cron_name:
+                        return {
+                            "enabled": job.get("enabled", False),
+                            "next_run": job.get("next_run_at"),
+                            "last_run": job.get("last_run_at"),
+                            "schedule": job.get("schedule_display"),
+                        }
+        except Exception:
+            pass
     return {"enabled": False}
 
 
