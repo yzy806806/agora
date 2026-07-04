@@ -26,8 +26,9 @@ import importlib.util as _importlib_util
 from pathlib import Path as _Path
 from typing import Any
 
-# Make the `agora` subpackage importable in worker processes without adding
-# the plugin root to sys.path (which would shadow Hermes' own `cli` module).
+# Make the `agora` subpackage and top-level plugin modules importable in
+# worker processes without adding the plugin root to sys.path (which would
+# shadow Hermes' own `cli` module).
 _PLUGIN_ROOT = _Path(__file__).resolve().parent.parent
 _AGORA_PKG = _PLUGIN_ROOT / "agora"
 if "agora" not in _sys.modules and _AGORA_PKG.is_dir():
@@ -40,6 +41,18 @@ if "agora" not in _sys.modules and _AGORA_PKG.is_dir():
         _mod = _importlib_util.module_from_spec(_spec)
         _sys.modules["agora"] = _mod
         _spec.loader.exec_module(_mod)
+
+# Register top-level plugin modules (project_planner, cli, etc.) so that
+# `from project_planner import ...` works in worker processes.
+for _mod_name in ("project_planner",):
+    if _mod_name not in _sys.modules:
+        _mod_file = _PLUGIN_ROOT / f"{_mod_name}.py"
+        if _mod_file.exists():
+            _spec = _importlib_util.spec_from_file_location(_mod_name, _mod_file)
+            if _spec and _spec.loader:
+                _mod = _importlib_util.module_from_spec(_spec)
+                _sys.modules[_mod_name] = _mod
+                _spec.loader.exec_module(_mod)
 
 logger = logging.getLogger(__name__)
 
