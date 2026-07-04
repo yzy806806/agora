@@ -2,6 +2,34 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.1.0] — 2026-07-04
+
+### Discussion engine: infinite loop fix
+
+**Root cause:** A motion with an empty title (`title=""`) would enter the
+discussion loop but never terminate — the chair kept dispatching the
+developer to investigate, the dispatch failed (no workdir → worker can't
+find project files), and the loop had no failure limit, spawning worker
+processes indefinitely.
+
+Three fixes:
+
+1. **Empty-title abort** (`driver.py`): motions with `title=""` or
+   `title="   "` are now aborted immediately with `decision="error"`
+   before entering the discussion loop.
+
+2. **Dispatch failure limit** (`driver.py`): added a
+   `consecutive_failures` counter. When an investigator's dispatch fails
+   (empty reply or error placeholder) 3 times in a row, the loop breaks
+   and forces a vote instead of retrying endlessly.
+
+3. **Workdir fallback** (`tools/__init__.py`): when `source_task_id` is
+   `None` (leader raised the motion outside a kanban task), the workdir
+   was never resolved — it stayed as `""`, so dispatched workers ran in
+   `/root` instead of the project directory. Now falls back to
+   `resolved_project` (the project name already resolved during motion
+   creation) to look up the workdir from the project registry.
+
 ## [1.0.0] — 2026-07-04
 
 ### Critical: Worker process `No module named 'agora'` fix

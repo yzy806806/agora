@@ -431,6 +431,9 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
                             spawn_project = task.tenant
                     finally:
                         conn.close()
+                # Fallback: use the resolved project name from the motion
+                if not spawn_project and resolved_project:
+                    spawn_project = resolved_project
                 if spawn_project:
                     proj_file = get_registry_dir("projects") / f"{safe_name(spawn_project)}.json"
                     if proj_file.exists():

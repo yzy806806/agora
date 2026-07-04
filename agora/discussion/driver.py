@@ -90,6 +90,13 @@ class DiscussionDriver:
 
         title = motion["title"]
         description = motion.get("description", "")
+
+        # Abort early on empty motions — there is nothing to discuss, and
+        # running the loop would just burn worker spawns for no reason.
+        if not title or not title.strip():
+            logger.warning("Motion %s has empty title, aborting", self.motion_id)
+            return self._abort("Motion has empty title — nothing to discuss")
+
         task_context = self._fetch_task_context(motion.get("source_task_id"))
 
         logger.info(
@@ -113,6 +120,8 @@ class DiscussionDriver:
 
         # --- Steps 2-N: speak → evaluate → repeat ---
         step = 0
+        consecutive_failures = 0
+        MAX_CONSECUTIVE_FAILURES = 3
         while step < self.max_steps:
             step += 1
             db.increment_step_count(self.motion_id)
@@ -197,8 +206,24 @@ class DiscussionDriver:
                     reply = self._investigator_speak(
                         investigator, title, dispatch_task,
                     )
-                    if not reply:
+                    if not reply or reply.startswith("["):
+                        # Investigation failed (empty reply or error placeholder)
                         reply = f"[{investigator} could not complete the investigation]"
+                        consecutive_failures += 1
+                        logger.warning(
+                            "Dispatch to %s failed (%d/%d consecutive)",
+                            investigator, consecutive_failures,
+                            MAX_CONSECUTIVE_FAILURES,
+                        )
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                            logger.error(
+                                "Max consecutive dispatch failures (%d) reached, "
+                                "forcing vote",
+                                MAX_CONSECUTIVE_FAILURES,
+                            )
+                            break
+                    else:
+                        consecutive_failures = 0  # reset on success
                     db.add_message(
                         motion_id=self.motion_id,
                         role=investigator,
