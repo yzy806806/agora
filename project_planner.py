@@ -106,7 +106,6 @@ def update_project_agents_md(project_name: str) -> dict:
         lines.append("## Stop Condition")
         lines.append("")
         lines.append(f"The project should stop when: {proj['stop_condition']}")
-        lines.append("Before stopping, all team members must vote on whether this condition is met.")
         lines.append("")
 
     if proj.get("heartbeat_member"):
