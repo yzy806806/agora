@@ -485,7 +485,7 @@ def get_discussion_state_endpoint(motion_id: str):
 class CreateWorkerRequest(BaseModel):
     name: str = Field(..., description="Worker profile name")
     role: str = Field(..., description="Role: architect/developer/reviewer/tester/devops")
-    clone_from: str = Field("coder")
+    clone_from: Optional[str] = Field(None)
     model: Optional[str] = Field(None)
 
 

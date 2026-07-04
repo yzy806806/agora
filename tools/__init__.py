@@ -690,7 +690,7 @@ _CREATE_WORKER_SCHEMA = {
             "enum": ["architect", "developer", "reviewer", "tester", "devops"],
             "description": "Role template to use",
         },
-        "clone_from": {"type": "string", "description": "Source profile to clone config from", "default": "coder"},
+        "clone_from": {"type": "string", "description": "Source profile to clone config from (optional — defaults to copying global config.yaml)"},
         "model": {"type": "string", "description": "Override model for this worker (optional)", "default": ""},
     },
     "required": ["name", "role"],

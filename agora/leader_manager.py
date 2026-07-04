@@ -16,7 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_leader(name, project, clone_from="coder", heartbeat_minutes=15, model=None):
+def create_leader(name, project, clone_from=None, heartbeat_minutes=15, model=None):
     """DEPRECATED — use worker_manager.create_worker + project_planner.start_project."""
     from .worker_manager import create_worker
     from project_planner import start_project

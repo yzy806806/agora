@@ -82,7 +82,10 @@ def create_worker(
     Returns:
         dict with creation status and worker info
     """
-    # Validate name
+    # Validate name — normalise to lowercase (webui may pass display names)
+    name = name.strip()
+    if name and name != name.lower():
+        name = name.lower()
     if not name or not name.replace("-", "").replace("_", "").isalnum():
         return {"error": f"Invalid worker name '{name}'. Use lowercase alphanumeric with - or _."}
 
