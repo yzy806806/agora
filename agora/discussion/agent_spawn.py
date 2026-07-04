@@ -260,8 +260,31 @@ def spawn_discussion_driver(
         runner_script = f'''\
 #!/usr/bin/env python3
 """Auto-generated discussion runner for motion {motion_id}."""
-import sys
-sys.path.insert(0, {str(plugin_root)!r})
+import sys, importlib.util
+from pathlib import Path
+
+_plugin_root = Path({str(plugin_root)!r})
+_agora_pkg = _plugin_root / "agora"
+
+# Register the agora package without polluting sys.path
+if "agora" not in sys.modules and _agora_pkg.is_dir():
+    _spec = importlib.util.spec_from_file_location(
+        "agora", _agora_pkg / "__init__.py",
+        submodule_search_locations=[str(_agora_pkg)],
+    )
+    _mod = importlib.util.module_from_spec(_spec)
+    sys.modules["agora"] = _mod
+    _spec.loader.exec_module(_mod)
+
+# Register project_planner (top-level module)
+if "project_planner" not in sys.modules:
+    _pp = _plugin_root / "project_planner.py"
+    if _pp.exists():
+        _spec = importlib.util.spec_from_file_location("project_planner", _pp)
+        _mod = importlib.util.module_from_spec(_spec)
+        sys.modules["project_planner"] = _mod
+        _spec.loader.exec_module(_mod)
+
 from agora.discussion.driver import DiscussionDriver
 driver = DiscussionDriver(
     motion_id={motion_id!r},

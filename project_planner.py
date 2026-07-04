@@ -222,8 +222,26 @@ for d in /root/agora /root/.hermes/profiles/coder/plugins/agora /root/.hermes/pl
 done
 
 $PYTHON -c "
-import sys, json, os
-sys.path.insert(0, os.environ.get('AGORA_PLUGIN_PATH', '$PLUGIN'))
+import sys, json, os, importlib.util
+from pathlib import Path
+
+_plugin_root = Path(os.environ.get('AGORA_PLUGIN_PATH', '$PLUGIN'))
+_agora_pkg = _plugin_root / 'agora'
+
+if 'agora' not in sys.modules and _agora_pkg.is_dir():
+    _spec = importlib.util.spec_from_file_location('agora', _agora_pkg / '__init__.py', submodule_search_locations=[str(_agora_pkg)])
+    _mod = importlib.util.module_from_spec(_spec)
+    sys.modules['agora'] = _mod
+    _spec.loader.exec_module(_mod)
+
+if 'project_planner' not in sys.modules:
+    _pp = _plugin_root / 'project_planner.py'
+    if _pp.exists():
+        _spec = importlib.util.spec_from_file_location('project_planner', _pp)
+        _mod = importlib.util.module_from_spec(_spec)
+        sys.modules['project_planner'] = _mod
+        _spec.loader.exec_module(_mod)
+
 from agora.leader_loop import heartbeat
 result = heartbeat()
 print(json.dumps(result, indent=2))
