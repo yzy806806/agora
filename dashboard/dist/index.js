@@ -19,6 +19,18 @@
   } = components;
   const { cn, timeAgo, isoTimeAgo } = utils;
 
+  // Format a future ISO timestamp as "in 12 min" / "in 3 hours" / absolute time.
+  function timeUntil(iso) {
+    if (!iso) return "unknown";
+    var diff = (new Date(iso).getTime() - Date.now()) / 1000;
+    if (Number.isNaN(diff)) return "unknown";
+    if (diff < 0) return isoTimeAgo(iso); // already past — fall back to "ago"
+    if (diff < 60) return "in " + Math.floor(diff) + " sec";
+    if (diff < 3600) return "in " + Math.floor(diff / 60) + " min";
+    if (diff < 86400) return "in " + Math.floor(diff / 3600) + " hours";
+    return new Date(iso).toLocaleString();
+  }
+
   const API = "/api/plugins/agora";
 
   // ========================================================================
@@ -585,7 +597,7 @@
             "📋 Last cron run: ", isoTimeAgo(cronStatus.last_run),
           ),
           cronStatus.next_run && !hb.paused && React.createElement("p", { className: "agora-hint" },
-            "⏭️ Next cron run: ", isoTimeAgo(cronStatus.next_run),
+            "⏭️ Next cron run: ", timeUntil(cronStatus.next_run),
           ),
         ),
       ),
