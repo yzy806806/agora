@@ -21,14 +21,25 @@ from __future__ import annotations
 import logging
 import os
 import sys as _sys
+import types as _types
+import importlib.util as _importlib_util
 from pathlib import Path as _Path
 from typing import Any
 
-# Ensure the plugin root is on sys.path so `from agora.xxx import ...`
-# works when tool handlers are dispatched in worker processes.
+# Make the `agora` subpackage importable in worker processes without adding
+# the plugin root to sys.path (which would shadow Hermes' own `cli` module).
 _PLUGIN_ROOT = _Path(__file__).resolve().parent.parent
-if str(_PLUGIN_ROOT) not in _sys.path:
-    _sys.path.insert(0, str(_PLUGIN_ROOT))
+_AGORA_PKG = _PLUGIN_ROOT / "agora"
+if "agora" not in _sys.modules and _AGORA_PKG.is_dir():
+    _spec = _importlib_util.spec_from_file_location(
+        "agora",
+        _AGORA_PKG / "__init__.py",
+        submodule_search_locations=[str(_AGORA_PKG)],
+    )
+    if _spec and _spec.loader:
+        _mod = _importlib_util.module_from_spec(_spec)
+        _sys.modules["agora"] = _mod
+        _spec.loader.exec_module(_mod)
 
 logger = logging.getLogger(__name__)
 
