@@ -20,7 +20,15 @@ from __future__ import annotations
 
 import logging
 import os
+import sys as _sys
+from pathlib import Path as _Path
 from typing import Any
+
+# Ensure the plugin root is on sys.path so `from agora.xxx import ...`
+# works when tool handlers are dispatched in worker processes.
+_PLUGIN_ROOT = _Path(__file__).resolve().parent.parent
+if str(_PLUGIN_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_PLUGIN_ROOT))
 
 logger = logging.getLogger(__name__)
 
