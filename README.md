@@ -32,7 +32,13 @@ Agora turns Hermes into a self-driving team: multiple AI roles — each a **real
 hermes plugins install yzy806806/agora
 hermes plugins enable agora
 hermes gateway restart
+hermes dashboard restart  # if dashboard is running — plugin's sidebar tab won't appear until restart
 ```
+
+> **Note:** Both the gateway **and** the dashboard need restarting after enabling.
+> The gateway loads plugin tools/hooks; the dashboard discovers plugin sidebar
+> tabs at startup. If you only restart the gateway, the Agora tab won't appear
+> in the dashboard sidebar.
 
 ## Quick Start
 

@@ -29,7 +29,12 @@ Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个�
 hermes plugins install yzy806806/agora
 hermes plugins enable agora
 hermes gateway restart
+hermes dashboard restart  # 如果 dashboard 在运行——插件侧边栏 tab 需要重启才会出现
 ```
+
+> **注意：** 启用插件后，gateway 和 dashboard **都需要重启**。
+> Gateway 加载插件的工具/钩子；Dashboard 在启动时发现插件的侧边栏 tab。
+> 如果只重启 gateway，Dashboard 侧边栏不会显示 Agora tab。
 
 ## 快速开始
 
