@@ -268,26 +268,9 @@ def update_motion_status(
         conn.close()
 
 
-def increment_round(motion_id: str) -> int:
-    """Increment and return the current round number."""
-    conn = _connect()
-    try:
-        conn.execute(
-            "UPDATE motions SET current_round = current_round + 1 WHERE id = ?",
-            (motion_id,),
-        )
-        conn.commit()
-        row = conn.execute(
-            "SELECT current_round FROM motions WHERE id = ?", (motion_id,)
-        ).fetchone()
-        return dict(row)["current_round"]
-    finally:
-        conn.close()
-
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
 # Messages — see bottom of file for extended add_message with event-driven fields
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
 
 def get_messages(motion_id: str, round_num: int | None = None) -> list[dict]:
     """Fetch messages for a motion, optionally filtered by round."""

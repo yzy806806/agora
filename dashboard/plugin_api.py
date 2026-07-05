@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -671,7 +672,8 @@ def _count_tasks() -> dict:
     import sqlite3
     counts = {"todo": 0, "running": 0, "blocked": 0, "done": 0}
     try:
-        conn = sqlite3.connect("/root/.hermes/kanban.db")
+        db_path = os.environ.get("HERMES_KANBAN_DB", str(Path.home() / ".hermes" / "kanban.db"))
+        conn = sqlite3.connect(db_path)
         try:
             for r in conn.execute(
                 "SELECT status, COUNT(*) AS n FROM tasks WHERE status != 'archived' GROUP BY status"
@@ -864,7 +866,7 @@ def get_project_tasks_api(name: str):
         except Exception:
             board_slugs = ["default"]
 
-        db_path = "/root/.hermes/kanban.db"
+        db_path = os.environ.get("HERMES_KANBAN_DB", str(Path.home() / ".hermes" / "kanban.db"))
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         try:

@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.1**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.2**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -225,6 +225,14 @@ agora/
 MIT
 
 ## 更新日志
+
+### v1.4.2 — 代码清理和硬编码路径修复
+
+- **版本号同步** — `__init__.py` 的 `__version__` 停留在 `1.0.0`，现在和 `plugin.yaml` 一致。
+- **工具数量** — 注册日志写 "18 tools"，实际 15 个。
+- **删除死代码** — 删除 `leader_manager.py`（废弃 shim，零调用）、`storage/motions.py` 的 `increment_round()`（未使用，已被 `step_count` 替代）、`worker_manager.py` 的 `list_available_templates()`（`list_templates()` 的别名）。
+- **删除 e2e 测试文件** — `e2e_test.py`、`e2e_test_v2.py`、`e2e_dom_inspect.py` 是开发遗留物，包含硬编码密码。
+- **修复硬编码路径** — `dashboard/plugin_api.py` 有两处 `/root/.hermes/kanban.db` 硬编码，改用 `HERMES_KANBAN_DB` 环境变量 + `Path.home()` 回退。`project_planner.py` 心跳脚本搜索路径现在先尝试 `$HOME` 再尝试 `/root`。
 
 ### v1.4.1 — Worker profile 插件继承
 

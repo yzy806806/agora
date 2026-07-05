@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.1**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.2**
 
 [中文文档](./README_CN.md)
 
@@ -211,6 +211,14 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.4.2 — Code cleanup and hardcoded path fixes
+
+- **Version sync** — `__init__.py` `__version__` was stuck at `1.0.0`; now matches `plugin.yaml`.
+- **Tool count** — Registration log said "18 tools" but there are 15.
+- **Removed dead code** — Deleted `leader_manager.py` (deprecated shim, zero callers), `increment_round()` in `storage/motions.py` (unused, replaced by `step_count`), `list_available_templates()` in `worker_manager.py` (alias for `list_templates()`).
+- **Removed e2e test files** — `e2e_test.py`, `e2e_test_v2.py`, `e2e_dom_inspect.py` were development artifacts with hardcoded passwords.
+- **Fixed hardcoded paths** — `dashboard/plugin_api.py` had two `/root/.hermes/kanban.db` literals; now uses `HERMES_KANBAN_DB` env var with `Path.home()` fallback. `project_planner.py` heartbeat script search path now tries `$HOME` before `/root`.
 
 ### v1.4.1 — Worker profile plugin inheritance
 

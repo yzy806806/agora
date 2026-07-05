@@ -318,11 +318,6 @@ def list_workers() -> list[dict]:
     return workers
 
 
-def list_available_templates() -> list[dict]:
-    """List all role templates that can be used to create workers."""
-    return list_templates()
-
-
 def update_worker_session(name: str, session_id: str | None, project: str | None = None) -> None:
     """Update a worker's session_id for a specific project.
 

@@ -217,7 +217,7 @@ done
 
 # Search for the agora plugin directory — must contain agora/ submodule
 PLUGIN=""
-for d in /root/agora /root/.hermes/plugins/agora; do
+for d in "$HOME/.hermes/plugins/agora" "$(dirname "$(readlink -f "$0")")/.." /root/.hermes/plugins/agora; do
     [ -d "$d/agora" ] && PLUGIN="$d" && break
 done
 
