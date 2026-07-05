@@ -19,6 +19,7 @@ provides_tools:
 - agora_start_project
 - agora_stop_project
 - agora_project_status
+- agora_create_task
 - agora_create_worker
 - agora_list_workers
 - agora_remove_worker
@@ -26,4 +27,4 @@ provides_tools:
 - agora_create_team
 - agora_list_teams
 - agora_remove_team
-version: "1.4.0"
+version: "1.4.1"

@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.0**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.1**
 
 [中文文档](./README_CN.md)
 
@@ -211,6 +211,14 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.4.1 — Worker profile plugin inheritance
+
+Workers spawned with `-p <profile>` have `HERMES_HOME` pointing at their profile directory, so Hermes only scans `<profile>/plugins/` during plugin discovery — global plugins installed in `~/.hermes/plugins/` are invisible. This meant workers couldn't see Agora tools (`agora_raise_motion`, `agora_create_task`, etc.) even though the plugin was enabled in config.
+
+**Fix:** `create_worker()` now symlinks every plugin from the global `~/.hermes/plugins/` into the profile's `plugins/` directory at creation time. Uses symlinks so global plugin updates are reflected immediately.
+
+Also added `agora_create_task` to `provides_tools` in `plugin.yaml` (was missing from the manifest).
 
 ### v1.4.0 — Discussion engine reliability
 

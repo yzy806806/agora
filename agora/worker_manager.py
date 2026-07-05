@@ -169,6 +169,13 @@ def create_worker(
     # own (nearly empty) skills/ dir and be blind to the 40+ shared skills.
     _inject_external_skills(profile_dir / "config.yaml", profiles_root.parent)
 
+    # Step 1e: Link global plugins into the profile's plugins/ directory.
+    # Workers spawned with -p <profile> have HERMES_HOME pointing at their
+    # profile directory, so Hermes only scans <profile>/plugins/ for plugins.
+    # Without this, workers can't see plugins installed in the global
+    # ~/.hermes/plugins/ (e.g. agora itself) and their tools are unavailable.
+    _link_global_plugins(profile_dir, profiles_root.parent)
+
     # Step 2: Write SOUL.md
     if template is not None:
         soul_path = profile_dir / "SOUL.md"
@@ -431,3 +438,39 @@ def _inject_external_skills(config_path: Path, hermes_root: Path) -> None:
             logger.info("Injected skills.external_dirs=%s into %s", ext_dirs, config_path)
     except Exception as exc:
         logger.warning("Failed to inject external_dirs into %s: %s", config_path, exc)
+
+
+def _link_global_plugins(profile_dir: Path, hermes_root: Path) -> None:
+    """Symlink every plugin in the global plugins/ dir into the profile.
+
+    Workers spawned with -p <profile> have HERMES_HOME pointing at their
+    profile directory, so Hermes only scans ``<profile>/plugins/`` during
+    plugin discovery.  Plugins installed globally (``~/.hermes/plugins/``)
+    are invisible unless we link them here.
+
+    Uses symlinks so updates to the global plugin are reflected immediately
+    without re-copying.  Existing entries (real dirs or symlinks) are left
+    untouched to respect manual overrides.
+    """
+    try:
+        global_plugins = hermes_root / "plugins"
+        if not global_plugins.is_dir():
+            return
+
+        profile_plugins = profile_dir / "plugins"
+        profile_plugins.mkdir(parents=True, exist_ok=True)
+
+        for entry in global_plugins.iterdir():
+            if not entry.is_dir() and not entry.is_symlink():
+                continue
+            link_path = profile_plugins / entry.name
+            # Don't overwrite an existing entry (manual override)
+            if link_path.exists() or link_path.is_symlink():
+                continue
+            try:
+                link_path.symlink_to(entry.resolve())
+                logger.info("Linked plugin %s → %s", link_path, entry)
+            except OSError as exc:
+                logger.warning("Failed to symlink plugin %s: %s", entry.name, exc)
+    except Exception as exc:
+        logger.warning("Failed to link global plugins into %s: %s", profile_dir, exc)

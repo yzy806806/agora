@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.0**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.1**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -225,6 +225,14 @@ agora/
 MIT
 
 ## 更新日志
+
+### v1.4.1 — Worker profile 插件继承
+
+Worker 用 `-p <profile>` 启动时，HERMES_HOME 指向 profile 目录，Hermes 只扫描 `<profile>/plugins/` 发现插件——全局 `~/.hermes/plugins/` 里的插件不可见。这导致 worker 看不到 Agora 工具（`agora_raise_motion`、`agora_create_task` 等），即使配置里已启用。
+
+**修复：** `create_worker()` 创建 profile 时，自动把全局 `~/.hermes/plugins/` 下的每个插件 symlink 到 profile 的 `plugins/` 目录。使用 symlink 确保全局插件更新立即生效。
+
+同时在 `plugin.yaml` 的 `provides_tools` 里补上了缺失的 `agora_create_task`。
 
 ### v1.4.0 — 讨论引擎可靠性
 
