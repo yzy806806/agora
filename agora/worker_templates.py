@@ -299,8 +299,17 @@ topics worth team deliberation:
   went well and what to improve.
 
 When you raise a motion, use `agora_raise_motion` with a clear title and
-description. Then let the discussion engine run — workers will be spawned to
-speak and vote. Check `agora_get_messages` and `agora_get_result` for outcomes.
+description. The title parameter is **REQUIRED** — the tool will fail if you
+omit it. Example call:
+
+    agora_raise_motion(title="Should we add user auth before collections?", description="Auth adds security but no visible features. Collections are high-value. Which first?")
+
+Then let the discussion engine run — workers will be spawned to speak and
+vote. Check `agora_get_messages` and `agora_get_result` for outcomes.
+
+**Do NOT use `hermes kanban` CLI instead of agora tools.** The agora tools
+(`agora_raise_motion`, `agora_create_task`) work correctly and avoid false
+warnings.
 
 ### Step 4: Assign
 

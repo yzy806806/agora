@@ -66,11 +66,11 @@ _RAISE_MOTION_SCHEMA = {
     "properties": {
         "title": {
             "type": "string",
-            "description": "Short title for the discussion topic",
+            "description": "REQUIRED. Short title for the discussion topic. Example: 'Should we add user authentication before or after the search feature?'",
         },
         "description": {
             "type": "string",
-            "description": "Detailed description of what's being discussed",
+            "description": "Detailed description of what's being discussed — context, options, constraints. Example: 'We have 3 features pending: auth, search filters, and collections. Auth adds security but no user-facing value. Search filters are high-value but depend on auth for per-user results. Collections are independent. Which should we prioritize?'",
         },
         "context": {
             "type": "string",
@@ -188,7 +188,7 @@ def register_all_tools(ctx: Any) -> None:
         schema=_RAISE_MOTION_SCHEMA,
         handler=_raise_motion_handler,
         is_async=True,
-        description="Raise a motion for team discussion. Creates the motion and returns the motion_id. The discussion is triggered by the leader heartbeat or the plugin API.",
+        description="Raise a motion for team discussion. REQUIRED parameter: title (string). Example: agora_raise_motion({\"title\": \"Should we use SQLite or PostgreSQL?\", \"description\": \"We need to choose a database for production.\"}). Creates the motion and spawns the discussion driver immediately. The discussion runs in the background — check results with agora_get_result.",
         emoji="🏛️",
     )
 

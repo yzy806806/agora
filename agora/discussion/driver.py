@@ -215,6 +215,8 @@ class DiscussionDriver:
                             investigator, consecutive_failures,
                             MAX_CONSECUTIVE_FAILURES,
                         )
+                        # Clear the worker's session so the next spawn creates a fresh one
+                        self._clear_worker_session(investigator)
                         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                             logger.error(
                                 "Max consecutive dispatch failures (%d) reached, "
@@ -365,7 +367,13 @@ class DiscussionDriver:
         if result.get("session_id"):
             self._update_worker_session(speaker, result["session_id"])
 
-        return result.get("reply", "")
+        # If the speaker returned an error placeholder, clear the session
+        # so the next spawn starts fresh (the old session may be corrupted)
+        reply = result.get("reply", "")
+        if not reply or reply.startswith("["):
+            self._clear_worker_session(speaker)
+
+        return reply
 
     def _investigator_speak(
         self, investigator: str, title: str, dispatch_task: str,
@@ -765,6 +773,15 @@ class DiscussionDriver:
             update_worker_session(worker_name, session_id, self.project_name or None)
         except Exception as exc:
             logger.debug("Failed to update session for %s: %s", worker_name, exc)
+
+    def _clear_worker_session(self, worker_name: str) -> None:
+        """Clear a worker's session_id so the next spawn creates a fresh one."""
+        try:
+            from agora.worker_manager import update_worker_session
+            update_worker_session(worker_name, None, self.project_name or None)
+            logger.info("Cleared session for %s (will create fresh on next spawn)", worker_name)
+        except Exception as exc:
+            logger.debug("Failed to clear session for %s: %s", worker_name, exc)
 
     def _consume_human_inputs(self) -> list[dict]:
         """Check for human-injected messages since last step."""

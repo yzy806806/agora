@@ -58,17 +58,6 @@ def spawn_agent_speak(
     """
     hermes_bin = find_hermes_binary()
 
-    cmd = [
-        hermes_bin,
-        "-p", profile_name,
-        "--yolo",           # bypass command approval (unattended)
-        "--accept-hooks",   # auto-approve shell hooks
-        "--toolsets", "agora",  # agora tools for discussion (raise_motion, etc.)
-    ]
-    if session_id:
-        cmd.extend(["--resume", session_id])
-    cmd.extend(["chat", "-Q", "-q", prompt])  # -Q after chat (subcommand flag)
-
     # Build environment
     env = dict(os.environ)
     if extra_env:
@@ -79,11 +68,51 @@ def spawn_agent_speak(
         env["TERMINAL_CWD"] = workdir
 
     # Set HERMES_KANBAN_BOARD if the project has a dedicated board.
-    # This gives agents project-scoped kanban isolation.  We try to
-    # look up the board name from the project registry via the workdir
-    # or project name.  The caller can also pass it directly via extra_env.
     if "HERMES_KANBAN_BOARD" not in env:
         _set_project_board_env(env, workdir)
+
+    # First attempt (with --resume if session_id given)
+    result = _run_agent_subprocess(
+        hermes_bin, profile_name, prompt, session_id,
+        workdir, timeout, env,
+    )
+
+    # Auto-recovery: if --resume failed because the session doesn't exist,
+    # retry WITHOUT --resume to create a fresh session.
+    if session_id and _is_session_not_found_error(result):
+        logger.warning(
+            "Agent %s session %s not found — retrying without --resume "
+            "(will create a new session)",
+            profile_name, session_id,
+        )
+        result = _run_agent_subprocess(
+            hermes_bin, profile_name, prompt, None,
+            workdir, timeout, env,
+        )
+
+    return result
+
+
+def _run_agent_subprocess(
+    hermes_bin: str,
+    profile_name: str,
+    prompt: str,
+    session_id: str | None,
+    workdir: str | None,
+    timeout: int,
+    env: dict[str, str],
+) -> dict:
+    """Run a single agent subprocess invocation."""
+    cmd = [
+        hermes_bin,
+        "-p", profile_name,
+        "--yolo",
+        "--accept-hooks",
+        "--toolsets", "agora",
+    ]
+    if session_id:
+        cmd.extend(["--resume", session_id])
+    cmd.extend(["chat", "-Q", "-q", prompt])
 
     logger.info(
         "Spawning agent: profile=%s session=%s timeout=%ds",
@@ -128,7 +157,6 @@ def spawn_agent_speak(
 
     if not reply:
         # If no marker found, use the full stdout as fallback
-        # (agent may not have followed the marker convention)
         reply = stdout.strip()
         if not reply and stderr:
             reply = f"[Agent error: {stderr.strip()[:200]}]"
@@ -143,6 +171,19 @@ def spawn_agent_speak(
         "session_id": new_session_id,
         "error": None if reply else "Empty response",
     }
+
+
+def _is_session_not_found_error(result: dict) -> bool:
+    """Check if the agent failed because the resumed session doesn't exist."""
+    if result.get("error") and "session" in result["error"].lower():
+        return True
+    reply = result.get("reply", "")
+    if reply and "session not found" in reply.lower():
+        return True
+    # Empty reply with session-related error
+    if not reply and result.get("error") and "not found" in result["error"].lower():
+        return True
+    return False
 
 
 def spawn_chair_speak(
