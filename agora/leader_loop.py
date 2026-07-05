@@ -58,6 +58,7 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
         member = proj.get("heartbeat_member")
         if not member:
             return {"error": f"Project '{project}' has no heartbeat_member configured"}
+        _rescue_stuck_motions(proj)
         return _spawn_leader_agent(proj)
 
     # Wake a specific leader (find all projects using this leader)
@@ -70,6 +71,7 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
         for p in projects:
             check_project_complete(p["name"])
             if p.get("status") == "active":  # may have been completed by check
+                _rescue_stuck_motions(p)
                 results.append(_spawn_leader_agent(p))
         return {"status": "batch", "results": results}
 
@@ -81,8 +83,108 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
     for p in projects:
         check_project_complete(p["name"])
         if p.get("status") == "active":  # may have been completed by check
+            _rescue_stuck_motions(p)
             results.append(_spawn_leader_agent(p))
     return {"status": "batch", "results": results}
+
+
+def _rescue_stuck_motions(project: dict) -> None:
+    """Find motions stuck in 'discussing' with no messages and re-spawn drivers.
+
+    A motion can get stuck if:
+    - It was created without chair/participants (old hook code)
+    - spawn_discussion_driver failed silently
+    - The discussion process crashed before writing any messages
+
+    For each stuck motion, re-resolve chair/participants from the project
+    and re-spawn the discussion driver.
+    """
+    try:
+        from ..storage import motions as db
+        from .agent_spawn import spawn_discussion_driver
+
+        project_name = project.get("name", "")
+        if not project_name:
+            return
+
+        # Find discussing motions for this project with 0 messages
+        motions = db.list_motions(status_filter="active", limit=50)
+        for m in motions:
+            if m.get("status") != "discussing":
+                continue
+            if m.get("project") and m["project"] != project_name:
+                continue
+
+            messages = db.get_messages(m["id"])
+            if messages:
+                continue  # has messages, discussion is progressing
+
+            # Check if a discussion_state exists — if it does, the driver
+            # started but may have crashed. If not, it never started.
+            state = db.get_discussion_state(m["id"])
+            if state and state.get("last_action"):
+                # Driver started but crashed — skip to avoid re-spawning
+                # in a tight loop. Leader will close it manually.
+                continue
+
+            # Re-resolve chair and participants
+            chair = m.get("chair", "")
+            participants = m.get("participants")
+            if isinstance(participants, str):
+                try:
+                    participants = json.loads(participants)
+                except Exception:
+                    participants = None
+
+            if not chair:
+                try:
+                    from project_planner import get_heartbeat_member
+                    chair = get_heartbeat_member(project_name) or ""
+                except Exception:
+                    pass
+
+            if not participants:
+                try:
+                    from project_planner import get_project
+                    from ..team_manager import get_team_for_project, get_team
+                    proj = get_project(project_name)
+                    if proj and proj.get("team"):
+                        team = get_team(proj["team"])
+                        if team:
+                            participants = [w["name"] for w in team.get("workers", [])]
+                except Exception:
+                    pass
+
+            if not chair or not participants:
+                logger.warning(
+                    "Stuck motion %s: cannot resolve chair/participants — closing",
+                    m["id"],
+                )
+                db.update_motion_status(m["id"], status="closed", decision="error")
+                db.update_motion_state(m["id"], "closed")
+                continue
+
+            # Also skip empty-title motions — they have nothing to discuss
+            if not m.get("title", "").strip():
+                db.update_motion_status(m["id"], status="closed", decision="error")
+                db.update_motion_state(m["id"], "closed")
+                logger.warning("Closed empty-title motion %s", m["id"])
+                continue
+
+            workdir = project.get("workdir", "")
+            logger.info(
+                "Rescuing stuck motion %s (chair=%s, participants=%s)",
+                m["id"], chair, participants,
+            )
+            spawn_discussion_driver(
+                motion_id=m["id"],
+                chair=chair,
+                participants=participants,
+                workdir=workdir,
+                project_name=project_name,
+            )
+    except Exception as exc:
+        logger.debug("rescue_stuck_motions failed: %s", exc)
 
 
 def _spawn_leader_agent(project: dict) -> dict:
@@ -155,11 +257,15 @@ def _spawn_leader_agent(project: dict) -> dict:
 
     # Build command — must include --yolo and --accept-hooks for unattended
     # operation. -Q gives quiet mode.
+    # --toolsets agora is required so the leader can call agora_raise_motion,
+    # agora_list_motions, etc. Without it, the leader's profile config only
+    # loads the platform_toolsets.cli set (which doesn't include agora).
     cmd = [
         hermes_bin,
         "-p", member_name,
         "--yolo",
         "--accept-hooks",
+        "--toolsets", "agora",
         "chat", "-Q", "-q", prompt,
     ]
 

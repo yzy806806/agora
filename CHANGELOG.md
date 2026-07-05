@@ -2,7 +2,29 @@
 
 All notable changes to the Agora plugin are documented here.
 
-## [1.2.1] — 2026-07-05
+## [1.3.0] — 2026-07-05
+
+### Discussion engine — critical fixes
+
+- **Leader couldn't call Agora tools**: `leader_loop.py` spawned the leader
+  without `--toolsets agora`, so the leader had no access to
+  `agora_raise_motion`, `agora_list_motions`, etc. This meant the leader
+  couldn't initiate discussions or votes — it single-handedly decided
+  project completion without team input. Now passes `--toolsets agora`.
+- **Discussion participants had no Agora tools**: `agent_spawn.py` spawned
+  worker agents for discussion without `--toolsets agora`, causing
+  `Warning: Unknown toolsets: messaging` errors and failed investigations.
+  Now passes `--toolsets agora`.
+- **Motions stuck at "discussing" round 0**: `kanban_task_blocked` hook
+  created motions without resolving chair/participants, so
+  `spawn_discussion_driver` never fired. The hook now auto-resolves
+  chair and participants from the project and spawns the driver.
+- **No recovery for stuck motions**: Added `_rescue_stuck_motions()` to
+  `leader_loop.py` — runs before each heartbeat spawn, finds motions stuck
+  in "discussing" with 0 messages, re-resolves chair/participants, and
+  re-spawns the discussion driver. Also closes empty-title motions.
+
+## [1.2.2] — 2026-07-05
 
 ### Dashboard fixes
 

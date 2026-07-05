@@ -63,6 +63,7 @@ def spawn_agent_speak(
         "-p", profile_name,
         "--yolo",           # bypass command approval (unattended)
         "--accept-hooks",   # auto-approve shell hooks
+        "--toolsets", "agora",  # agora tools for discussion (raise_motion, etc.)
     ]
     if session_id:
         cmd.extend(["--resume", session_id])

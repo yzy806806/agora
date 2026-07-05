@@ -353,10 +353,50 @@ def _on_task_blocked(
                     source_task_id=task_id,
                     blocking=True,
                 )
-                logger.info(
-                    "kanban_task_blocked: created motion %s for blocked task %s",
-                    motion["id"], task_id,
-                )
+
+                # Auto-resolve chair and participants from the project so
+                # spawn_discussion_driver has what it needs.  Without this,
+                # the motion sits at "discussing" forever — the driver never
+                # fires because chair/participants are empty.
+                chair = ""
+                participants = None
+                workdir = ""
+                project_name = tenant or ""
+                try:
+                    from project_planner import get_project, get_heartbeat_member
+                    from agora.team_manager import get_team_for_project, get_team
+                    proj = get_project(project_name) if project_name else None
+                    if proj:
+                        workdir = proj.get("workdir", "")
+                        chair = get_heartbeat_member(project_name) or ""
+                        if proj.get("team"):
+                            team = get_team(proj["team"])
+                            if team:
+                                participants = [w["name"] for w in team.get("workers", [])]
+                except Exception as exc:
+                    logger.debug("Auto-resolve chair/participants failed: %s", exc)
+
+                if chair and participants:
+                    from ..agora.discussion.agent_spawn import spawn_discussion_driver
+                    spawn_status = spawn_discussion_driver(
+                        motion_id=motion["id"],
+                        chair=chair,
+                        participants=participants,
+                        workdir=workdir,
+                        project_name=project_name,
+                    )
+                    logger.info(
+                        "kanban_task_blocked: created motion %s and spawned discussion "
+                        "(chair=%s, participants=%s, status=%s)",
+                        motion["id"], chair, participants,
+                        spawn_status.get("status"),
+                    )
+                else:
+                    logger.info(
+                        "kanban_task_blocked: created motion %s for blocked task %s "
+                        "(chair/participants not resolved — will be picked up by leader heartbeat)",
+                        motion["id"], task_id,
+                    )
             except Exception as exc:
                 logger.error(
                     "kanban_task_blocked: failed to create motion for task %s: %s",
