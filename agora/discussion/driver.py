@@ -23,8 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from ..storage import motions as db
-from ..utils import get_global_root, parse_json_response
+from agora.storage import motions as db
+from agora.utils import get_global_root, parse_json_response
 from .agent_spawn import spawn_agent_speak, spawn_chair_speak
 from .chair import (
     CHAIR_EVALUATE_PROMPT,
@@ -734,13 +734,13 @@ class DiscussionDriver:
         Falls back to the legacy global session_id for backward compat.
         """
         try:
-            from ..worker_manager import get_worker_session
+            from agora.worker_manager import get_worker_session
             session_id = get_worker_session(worker_name, self.project_name or None)
 
             # Check session size — rotate if too large
             if session_id:
                 try:
-                    from ..session_manager import check_session_size, rotate_session
+                    from agora.session_manager import check_session_size, rotate_session
                     size_info = check_session_size(worker_name, session_id)
                     if size_info.get("needs_rotation"):
                         logger.info(
@@ -761,7 +761,7 @@ class DiscussionDriver:
     def _update_worker_session(self, worker_name: str, session_id: str) -> None:
         """Update a worker's per-project session_id in the registry."""
         try:
-            from ..worker_manager import update_worker_session
+            from agora.worker_manager import update_worker_session
             update_worker_session(worker_name, session_id, self.project_name or None)
         except Exception as exc:
             logger.debug("Failed to update session for %s: %s", worker_name, exc)
@@ -883,7 +883,7 @@ class DiscussionDriver:
                 assignee = owner if owner else None
                 if owner and self.project_name:
                     try:
-                        from ..team_manager import get_team_for_project, get_team, get_assignee_for_role
+                        from agora.team_manager import get_team_for_project, get_team, get_assignee_for_role
                         from project_planner import get_project
                         # Try direct team_for_project match first
                         team = get_team_for_project(self.project_name)

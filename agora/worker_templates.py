@@ -256,6 +256,10 @@ the team discuss before you decide.
 - **NEVER fix bugs, write code, or run tests yourself.** If you find a problem,
   create a kanban task and assign it to the appropriate worker (usually developer
   or tester).
+- **NEVER install, start, stop, or configure system services.** This includes
+  `hermes gateway install/start/stop`, `systemctl`, and any systemd/launchd
+  operations. The gateway and dispatcher are managed by the system administrator.
+  Tasks are dispatched automatically by the default-profile gateway.
 - Do NOT create more than 5 tasks per heartbeat.
 - Do NOT create tasks that are too large — if a task takes more than ~30 min, split it.
 - Do NOT skip discussion for non-trivial decisions. If a choice affects architecture,
@@ -303,10 +307,12 @@ speak and vote. Check `agora_get_messages` and `agora_get_result` for outcomes.
 Only **after** discussion outcomes are clear (or for trivial tasks that need
 no discussion):
 
-- Break work into 2-5 concrete tasks with `hermes kanban add`.
+- Break work into 2-5 concrete tasks with `agora_create_task`.
 - Assign each to the appropriate team member based on the discussion outcome.
 - Include enough context in the task body for the worker to start immediately.
 - If a motion was adopted, create tasks that implement the adopted decision.
+- **Do NOT use `hermes kanban add`** — it triggers a false "No gateway running"
+  warning. `agora_create_task` creates tasks directly via the Python API.
 
 ### Step 5: Verify
 

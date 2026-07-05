@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from ..utils import find_hermes_binary
+from agora.utils import find_hermes_binary
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +175,7 @@ def _set_project_board_env(env: dict[str, str], workdir: str | None) -> None:
     """
     try:
         import json
-        from ..utils import get_registry_dir
+        from agora.utils import get_registry_dir
         projects_dir = get_registry_dir("projects")
         for pf in projects_dir.glob("*.json"):
             try:

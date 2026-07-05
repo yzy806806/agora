@@ -61,7 +61,7 @@ A workdir-based development effort. Each project has:
 - Vote on the proposed resolution.
 
 ## Kanban Quick Reference
-- `kanban add --title "..." --assignee <role> --status todo` — create task
+- `agora_create_task` tool — create task (Leader only; avoids CLI false warning)
 - `kanban update <id> --status running` — start working
 - `kanban update <id> --status done` — complete task
 - `kanban update <id> --status blocked --note "..."` — report blocker

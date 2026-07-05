@@ -100,8 +100,8 @@ def _rescue_stuck_motions(project: dict) -> None:
     and re-spawn the discussion driver.
     """
     try:
-        from ..storage import motions as db
-        from .agent_spawn import spawn_discussion_driver
+        from agora.storage import motions as db
+        from agora.discussion.agent_spawn import spawn_discussion_driver
 
         project_name = project.get("name", "")
         if not project_name:
@@ -146,7 +146,7 @@ def _rescue_stuck_motions(project: dict) -> None:
             if not participants:
                 try:
                     from project_planner import get_project
-                    from ..team_manager import get_team_for_project, get_team
+                    from agora.team_manager import get_team_for_project, get_team
                     proj = get_project(project_name)
                     if proj and proj.get("team"):
                         team = get_team(proj["team"])

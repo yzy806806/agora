@@ -63,7 +63,7 @@ def _on_task_completed(
     """
     # --- Phase 1: Existing behavior — write motion result to task + memory ---
     try:
-        from ..agora.storage import motions as db
+        from agora.storage import motions as db
     except ImportError:
         db = None
 
@@ -100,7 +100,7 @@ def _on_task_completed(
 
     # --- Phase 2: Self-drive — trigger planner if project is active ---
     try:
-        from ..project_planner import on_task_completed as _planner_hook
+        from project_planner import on_task_completed as _planner_hook
         _planner_hook(task_id, board=board, assignee=assignee,
                       run_id=run_id, summary=summary)
     except Exception as exc:
@@ -253,7 +253,7 @@ def _on_task_claimed(
 
         # If the task has a source motion, inject the motion decision as a comment
         try:
-            from ..agora.storage import motions as db
+            from agora.storage import motions as db
             motion = _find_motion_for_task(task_id, db)
             if motion is not None and motion.get("status") == "closed":
                 decision = motion.get("decision", "")
@@ -342,7 +342,7 @@ def _on_task_blocked(
                 task_id,
             )
             try:
-                from ..agora.storage import motions as db
+                from agora.storage import motions as db
                 motion = db.create_motion(
                     title=f"Unblock: {block_reason[:80]}",
                     description=(
@@ -377,7 +377,7 @@ def _on_task_blocked(
                     logger.debug("Auto-resolve chair/participants failed: %s", exc)
 
                 if chair and participants:
-                    from ..agora.discussion.agent_spawn import spawn_discussion_driver
+                    from agora.discussion.agent_spawn import spawn_discussion_driver
                     spawn_status = spawn_discussion_driver(
                         motion_id=motion["id"],
                         chair=chair,

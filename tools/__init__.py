@@ -5,6 +5,7 @@ Tools:
   - agora_get_messages    — read discussion messages
   - agora_get_result      — read closed discussion result
   - agora_list_motions    — list active/closed discussions
+  - agora_create_task     — create a kanban task (Python API, no CLI warning)
   - agora_start_project   — start a self-driving project
   - agora_stop_project    — stop a project
   - agora_project_status  — check project status
@@ -143,10 +144,39 @@ _LIST_MOTIONS_SCHEMA = {
     },
 }
 
+_CREATE_TASK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {
+            "type": "string",
+            "description": "Task title (concise, actionable)",
+        },
+        "assignee": {
+            "type": "string",
+            "description": "Worker name to assign the task to (e.g. 'developer', 'tester')",
+        },
+        "body": {
+            "type": "string",
+            "description": "Task body — context, acceptance criteria, links. Include enough detail for the worker to start immediately.",
+        },
+        "project": {
+            "type": "string",
+            "description": "Project name (used to determine the kanban board). If omitted, uses the default board.",
+        },
+        "status": {
+            "type": "string",
+            "enum": ["ready", "todo", "triage"],
+            "default": "ready",
+            "description": "Initial task status. Use 'ready' for tasks that should be picked up immediately, 'todo' for tasks with dependencies, 'triage' for tasks needing specification.",
+        },
+    },
+    "required": ["title"],
+}
+
 
 def register_all_tools(ctx: Any) -> None:
     """Register all Agora tools and the /agora slash command."""
-    from ..agora.storage import motions as db
+    from agora.storage import motions as db
 
     # --- Tool: agora_raise_motion ---
     async def _raise_motion_handler(args: dict, **kwargs) -> dict:
@@ -268,6 +298,19 @@ def register_all_tools(ctx: Any) -> None:
         emoji="📋",
     )
 
+    # --- Tool: agora_create_task ---
+    def _create_task_handler(args: dict, **kwargs) -> dict:
+        return _handle_create_task(ctx, args)
+
+    ctx.register_tool(
+        name="agora_create_task",
+        toolset="agora",
+        schema=_CREATE_TASK_SCHEMA,
+        handler=_create_task_handler,
+        description="Create a kanban task and assign it to a worker. Uses the Python API directly (no CLI subprocess), so no 'No gateway running' false warning. The dispatcher in the default-profile gateway will pick up ready tasks automatically.",
+        emoji="📌",
+    )
+
     # --- Slash command: /agora ---
     def _agora_command_handler(raw_args: str) -> str | None:
         return _handle_agora_command(ctx, raw_args)
@@ -279,7 +322,7 @@ def register_all_tools(ctx: Any) -> None:
         args_hint="<subcommand> [args]",
     )
 
-    logger.info("Registered 4 agora tools + /agora command")
+    logger.info("Registered 5 agora tools + /agora command")
 
     # --- Self-drive project management tools ---
     _register_project_tools(ctx)
@@ -300,8 +343,13 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     The calling agent can continue working — it will see the discussion
     result in its MEMORY.md when the discussion completes.
     """
-    from ..agora.storage import motions as db
+    from agora.storage import motions as db
     title = args.get("title", "")
+    if not title or not title.strip():
+        return {
+            "error": "title is required (must be a non-empty string)",
+            "hint": "Call agora_raise_motion with a title describing the discussion topic, e.g.: agora_raise_motion({\"title\": \"Should we use SQLite or PostgreSQL?\"})",
+        }
     description = args.get("description", "")
     context = args.get("context", "")
     blocking = args.get("blocking", False)
@@ -314,7 +362,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     # Apply discussion template if specified
     if template_name:
         try:
-            from ..agora.discussion.roles import DISCUSSION_TEMPLATES
+            from agora.discussion.roles import DISCUSSION_TEMPLATES
             template = DISCUSSION_TEMPLATES.get(template_name)
             if template:
                 if not participants:
@@ -414,13 +462,13 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     spawn_status = None
     if chair and participants:
         try:
-            from ..agora.discussion.agent_spawn import spawn_discussion_driver
+            from agora.discussion.agent_spawn import spawn_discussion_driver
 
             # Resolve workdir from the project registry if possible
             spawn_workdir = ""
             spawn_project = ""
             try:
-                from ..agora.utils import get_registry_dir, safe_name
+                from agora.utils import get_registry_dir, safe_name
                 if source_task_id:
                     from hermes_cli import kanban_db
                     conn = kanban_db.connect()
@@ -490,6 +538,93 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     }
 
 
+def _handle_create_task(ctx: Any, args: dict) -> dict:
+    """Handle agora_create_task — create a kanban task via Python API.
+
+    Uses kanban_db.create_task() directly instead of `hermes kanban add` CLI,
+    avoiding the false "No gateway is running" warning that triggers when
+    the calling profile differs from the default profile where the gateway
+    actually runs.
+    """
+    title = args.get("title", "")
+    if not title or not title.strip():
+        return {"error": "title is required"}
+
+    assignee = args.get("assignee") or None
+    body = args.get("body", "")
+    project = args.get("project", "")
+    status = args.get("status", "ready")
+
+    # Determine the kanban board/tenant for this project
+    tenant = None
+    if project:
+        tenant = f"agora-{project}"
+    else:
+        # Try to detect the active project from the registry
+        try:
+            from project_planner import list_projects
+            for p in list_projects():
+                if p.get("status") == "active":
+                    tenant = p.get("board") or p["name"]
+                    if not tenant.startswith("agora-"):
+                        tenant = f"agora-{tenant}"
+                    break
+        except Exception:
+            pass
+
+    # Map assignee to a real worker profile if it's a role name
+    if assignee and project:
+        try:
+            from agora.team_manager import get_team_for_project, get_team, get_assignee_for_role
+            team = get_team_for_project(project)
+            if not team:
+                try:
+                    from project_planner import get_project
+                    proj = get_project(project)
+                    if proj and proj.get("team"):
+                        team = get_team(proj["team"])
+                except Exception:
+                    pass
+            if team:
+                picked = get_assignee_for_role(team["name"], assignee)
+                if picked:
+                    assignee = picked
+        except Exception:
+            pass
+
+    try:
+        from hermes_cli import kanban_db
+        conn = kanban_db.connect()
+        try:
+            task_id = kanban_db.create_task(
+                conn,
+                title=title[:200],
+                body=body,
+                assignee=assignee,
+                workspace_kind="scratch",
+                tenant=tenant,
+                triage=(status == "triage"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.error("agora_create_task failed: %s", exc)
+        return {"error": f"Failed to create task: {exc}"}
+
+    logger.info("Created kanban task %s: %s (assignee=%s, tenant=%s)",
+                task_id, title[:80], assignee, tenant)
+
+    return {
+        "task_id": task_id,
+        "title": title[:200],
+        "assignee": assignee or "(unassigned)",
+        "status": status,
+        "project": project or "(auto-detected)",
+        "message": f"Task {task_id} created. The dispatcher will pick it up automatically.",
+    }
+
+
 def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
     """Handle /agora slash command.
 
@@ -499,7 +634,7 @@ def _handle_agora_command(ctx: Any, raw_args: str) -> str | None:
         /agora show <motion_id>      — show discussion messages
         /agora result <motion_id>    — show discussion result
     """
-    from ..agora.storage import motions as db
+    from agora.storage import motions as db
     parts = raw_args.strip().split(None, 1)
     if not parts:
         return (
@@ -645,7 +780,7 @@ def _register_project_tools(ctx: Any) -> None:
     """Register self-drive project management tools."""
 
     async def _start_project_handler(args: dict, **kwargs) -> dict:
-        from ..project_planner import start_project
+        from project_planner import start_project
         name = args.get("name", "")
         workdir = args.get("workdir", "")
         goal = args.get("goal", "")
@@ -672,7 +807,7 @@ def _register_project_tools(ctx: Any) -> None:
     )
 
     async def _stop_project_handler(args: dict, **kwargs) -> dict:
-        from ..project_planner import stop_project
+        from project_planner import stop_project
         name = args.get("name", "")
         if not name:
             return {"error": "name is required"}
@@ -689,7 +824,7 @@ def _register_project_tools(ctx: Any) -> None:
     )
 
     def _project_status_handler(args: dict, **kwargs) -> dict:
-        from ..project_planner import get_project, list_projects
+        from project_planner import get_project, list_projects
         name = args.get("name", "")
         if name:
             data = get_project(name)
@@ -762,7 +897,7 @@ def _register_worker_tools(ctx: Any) -> None:
     """Register worker and team management tools."""
 
     async def _create_worker_handler(args: dict, **kwargs) -> dict:
-        from ..agora.worker_manager import create_worker
+        from agora.worker_manager import create_worker
         return create_worker(
             name=args.get("name", ""),
             role=args.get("role", ""),
@@ -778,7 +913,7 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     def _list_workers_handler(args: dict, **kwargs) -> dict:
-        from ..agora.worker_manager import list_workers
+        from agora.worker_manager import list_workers
         return {"workers": list_workers()}
 
     ctx.register_tool(
@@ -789,7 +924,7 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     async def _remove_worker_handler(args: dict, **kwargs) -> dict:
-        from ..agora.worker_manager import remove_worker
+        from agora.worker_manager import remove_worker
         return remove_worker(args.get("name", ""), delete_profile=args.get("delete_profile", True))
 
     ctx.register_tool(
@@ -800,7 +935,7 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     def _list_templates_handler(args: dict, **kwargs) -> dict:
-        from ..agora.worker_templates import list_templates
+        from agora.worker_templates import list_templates
         return {"templates": list_templates()}
 
     ctx.register_tool(
@@ -811,7 +946,7 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     async def _create_team_handler(args: dict, **kwargs) -> dict:
-        from ..agora.team_manager import create_team
+        from agora.team_manager import create_team
         return create_team(
             team_name=args.get("team_name", ""),
             worker_names=args.get("workers", []),
@@ -826,7 +961,7 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     def _list_teams_handler(args: dict, **kwargs) -> dict:
-        from ..agora.team_manager import list_teams
+        from agora.team_manager import list_teams
         return {"teams": list_teams()}
 
     ctx.register_tool(
@@ -837,7 +972,7 @@ def _register_worker_tools(ctx: Any) -> None:
     )
 
     async def _remove_team_handler(args: dict, **kwargs) -> dict:
-        from ..agora.team_manager import remove_team
+        from agora.team_manager import remove_team
         return remove_team(args.get("team_name", ""))
 
     ctx.register_tool(
