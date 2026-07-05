@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.0.0**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.0**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -223,3 +223,38 @@ agora/
 ## License
 
 MIT
+
+## 更新日志
+
+### v1.4.0 — 讨论引擎可靠性
+
+讨论引擎现在能稳定完成完整讨论流程。修复了四个根因问题，并通过 3 次端到端讨论验证（2 次通过，1 次否决）。
+
+**修复：**
+
+1. **Session 失效恢复** — 清理 session DB 后，worker 注册表仍保留过期的 `session_id`。讨论驱动器持续传 `--resume <死session>` 给 `hermes chat`，导致 3 次连续调度失败 → 强制 `no_consensus`。现在 `agent_spawn.py` 检测到 "Session not found" 后自动去掉 `--resume` 重试（创建新 session）。`driver.py` 也在调度/发言失败时清除 worker 的过期 session。
+
+2. **LLM 空参数调用** — `glm5.2` 有时调用 `agora_raise_motion` 时传空 `{}`，忽略 `required: ["title"]` schema。现在 schema 的 `description` 字段明确标注 "REQUIRED. Provide a concise title…"。Leader SOUL.md 包含具体调用示例和 "不要用 CLI — 直接调用工具" 指导。
+
+3. **错误记忆固化** — Leader 的 MEMORY.md 曾记录 "Agora 插件工具 schema 是空的 — 改用 hermes kanban CLI"，这个自我强化错误导致后续所有心跳都跳过讨论引擎。已更正为 "Agora 工具正常工作 — 调用时需要 title 参数"。
+
+4. **驱动器不清理死 session** — 在 `DiscussionDriver` 中新增 `_clear_worker_session()` 方法。调度失败或空回复时，将 worker 的 `session_id` 设为 `None`，下次启动会创建新 session 而非复用死 session。
+
+**验证 — 3 次完整讨论：**
+
+| # | 议题 | 步骤 | 决定 |
+|---|------|------|------|
+| 1 | 认证 vs 搜索过滤器优先级 | 3 | 通过 (3/3) |
+| 2 | Jinja2 vs 前端框架 | 3 | 通过 (2 票通过 + 1 弃权) |
+| 3 | Alembic vs 手写迁移 | 0 | 否决 (全票一致) |
+
+### v1.3.0 — 讨论引擎关键修复
+
+1. **Leader 没有 Agora 工具** — `leader_loop.py` 启动 leader 时没加 `--toolsets agora`。
+2. **参与者没有 Agora 工具** — `agent_spawn.py` 启动 worker 时没加 `--toolsets agora`。
+3. **Motion 卡在 round 0** — `kanban_task_blocked` hook 创建 motion 时没解析 chair/participants。
+4. **卡死 motion 无恢复** — 在 `leader_loop.py` 中新增 `_rescue_stuck_motions()`。
+
+### v1.2.0 — Dashboard 项目管理 + 表单字段
+
+### v1.1.0 — 讨论引擎死循环修复

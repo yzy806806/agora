@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.0.0**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.0**
 
 [中文文档](./README_CN.md)
 
@@ -209,3 +209,38 @@ agora/
 ## License
 
 MIT
+
+## Changelog
+
+### v1.4.0 — Discussion engine reliability
+
+The discussion engine now reliably completes full discussion cycles. Four root causes were fixed, verified with 3 successful end-to-end discussions (2 adopted, 1 rejected).
+
+**Fixes:**
+
+1. **Session-not-found recovery** — After session DB cleanup, worker registry still held stale `session_id`s. The discussion driver kept passing `--resume <dead-session>` to `hermes chat`, causing 3 consecutive dispatch failures → forced `no_consensus`. Now `agent_spawn.py` detects "Session not found" and automatically retries without `--resume` (creates a fresh session). `driver.py` also clears the worker's stale session on dispatch/speak failure.
+
+2. **Empty tool arguments from LLM** — `glm5.2` sometimes called `agora_raise_motion` with empty `{}` arguments, ignoring the `required: ["title"]` schema. The schema `description` fields now explicitly say "REQUIRED. Provide a concise title…". Leader SOUL.md includes a concrete call example and "Do NOT use the CLI — always call the tool directly".
+
+3. **Stale memory poisoning** — Leader's MEMORY.md had recorded "Agora plugin tools have empty schemas — use hermes kanban CLI instead", a self-reinforcing error that caused all subsequent heartbeats to skip the discussion engine entirely. Corrected to "Agora tools are functional — always provide title parameter".
+
+4. **Driver doesn't clear dead sessions** — Added `_clear_worker_session()` to `DiscussionDriver`. On dispatch failure or empty reply, the worker's `session_id` is set to `None` in the registry so the next spawn creates a new session instead of reusing the dead one.
+
+**Verification — 3 complete discussions:**
+
+| # | Motion | Steps | Decision |
+|---|--------|-------|----------|
+| 1 | Auth vs search-filter priority | 3 | adopted (3/3) |
+| 2 | Jinja2 vs frontend framework | 3 | adopted (2 adopt + 1 abstain) |
+| 3 | Alembic vs hand-rolled migrations | 0 | rejected (unanimous) |
+
+### v1.3.0 — Discussion engine critical fixes
+
+1. **Leader had no Agora tools** — `leader_loop.py` spawned the leader without `--toolsets agora`.
+2. **Participants had no Agora tools** — `agent_spawn.py` spawned workers without `--toolsets agora`.
+3. **Motions stuck at round 0** — `kanban_task_blocked` hook created motions without resolving chair/participants.
+4. **No recovery for stuck motions** — Added `_rescue_stuck_motions()` to `leader_loop.py`.
+
+### v1.2.0 — Dashboard project management + form fields
+
+### v1.1.0 — Discussion engine infinite loop fix
