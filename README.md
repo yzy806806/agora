@@ -26,6 +26,45 @@ Agora turns Hermes into a self-driving team: multiple AI roles — each a **real
 | **Human participation** | Jump into discussions anytime via Dashboard input box |
 | **Dashboard** | Projects tab (default) + Team tab (Members + Teams + Profiles sub-tabs), real-time polling, toast notifications, heartbeat control panel |
 
+## Why Agora? — Structured Discussion Amplifies Ordinary Models
+
+Most multi-agent frameworks assume you need a frontier model at every node. Agora challenges this assumption. In 5 hours of production monitoring (docmind project, local model via API relay — not a frontier model), we observed:
+
+- An **Architect** correcting a **Researcher's** proposed sequencing, citing exact file paths and line numbers
+- A **Developer** overriding effort estimates with concrete numbers ("2-3 hours, not days")
+- A **Tester** confirming regression risk by referencing the existing 125-test suite
+- A **Writer** pinpointing exactly which lines of `gap-analysis.md` needed updating
+
+None of these outputs required any single model to hold the full decision tree in its head. Each agent only needed to make a **domain-local judgment** — and the structured discussion framework stitched them into a coherent decision.
+
+### How the architecture compensates for model limitations
+
+| Model weakness | Agora's structural remedy |
+|----------------|--------------------------|
+| **Loses focus in long context** | Each speaker sees a compact, structured history (`[role (step_type)]: content`), not raw conversation. Typical input: ~2000 chars. |
+| **Jumps to conclusions** | Step-based flow forces: opening → speak → chair evaluates → next speaker. No skipping ahead. |
+| **Blind spots / single perspective** | Chair explicitly checks "who hasn't spoken?" and dispatches them. All perspectives must be heard before closure. |
+| **Forgets prior decisions** | Discussion outcomes are written to each participant's MEMORY.md. Next discussion starts with accumulated team knowledge. |
+| **Can't self-assess when stuck** | Chair's meta-decision loop: `continue | dispatch | vote | close` — the framework asks the right question at the right time. |
+| **Hallucinates without evidence** | Dispatch mode sends a worker to investigate with real tools (`web_search`, `read_file`, `terminal`) before committing to an opinion. |
+
+### The chair role is different
+
+Speakers do **domain reasoning** ("should we use SQLite or PostgreSQL?") — single-hop, structured input, within their expertise. The chair does **meta-reasoning** ("has everyone spoken? are there unresolved disagreements? is this ready to close?") — multi-hop, requires tracking global state.
+
+**Recommendation:** If budget is constrained, use your strongest available model for the Leader/Chair, and cheaper models for the other roles. The architecture's structural constraints — turn-taking, guided prompts, cross-validation — compensate for weaker speakers. But the chair's meta-cognitive load benefits from a more capable model.
+
+### What this means in practice
+
+You don't need GPT-4-class models at every position to get high-quality team output. A team of ordinary models, organized by Agora's discussion protocol, can produce decisions with:
+
+- **Cross-validation** (architect checks developer's feasibility, tester checks regression risk)
+- **Evidence-based reasoning** (dispatch mode forces tool use before opinion)
+- **Accumulated memory** (each discussion's outcome persists in MEMORY.md)
+- **Controlled convergence** (chair forces closure when consensus is reached, prevents endless debate)
+
+This is the Agora proposition: **structure, not model size, is the multiplier.**
+
 ## Install
 
 ```bash
@@ -182,8 +221,8 @@ plugins:
 ```
 agora/
 ├── plugin.yaml                  # Plugin manifest (tools + hooks)
-├── __init__.py                  # register(ctx) — 18 tools + dashboard API + CLI + 3 hooks
-├── tools/__init__.py            # 18 tool definitions (unified: POST /workers only)
+├── __init__.py                  # register(ctx) — 16 tools + dashboard API + CLI + 3 hooks
+├── tools/__init__.py            # 16 tool definitions (raise/close/list motions, tasks, workers, teams, projects)
 ├── cli.py                       # hermes agora CLI
 ├── hooks/__init__.py            # 3 kanban hooks: completed, claimed, blocked
 ├── project_planner.py           # Project lifecycle + heartbeat config + AGENTS.md generation
@@ -194,12 +233,12 @@ agora/
 │   │   ├── agent_spawn.py       #   Spawn real Hermes agent subprocesses (hermes -p chat -q)
 │   │   ├── chair.py             #   Chair (Leader) prompts: open, evaluate, vote, summary
 │   │   └── roles.py             #   Consensus checker + discussion templates
-│   ├── storage/                 # SQLite storage
+│   ├── storage/                 # SQLite storage (motions, messages, votes, discussion_state)
 │   ├── session_manager.py       # Per-project session tracking + rotation
 │   ├── worker_templates.py      # 8 role templates (SOUL.md rendering)
 │   ├── worker_manager.py        # Worker lifecycle — unified (leader = worker with leader template)
 │   ├── team_manager.py          # Team + dispatch routing
-│   └── leader_loop.py           # Heartbeat spawn + PROJECT_COMPLETE detection
+│   └── leader_loop.py           # Heartbeat spawn + PROJECT_COMPLETE detection + stuck motion rescue
 ├── dashboard/                   # Web UI + REST API
 └── skills/
     ├── agora-awareness/         # Framework overview — every worker gets this

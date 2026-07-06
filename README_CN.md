@@ -23,6 +23,45 @@ Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个�
 | **人类参与讨论** | 讨论进行中可随时插入消息，引导讨论方向 |
 | **Dashboard** | Projects tab（默认）、Team tab（Members + Teams 子页签）、Profiles tab |
 
+## 为什么选择 Agora？—— 结构化讨论放大普通模型的能力
+
+大多数多智能体框架假设你需要在每个节点使用顶尖模型。Agora 挑战了这个假设。在 5 小时的生产环境监测中（docmind 项目，本地模型经 API 中转——非顶尖模型），我们观察到：
+
+- **Architect** 纠正了 **Researcher** 提议的排序，引用了精确的文件路径和行号
+- **Developer** 用具体数字推翻了工时估计（"2-3 小时，不是几天"）
+- **Tester** 引用现有 125 个测试套件确认回归风险低
+- **Writer** 精确定位了 `gap-analysis.md` 需要修改的行号
+
+这些输出不需要任何单个模型在脑中持有完整的决策树。每个 agent 只需要做一个**领域内的局部判断**——结构化讨论框架将它们拼接成连贯的决策。
+
+### 架构如何弥补模型能力的不足
+
+| 模型的弱点 | Agora 的结构性补偿 |
+|-----------|------------------|
+| **长上下文中失去焦点** | 每个发言者看到的是紧凑的结构化历史（`[角色 (步骤类型)]: 内容`），不是原始对话。典型输入约 2000 字符。 |
+| **急于下结论** | 步骤化流程强制：开场 → 发言 → 主持人评估 → 下一位发言者。不能跳步。 |
+| **盲区 / 单一视角** | 主持人明确检查"谁还没发言？"并指派发言。所有视角必须被听到才能结束。 |
+| **遗忘先前决策** | 讨论结果写入每个参与者的 MEMORY.md。下次讨论从积累的团队知识开始。 |
+| **无法自我判断是否卡住** | 主持人的元决策循环：`continue | dispatch | vote | close`——框架在正确的时机提出正确的问题。 |
+| **无证据地幻觉** | dispatch 模式派 worker 用真实工具（`web_search`、`read_file`、`terminal`）调查后再表态。 |
+
+### 主持人角色与众不同
+
+发言者做**领域推理**（"用 SQLite 还是 PostgreSQL？"）——单跳，结构化输入，在自己专业范围内。主持人做**元推理**（"每个人都发言了吗？有未解决的分歧吗？可以结束了吗？"）——多跳，需要跟踪全局状态。
+
+**建议：** 如果预算有限，把你能用的最强模型配给 Leader/主持人，其他角色用便宜模型。架构的结构性约束——轮流发言、引导提示、交叉验证——能弥补发言者的能力不足。但主持人的元认知负荷确实需要更强的模型。
+
+### 这在实践中意味着什么
+
+你不需要在每个位置都放 GPT-4 级别的模型才能获得高质量的团队输出。一组普通模型，在 Agora 的讨论协议组织下，可以产出具备以下特征的决策：
+
+- **交叉验证**（architect 检查 developer 的可行性，tester 检查回归风险）
+- **基于证据的推理**（dispatch 模式强制先用工具调查再表态）
+- **积累的记忆**（每次讨论的结果持久化在 MEMORY.md 中）
+- **受控的收敛**（主持人达成共识时强制结束，防止无尽讨论）
+
+这就是 Agora 的主张：**是结构，不是模型大小，起到了乘数作用。**
+
 ## 安装
 
 ```bash
@@ -198,8 +237,8 @@ plugins:
 ```
 agora/
 ├── plugin.yaml                  # 插件清单（工具 + 钩子）
-├── __init__.py                  # register(ctx) — 18 工具 + dashboard API + CLI + 3 钩子
-├── tools/__init__.py            # 18 工具定义（统一入口：仅 POST /workers）
+├── __init__.py                  # register(ctx) — 16 工具 + dashboard API + CLI + 3 钩子
+├── tools/__init__.py            # 16 工具定义（发起/关闭/列出 motion、任务、worker、团队、项目）
 ├── cli.py                       # hermes agora CLI
 ├── hooks/__init__.py            # 3 看板钩子：completed、claimed、blocked
 ├── project_planner.py           # 项目生命周期 + 心跳配置 + AGENTS.md 生成
@@ -210,14 +249,16 @@ agora/
 │   │   ├── agent_spawn.py       #   启动真正的 Hermes agent 子进程 (hermes -p chat -q)
 │   │   ├── chair.py             #   主持人 (Leader) 提示词: 开场、评估、投票、总结
 │   │   └── roles.py             #   共识检查 + 讨论模板
-│   ├── storage/                 # SQLite 存储
+│   ├── storage/                 # SQLite 存储（motion、消息、投票、讨论状态）
 │   ├── session_manager.py       # 项目级会话跟踪 + 轮转
 │   ├── worker_templates.py      # 8 角色模板（SOUL.md 渲染）
 │   ├── worker_manager.py        # Worker 生命周期 — 统一管理（leader = leader 模板的 worker）
 │   ├── team_manager.py          # 团队组建 + 分配路由
-│   └── leader_loop.py           # 心跳启动 + PROJECT_COMPLETE 检测
-├── dashboard/                   # Web UI + REST API（Members 页签、StartProjectForm）
+│   └── leader_loop.py           # 心跳启动 + PROJECT_COMPLETE 检测 + 卡住 motion 恢复
+├── dashboard/                   # Web UI + REST API
 └── skills/
+    ├── agora-awareness/         # 框架认知 — 每个 worker 都会获得
+    └── agora-deliberation/      # 讨论方法论 — 何时/如何发起 motion
 ```
 
 ## License
