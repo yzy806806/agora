@@ -192,11 +192,10 @@ def create_worker(
     try:
         memories_dir.mkdir(parents=True, exist_ok=True)
         memory_path = memories_dir / "MEMORY.md"
-        if not memory_path.exists() or memory_path.stat().st_size == 0:
+        if not memory_path.exists():
             memory_path.write_text(f"# {name} Memory\n\nPersonal experience and learned facts.\n")
-        else:
-            # Overwrite with clean personal memory (don't inherit parent's)
-            memory_path.write_text(f"# {name} Memory\n\nPersonal experience and learned facts.\n")
+        # Do NOT overwrite existing memory — workers accumulate experience
+        # across sessions. Only create if missing.
     except Exception as exc:
         logger.warning("Failed to write memories/MEMORY.md for %s: %s", name, exc)
 
@@ -331,20 +330,45 @@ def update_worker_session(name: str, session_id: str | None, project: str | None
     Pass ``None`` or empty string to clear the session (forces a fresh
     session on next spawn).
     """
+    import fcntl
+
     wf = _worker_file(name)
     if not wf.exists():
         return
-    data = json.loads(wf.read_text())
-    if project:
-        session_map = data.get("session_ids", {})
-        if session_id:
-            session_map[project] = session_id
-        else:
-            session_map.pop(project, None)
-        data["session_ids"] = session_map
-    else:
-        data["session_id"] = session_id or None
-    wf.write_text(json.dumps(data, indent=2))
+    # Use an exclusive file lock to prevent concurrent read-modify-write
+    # races when multiple discussion drivers update the same worker's
+    # session simultaneously.
+    lock_path = wf.with_suffix(".lock")
+    try:
+        with open(lock_path, "w") as lock_fd:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            data = json.loads(wf.read_text())
+            if project:
+                session_map = data.get("session_ids", {})
+                if session_id:
+                    session_map[project] = session_id
+                else:
+                    session_map.pop(project, None)
+                data["session_ids"] = session_map
+            else:
+                data["session_id"] = session_id or None
+            wf.write_text(json.dumps(data, indent=2))
+    except (OSError, IOError):
+        # Fallback: no lock, direct write (best-effort)
+        try:
+            data = json.loads(wf.read_text())
+            if project:
+                session_map = data.get("session_ids", {})
+                if session_id:
+                    session_map[project] = session_id
+                else:
+                    session_map.pop(project, None)
+                data["session_ids"] = session_map
+            else:
+                data["session_id"] = session_id or None
+            wf.write_text(json.dumps(data, indent=2))
+        except Exception:
+            pass
 
 
 def get_worker_session(name: str, project: str | None = None) -> str | None:

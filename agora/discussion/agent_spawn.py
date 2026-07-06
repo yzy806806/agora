@@ -342,14 +342,16 @@ print(f"Discussion result: {{result.decision}} ({{result.steps_completed}} steps
         runner_path.write_text(runner_script)
 
         # Spawn it in the background
-        log_fd = open(log_path, "a")
-        _proc = subprocess.Popen(
-            ["python3", str(runner_path)],
-            stdout=log_fd,
-            stderr=log_fd,
-            start_new_session=True,
-            cwd=workdir if workdir and os.path.isabs(workdir) and os.path.isdir(workdir) else None,
-        )
+        with open(log_path, "a") as log_fd:
+            _proc = subprocess.Popen(
+                ["python3", str(runner_path)],
+                stdout=log_fd,
+                stderr=log_fd,
+                start_new_session=True,
+                cwd=workdir if workdir and os.path.isabs(workdir) and os.path.isdir(workdir) else None,
+            )
+            # Popen duplicates the fd; log_fd is closed when the with block
+            # exits, but the child retains its own copy via start_new_session.
 
         logger.info(
             "Discussion driver spawned for motion %s (PID %s, log=%s)",

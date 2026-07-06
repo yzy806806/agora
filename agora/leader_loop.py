@@ -88,6 +88,24 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
     return {"status": "batch", "results": results}
 
 
+def _cleanup_stale_discussion_states(db_module: Any) -> None:
+    """Clean up discussion_state records for closed motions.
+
+    Closed motions should not have 'discussing' or 'investigating' state
+    lingering in the discussion_state table. This runs on every heartbeat
+    to keep the table clean.
+    """
+    try:
+        closed_motions = db_module.list_motions(status_filter="closed", limit=100)
+        for m in closed_motions:
+            state = db_module.get_discussion_state(m["id"])
+            if state and state.get("current_state") != "closed":
+                db_module.save_discussion_state(m["id"], current_state="closed")
+                logger.debug("Cleaned stale state for closed motion %s", m["id"])
+    except Exception as exc:
+        logger.debug("Stale state cleanup failed: %s", exc)
+
+
 def _rescue_stuck_motions(project: dict) -> None:
     """Find motions stuck in 'discussing' and re-spawn or close them.
 
@@ -108,6 +126,10 @@ def _rescue_stuck_motions(project: dict) -> None:
         project_name = project.get("name", "")
         if not project_name:
             return
+
+        # Clean up stale discussion_state records for closed motions
+        # (M4 fix: closed motions should not have 'discussing'/'investigating' state)
+        _cleanup_stale_discussion_states(db)
 
         # Find discussing motions for this project
         motions = db.list_motions(status_filter="active", limit=50)

@@ -183,7 +183,7 @@ def get_assignee_for_role(team_name: str, role: str) -> str | None:
         return None
 
     role_map = team.get("role_map", {})
-    workers = role_map.get(role, [])
+    workers = list(role_map.get(role, []))
     if not workers:
         # Try to find a worker with a matching role by checking the roster
         # (handles case where role_map wasn't built correctly)

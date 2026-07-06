@@ -168,7 +168,10 @@ def _write_to_memory(
 ) -> None:
     """Write the discussion outcome to Hermes MEMORY.md."""
     try:
-        from tools.memory_tool import MemoryStore
+        try:
+            from tools.memory_tool import MemoryStore
+        except ImportError:
+            from hermes_cli.memory_tool import MemoryStore
     except ImportError:
         return
 

@@ -149,7 +149,12 @@ def ensure_in_place_compression(config_path: Path) -> None:
 
 def safe_name(name: str) -> str:
     """Sanitize a name for use as a filename."""
-    return name.replace("/", "-").replace(" ", "_")
+    import re
+    # Replace path separators and whitespace first
+    name = name.replace("/", "-").replace(" ", "_")
+    # Strip any remaining characters that are unsafe in filenames
+    name = re.sub(r'[<>:"|?*\\;{}()\[\]$~`!@#%^&=+]', "", name)
+    return name
 
 
 def parse_json_response(text: str) -> dict | None:

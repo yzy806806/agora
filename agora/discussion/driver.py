@@ -155,6 +155,12 @@ class DiscussionDriver:
                     idx = self.participants.index(speaker)
                     speaker = self.participants[(idx + 1) % len(self.participants)]
                     same_speaker_count = 0
+                    # Persist the rotation so the next loop iteration
+                    # reads the correct next_speaker from the DB (M5 fix).
+                    db.save_discussion_state(
+                        self.motion_id, "discussing",
+                        next_speaker=speaker,
+                    )
             else:
                 same_speaker_count = 0
             last_speaker = speaker

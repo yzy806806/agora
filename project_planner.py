@@ -599,7 +599,6 @@ def on_project_complete(project_name: str) -> None:
 
 def get_cron_status(project_name: str) -> dict:
     """Get cron job status for a project's heartbeat."""
-    import json as _json
     cron_name = f"heartbeat-{safe_name(project_name)}"
     # Check both the default profile and named profiles
     cron_paths = [
@@ -608,7 +607,7 @@ def get_cron_status(project_name: str) -> dict:
     for cron_jobs_path in cron_paths:
         try:
             if cron_jobs_path.exists():
-                cron_data = _json.loads(cron_jobs_path.read_text())
+                cron_data = json.loads(cron_jobs_path.read_text())
                 for job in cron_data.get("jobs", []):
                     if job.get("name") == cron_name:
                         return {
@@ -642,7 +641,7 @@ def on_task_completed(task_id: str, **kwargs: Any) -> None:
         if data is None or data.get("status") != "active":
             return
 
-        if _has_pending_tasks():
+        if _has_pending_tasks(project_name):
             logger.info(
                 "Project '%s': task %s done but pending tasks remain",
                 project_name, task_id,
@@ -682,14 +681,21 @@ def _find_project_for_task(task_id: str) -> str | None:
         conn = kanban_db.connect()
         try:
             task = kanban_db.get_task(conn, task_id)
-            if task and task.body:
-                for proj in list_projects():
-                    if proj["name"] in task.body:
-                        return proj["name"]
-                if "From Agora discussion" in task.body:
+            if task:
+                # Use the tenant field (kanban board name) for reliable
+                # project association instead of string-matching task body.
+                tenant = getattr(task, "tenant", None) or task.__dict__.get("tenant")
+                if tenant:
+                    # tenant is "agora-<project_name>" — strip the prefix
+                    project_name = tenant.replace("agora-", "", 1)
+                    # Verify this project exists in the registry
                     for proj in list_projects():
-                        if proj.get("status") == "active":
-                            return proj["name"]
+                        if proj["name"] == project_name:
+                            return project_name
+                    # Fallback: if no registry match, return the stripped name
+                    # (the project may have been deleted but tasks remain)
+                    if project_name:
+                        return project_name
         finally:
             conn.close()
     except Exception as exc:
@@ -697,15 +703,27 @@ def _find_project_for_task(task_id: str) -> str | None:
     return None
 
 
-def _has_pending_tasks() -> bool:
-    """Check if there are any todo/ready/running tasks on the kanban board."""
+def _has_pending_tasks(project_name: str | None = None) -> bool:
+    """Check if there are any todo/ready/running tasks on the kanban board.
+
+    Args:
+        project_name: If given, only count tasks for this project's board
+                      (tenant = "agora-<project_name>"). If None, counts all.
+    """
     try:
         from hermes_cli import kanban_db
         conn = kanban_db.connect()
         try:
-            rows = conn.execute(
-                "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running')"
-            ).fetchone()
+            if project_name:
+                tenant = f"agora-{project_name}"
+                rows = conn.execute(
+                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running') AND tenant = ?",
+                    (tenant,),
+                ).fetchone()
+            else:
+                rows = conn.execute(
+                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running')"
+                ).fetchone()
             return rows["n"] > 0
         finally:
             conn.close()

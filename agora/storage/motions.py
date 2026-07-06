@@ -45,6 +45,7 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
     _init_schema(conn)
     return conn
@@ -270,6 +271,14 @@ def update_motion_status(
     finally:
         conn.close()
 
+    # Also sync discussion_state when closing, so stale state
+    # records don't accumulate (M2 fix).
+    if status == "closed":
+        try:
+            save_discussion_state(motion_id, current_state="closed")
+        except Exception:
+            pass
+
 
 # --------------------------------------------------------------------------- #
 # Messages — see bottom of file for extended add_message with event-driven fields
@@ -351,14 +360,14 @@ def _row_to_motion(row: dict) -> dict:
         "status": row.get("status", "discussing"),
         "decision": row.get("decision"),
         "rationale": row.get("rationale"),
-        "action_items": json.loads(row.get("action_items", "[]")),
+        "action_items": json.loads(row.get("action_items") or "[]"),
         "current_round": row.get("current_round", 0),
         "max_rounds": row.get("max_rounds", 3),
         "source": row.get("source", "user"),
         "source_task_id": row.get("source_task_id"),
         "source_profile": row.get("source_profile"),
         "blocking": bool(row.get("blocking", 0)),
-        "participants": json.loads(row.get("participants", "[]")),
+        "participants": json.loads(row.get("participants") or "[]"),
         "created_at": row.get("created_at"),
         "closed_at": row.get("closed_at"),
         # Event-driven fields
