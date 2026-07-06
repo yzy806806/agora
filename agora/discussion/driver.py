@@ -122,6 +122,11 @@ class DiscussionDriver:
         step = 0
         consecutive_failures = 0
         MAX_CONSECUTIVE_FAILURES = 3
+        # Track how many times the same speaker has spoken consecutively
+        # (prevents infinite "your response was truncated, try again" loops)
+        last_speaker = None
+        same_speaker_count = 0
+        MAX_SAME_SPEAKER = 2  # max consecutive turns for the same speaker
         while step < self.max_steps:
             step += 1
             db.increment_step_count(self.motion_id)
@@ -136,6 +141,23 @@ class DiscussionDriver:
             if not speaker or speaker not in self.participants:
                 # Chair didn't name a valid speaker; try to recover
                 speaker = self.participants[step % len(self.participants)]
+
+            # Enforce max consecutive turns for the same speaker
+            if speaker == last_speaker:
+                same_speaker_count += 1
+                if same_speaker_count >= MAX_SAME_SPEAKER:
+                    logger.warning(
+                        "Speaker %s has spoken %d consecutive times, "
+                        "forcing rotation to next participant",
+                        speaker, same_speaker_count,
+                    )
+                    # Rotate to the next participant
+                    idx = self.participants.index(speaker)
+                    speaker = self.participants[(idx + 1) % len(self.participants)]
+                    same_speaker_count = 0
+            else:
+                same_speaker_count = 0
+            last_speaker = speaker
 
             # 2a: Speaker speaks
             logger.info("Step %d: %s speaks", step, speaker)

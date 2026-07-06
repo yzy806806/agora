@@ -70,6 +70,18 @@ Rules:
   The investigator will use their tools and report findings.
 - "vote": call a formal vote if the discussion is deadlocked.
 - "close": the discussion is ready to summarize.
+
+CRITICAL — Avoid false truncation calls:
+- A speaker's response is NOT truncated if it ends with a sentence-ending
+  punctuation mark (. ! ? : ) or a closing delimiter (}} ] ) ```) or an emoji.
+  Do NOT claim truncation for responses that end naturally.
+- Only flag truncation if the text breaks mid-word or mid-sentence with NO
+  punctuation and reads as an obvious cut-off.
+- If a speaker repeats similar points across turns, that is redundancy, NOT
+  truncation. Move the discussion forward instead of asking them to "finish".
+- Never retry the same speaker more than 2 consecutive times for the same
+  reason. If their answer is adequate (even if imperfect), advance to the
+  next participant or call a vote.
 """
 
 
