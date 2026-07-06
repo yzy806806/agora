@@ -440,6 +440,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     source = "agent" if source_task_id else "user"
 
     # Try to auto-resolve participants and chair from the project
+    resolved_project = ""
     if not participants or not chair:
         try:
             from project_planner import get_heartbeat_member, get_project
@@ -496,7 +497,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         participants=participants,
         chair=chair,
         max_steps=max_steps,
-        project=resolved_project if 'resolved_project' in dir() else "",
+        project=resolved_project,
     )
 
     motion_id = motion["id"]

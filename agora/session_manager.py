@@ -26,25 +26,38 @@ _MAX_SIZE_KB = 2000.0
 _HEURISTIC_THRESHOLD = 100  # motions messages or completed tasks
 
 
-def _state_db_path() -> Path | None:
-    """Locate the Hermes state SQLite DB that stores sessions + messages."""
+def _state_db_path(profile_name: str | None = None) -> Path | None:
+    """Locate the Hermes state SQLite DB that stores sessions + messages.
+
+    Worker sessions live in their **profile-specific** state.db, not the
+    global one.  The profile dir is derived from the worker name
+    (``~/.hermes/profiles/<name>/``).  If ``profile_name`` is not given,
+    falls back to the global state.db (used by the default profile).
+    """
     candidates: list[str] = []
+
+    # 1. Profile-specific state.db (where worker sessions actually live)
+    if profile_name:
+        candidates.append(str(Path.home() / ".hermes" / "profiles" / profile_name / "state.db"))
+
+    # 2. Global state.db (default profile sessions)
     kanban_db = os.environ.get("HERMES_KANBAN_DB", "")
     if kanban_db:
         candidates.append(str(Path(kanban_db).parent / "state.db"))
     candidates.append(str(Path.home() / ".hermes" / "state.db"))
+
     for c in candidates:
         if c and Path(c).exists():
             return Path(c)
     return None
 
 
-def _query_session_db(session_id: str) -> dict | None:
+def _query_session_db(profile_name: str, session_id: str) -> dict | None:
     """Query the Hermes state DB for a session's message count and size.
 
     Returns ``None`` if the DB or session cannot be found.
     """
-    db_path = _state_db_path()
+    db_path = _state_db_path(profile_name)
     if db_path is None:
         return None
     try:
@@ -155,7 +168,7 @@ def check_session_size(profile_name: str, session_id: str | None) -> dict:
                 "needs_rotation": False,
             }
 
-    db_result = _query_session_db(session_id)
+    db_result = _query_session_db(profile_name, session_id)
     if db_result is not None:
         msg_count = db_result["message_count"]
         size_kb = db_result["size_kb"]
