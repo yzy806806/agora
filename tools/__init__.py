@@ -144,6 +144,26 @@ _LIST_MOTIONS_SCHEMA = {
     },
 }
 
+_CLOSE_MOTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "motion_id": {
+            "type": "string",
+            "description": "REQUIRED. The motion ID to close.",
+        },
+        "decision": {
+            "type": "string",
+            "enum": ["adopted", "rejected", "superseded", "error"],
+            "description": "The decision outcome. Use 'adopted' if the team agreed, 'rejected' if not, 'superseded' if another motion replaced this one, 'error' for invalid/abandoned motions.",
+        },
+        "rationale": {
+            "type": "string",
+            "description": "Brief explanation of why the motion is being closed.",
+        },
+    },
+    "required": ["motion_id"],
+}
+
 _CREATE_TASK_SCHEMA = {
     "type": "object",
     "properties": {
@@ -296,6 +316,48 @@ def register_all_tools(ctx: Any) -> None:
         handler=_list_motions_handler,
         description="List active or closed discussions.",
         emoji="📋",
+    )
+
+    # --- Tool: agora_close_motion ---
+    def _close_motion_handler(args: dict, **kwargs) -> dict:
+        motion_id = args.get("motion_id", "")
+        decision = args.get("decision", "superseded")
+        rationale = args.get("rationale", "")
+
+        motion = db.get_motion(motion_id)
+        if motion is None:
+            return {"error": "Motion not found", "code": 404}
+
+        if motion["status"] == "closed":
+            return {
+                "motion_id": motion_id,
+                "status": "already_closed",
+                "message": "Motion is already closed",
+            }
+
+        db.update_motion_status(
+            motion_id,
+            status="closed",
+            decision=decision,
+            rationale=rationale,
+        )
+        db.update_motion_state(motion_id, "closed")
+        db.save_discussion_state(motion_id, current_state="closed")
+
+        return {
+            "motion_id": motion_id,
+            "status": "closed",
+            "decision": decision,
+            "message": f"Motion '{motion['title']}' closed with decision: {decision}",
+        }
+
+    ctx.register_tool(
+        name="agora_close_motion",
+        toolset="agora",
+        schema=_CLOSE_MOTION_SCHEMA,
+        handler=_close_motion_handler,
+        description="Close a motion directly. Use this to clean up stale or resolved discussions without going through the full discussion cycle. Example: agora_close_motion({\"motion_id\": \"motion-abc123\", \"decision\": \"superseded\", \"rationale\": \"Work already done in motion-xyz789\"}).",
+        emoji="🔒",
     )
 
     # --- Tool: agora_create_task ---

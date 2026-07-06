@@ -89,15 +89,17 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
 
 
 def _rescue_stuck_motions(project: dict) -> None:
-    """Find motions stuck in 'discussing' with no messages and re-spawn drivers.
+    """Find motions stuck in 'discussing' and re-spawn or close them.
 
     A motion can get stuck if:
     - It was created without chair/participants (old hook code)
     - spawn_discussion_driver failed silently
-    - The discussion process crashed before writing any messages
+    - The discussion process crashed before or after writing messages
 
-    For each stuck motion, re-resolve chair/participants from the project
-    and re-spawn the discussion driver.
+    For each stuck motion:
+    - If no messages and no state → re-spawn (never started)
+    - If has messages but driver is dead → re-spawn (crashed mid-discussion)
+    - If no chair/participants can be resolved → close as error
     """
     try:
         from agora.storage import motions as db
@@ -107,7 +109,7 @@ def _rescue_stuck_motions(project: dict) -> None:
         if not project_name:
             return
 
-        # Find discussing motions for this project with 0 messages
+        # Find discussing motions for this project
         motions = db.list_motions(status_filter="active", limit=50)
         for m in motions:
             if m.get("status") != "discussing":
@@ -116,16 +118,30 @@ def _rescue_stuck_motions(project: dict) -> None:
                 continue
 
             messages = db.get_messages(m["id"])
-            if messages:
-                continue  # has messages, discussion is progressing
 
             # Check if a discussion_state exists — if it does, the driver
-            # started but may have crashed. If not, it never started.
+            # started but may have crashed.
             state = db.get_discussion_state(m["id"])
-            if state and state.get("last_action"):
-                # Driver started but crashed — skip to avoid re-spawning
-                # in a tight loop. Leader will close it manually.
+
+            if messages and state and state.get("last_action"):
+                # Driver started, wrote messages, then crashed mid-discussion.
+                # Re-spawn the driver so it can resume from where it left off.
+                # The driver uses the discussion history to avoid repeating.
+                logger.info(
+                    "Rescuing crashed motion %s (%d messages, last_state=%s)",
+                    m["id"], len(messages), state.get("current_state"),
+                )
+                # Fall through to re-spawn below
+            elif messages and not (state and state.get("last_action")):
+                # Has messages but no state record — unusual but treat as
+                # in-progress (someone else may be driving it)
                 continue
+            elif not messages and state and state.get("last_action"):
+                # Driver started but crashed before writing messages.
+                # Skip to avoid re-spawning in a tight loop. Leader will
+                # close it manually.
+                continue
+            # else: no messages, no state → never started, re-spawn below
 
             # Re-resolve chair and participants
             chair = m.get("chair", "")
@@ -162,12 +178,14 @@ def _rescue_stuck_motions(project: dict) -> None:
                 )
                 db.update_motion_status(m["id"], status="closed", decision="error")
                 db.update_motion_state(m["id"], "closed")
+                db.save_discussion_state(m["id"], current_state="closed")
                 continue
 
             # Also skip empty-title motions — they have nothing to discuss
             if not m.get("title", "").strip():
                 db.update_motion_status(m["id"], status="closed", decision="error")
                 db.update_motion_state(m["id"], "closed")
+                db.save_discussion_state(m["id"], current_state="closed")
                 logger.warning("Closed empty-title motion %s", m["id"])
                 continue
 

@@ -67,8 +67,8 @@ class DiscussionDriver:
         workdir: str = "",
         project_name: str = "",
         max_steps: int = 30,
-        speak_timeout: int = 600,
-        chair_timeout: int = 240,
+        speak_timeout: int = 900,
+        chair_timeout: int = 300,
     ) -> None:
         self.motion_id = motion_id
         self.chair_profile = chair_profile
@@ -367,11 +367,15 @@ class DiscussionDriver:
         if result.get("session_id"):
             self._update_worker_session(speaker, result["session_id"])
 
-        # If the speaker returned an error placeholder, clear the session
-        # so the next spawn starts fresh (the old session may be corrupted)
+        # If the speaker returned an error placeholder, keep the session
+        # so the next attempt can resume with context. Clearing the session
+        # forces a cold start every time, which loses prior work and makes
+        # timeouts more likely on retry. The dispatch/investigate path
+        # already uses a fresh session when it needs one.
         reply = result.get("reply", "")
-        if not reply or reply.startswith("["):
-            self._clear_worker_session(speaker)
+        # Note: we no longer clear the session on timeout/error. The
+        # session may still have useful context (partial tool calls, etc.)
+        # that can help the next attempt succeed.
 
         return reply
 
@@ -647,6 +651,7 @@ class DiscussionDriver:
             action_items=action_item_strings,
         )
         db.update_motion_state(self.motion_id, "closed")
+        db.save_discussion_state(self.motion_id, current_state="closed")
 
         # Create kanban tasks from action items
         created_tasks: list[str] = []
@@ -951,5 +956,6 @@ class DiscussionDriver:
         """Abort the discussion with an error."""
         db.update_motion_status(self.motion_id, status="closed", decision="error")
         db.update_motion_state(self.motion_id, "closed")
+        db.save_discussion_state(self.motion_id, current_state="closed")
         logger.error("Discussion aborted: %s", reason)
         return DiscussionResult(motion_id=self.motion_id, decision="error")

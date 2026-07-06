@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.2**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.3**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -225,6 +225,17 @@ agora/
 MIT
 
 ## 更新日志
+
+### v1.4.3 — 讨论状态一致性 & 卡住 motion 恢复
+
+**5 小时生产环境监测 docmind 团队后发现 6 个问题：**
+
+- **关闭讨论时 `discussion_state` 不清理** — `driver.py` 只更新 `motions.state` 为 "closed"，没更新 `discussion_state` 表。导致 17 个已关闭的 motion 仍显示 `current_state=discussing`。现在所有关闭路径都调用 `save_discussion_state(motion_id, "closed")`。
+- **有消息的卡住讨论无人恢复** — `_rescue_stuck_motions()` 只救 0 条消息的 motion。driver 中途崩溃的讨论（有消息但无运行中的 driver）永远被跳过。现在会重新 spawn driver 恢复这些讨论。
+- **`motions.status` 和 `motions.state` 不一致** — 两个字段由不同函数更新，可能产生分歧（如 `status=closed, state=discussing`）。现在 `update_motion_status("closed")` 同时设 `state`，`update_motion_state("closed")` 同时设 `status`。
+- **新增 `agora_close_motion` 工具** — Leader 无法直接关闭 motion，反复发起新 motion 来关闭旧 motion（无限循环：motion→task→done，但 motion DB 不变）。新工具一步关闭，带 decision + rationale。总工具数：16。
+- **Speaker 超时后保留 session** — 超时后清除 session 导致冷重启，丢失上下文。现在保留 session 以便下次尝试可以续接。
+- **超时调整** — `speak_timeout` 600s→900s，`chair_timeout` 240s→300s。本地模型经 API 中转需要更多时间做 web_search/分析。
 
 ### v1.4.2 — 代码清理和硬编码路径修复
 

@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.2**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.3**
 
 [中文文档](./README_CN.md)
 
@@ -211,6 +211,17 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.4.3 — Discussion state consistency and stale motion recovery
+
+**6 fixes from 5-hour production monitoring of the docmind team:**
+
+- **`discussion_state` not cleaned on close** — `driver.py` updated `motions.state` to "closed" but never updated the `discussion_state` table. Result: 17 closed motions still showed `current_state=discussing`. Now `save_discussion_state(motion_id, "closed")` is called in all three close paths (`_finalize`, `_abort`, `_rescue_stuck_motions`).
+- **Stuck discussions with messages never recovered** — `_rescue_stuck_motions()` only rescued motions with 0 messages. Motions where the driver crashed mid-discussion (had messages but no running driver) were skipped forever. Now re-spawns the driver for crashed mid-discussion motions.
+- **`motions.status` and `motions.state` inconsistency** — The two fields were updated by different functions and could diverge (e.g. `status=closed, state=discussing`). Now `update_motion_status("closed")` also sets `state="closed"`, and `update_motion_state("closed")` also sets `status="closed"`.
+- **New `agora_close_motion` tool** — Leader had no way to directly close stale motions. It repeatedly raised new motions to close old ones (infinite loop: motion→task→done, but motion DB unchanged). New tool closes a motion in one call with decision + rationale. Total tools: 16.
+- **Speaker session preserved on timeout** — When a speaker timed out (600s), the session was cleared, forcing a cold restart. Now the session is kept so the next attempt can resume with prior context.
+- **Timeout increased** — `speak_timeout` 600s→900s, `chair_timeout` 240s→300s. Local models via API relay need more time for web_search/analysis tasks.
 
 ### v1.4.2 — Code cleanup and hardcoded path fixes
 

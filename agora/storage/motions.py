@@ -257,6 +257,9 @@ def update_motion_status(
         if status == "closed":
             fields.append("closed_at = ?")
             params.append(datetime.now(timezone.utc).isoformat())
+            # Keep state in sync with status when closing
+            fields.append("state = ?")
+            params.append("closed")
 
         params.append(motion_id)
         conn.execute(
@@ -433,13 +436,23 @@ def increment_step_count(motion_id: str) -> int:
 
 
 def update_motion_state(motion_id: str, state: str) -> None:
-    """Update a motion's event-driven state (discussing/voting/summarizing/closed)."""
+    """Update a motion's event-driven state (discussing/voting/summarizing/closed).
+
+    When state is set to 'closed', also update status to 'closed' to keep
+    the two fields consistent.
+    """
     conn = _connect()
     try:
-        conn.execute(
-            "UPDATE motions SET state = ? WHERE id = ?",
-            (state, motion_id),
-        )
+        if state == "closed":
+            conn.execute(
+                "UPDATE motions SET state = ?, status = 'closed', closed_at = COALESCE(closed_at, ?) WHERE id = ?",
+                (state, datetime.now(timezone.utc).isoformat(), motion_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE motions SET state = ? WHERE id = ?",
+                (state, motion_id),
+            )
         conn.commit()
     finally:
         conn.close()
