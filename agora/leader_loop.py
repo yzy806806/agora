@@ -287,10 +287,14 @@ def _spawn_leader_agent(project: dict) -> dict:
     # running and doesn't duplicate them.
     active_motions_summary = _build_active_motions_summary(project_name)
 
+    # Read the current stop_condition from the project registry
+    stop_condition = project.get("stop_condition") or "(not specified)"
+
     prompt = _HEARTBEAT_PROMPT.format(
         leader_name=member_name,
         project=project_name,
         goal=goal or "(not specified)",
+        stop_condition=stop_condition,
         workdir=workdir or "/root",
         active_motions=active_motions_summary,
     )
@@ -471,16 +475,21 @@ _HEARTBEAT_PROMPT = """\
 Heartbeat wake-up for {leader_name}, project '{project}'.
 
 Goal: {goal}
+Stop condition: {stop_condition}
 Workdir: {workdir}
 
 {active_motions}
 
 Check current status and take action per your SOUL.md heartbeat protocol.
+The goal and stop condition above are the CURRENT project targets — if they
+differ from what you remember, the project direction has been updated and
+you should align your plans accordingly.
 If everything is running fine, say "ALL_GOOD" with a brief summary.
 If tasks are all done, assess the project and plan the next valuable work.
 Do NOT raise a new motion on the same topic as one already listed above —
 wait for the existing discussion to conclude or check its result first.
-Only output "PROJECT_COMPLETE" if you've confirmed twice that there's truly nothing left to do.
+Only output "PROJECT_COMPLETE" if you've confirmed twice that the stop
+condition is met and there's truly nothing left to do.
 """
 
 
