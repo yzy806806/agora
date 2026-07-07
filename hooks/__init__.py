@@ -86,12 +86,26 @@ def _on_task_completed(
             )
 
             if decision == "adopted":
-                _write_to_memory(
-                    motion_id=motion_id,
-                    title=title,
-                    rationale=rationale,
-                    action_items=action_items,
-                )
+                # Only write motion decisions to the LEADER's memory.
+                # Workers don't need to remember every team decision —
+                # they should record their own technical experience instead.
+                # Motion records are session-level info that goes stale;
+                # Hermes guidance says "if it'll be stale in a week, don't
+                # put it in memory."
+                if profile_name and profile_name != "default":
+                    # Check if this profile is a leader
+                    try:
+                        from agora.worker_manager import get_worker
+                        worker = get_worker(profile_name)
+                        if worker and worker.get("is_leader"):
+                            _write_to_memory(
+                                motion_id=motion_id,
+                                title=title,
+                                rationale=rationale,
+                                action_items=action_items,
+                            )
+                    except Exception:
+                        pass
 
             logger.info(
                 "Agora hook: task %s completed (motion %s, decision=%s)",
@@ -105,6 +119,74 @@ def _on_task_completed(
                       run_id=run_id, summary=summary)
     except Exception as exc:
         logger.debug("Self-drive planner hook skipped: %s", exc)
+
+    # --- Phase 3: Skill creation nudge for complex tasks ---
+    # If a task had retries or took a long time, the worker likely solved
+    # a non-trivial problem worth saving as a skill. Write a kanban comment
+    # prompting the worker to save their workflow.
+    try:
+        _maybe_nudge_skill_creation(task_id, profile_name)
+    except Exception as exc:
+        logger.debug("Skill nudge skipped: %s", exc)
+
+
+def _maybe_nudge_skill_creation(task_id: str, profile_name: str) -> None:
+    """Write a skill-creation nudge as a kanban comment on complex tasks.
+
+    A task is "complex" if it had >1 run (retries) or took >30 minutes.
+    The nudge is a kanban comment — it shows up in the worker's next
+    task view and in the dashboard, but doesn't pollute memory.
+    """
+    try:
+        from hermes_cli import kanban_db
+        conn = kanban_db.connect()
+        try:
+            task = kanban_db.get_task(conn, task_id)
+            if not task:
+                return
+
+            # Count runs for this task
+            runs = conn.execute(
+                "SELECT COUNT(*) as n FROM task_runs WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            run_count = runs["n"] if runs else 0
+
+            # Check duration
+            duration_s = 0
+            if task.started_at and task.completed_at:
+                duration_s = task.completed_at - task.started_at
+
+            is_complex = run_count > 1 or duration_s > 1800  # >1 run or >30min
+
+            if not is_complex:
+                return
+
+            # Write a nudge comment
+            reasons = []
+            if run_count > 1:
+                reasons.append(f"{run_count} attempts")
+            if duration_s > 1800:
+                reasons.append(f"{duration_s // 60}min duration")
+
+            nudge = (
+                f"💡 This task was complex ({', '.join(reasons)}). "
+                f"If you discovered a reusable workflow or solved a tricky "
+                f"problem, consider saving it as a skill with "
+                f"`skill_manage(action='create', name='...', content='...')`. "
+                f"Skills persist across projects and help future you."
+            )
+
+            kanban_db.add_comment(conn, task_id, nudge)
+            conn.commit()
+            logger.info(
+                "Skill nudge written for task %s (%s, profile=%s)",
+                task_id, ", ".join(reasons), profile_name,
+            )
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.debug("Skill nudge failed for task %s: %s", task_id, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +248,12 @@ def _write_to_memory(
     rationale: str,
     action_items: list[str],
 ) -> None:
-    """Write the discussion outcome to Hermes MEMORY.md."""
+    """Write a concise motion decision to the LEADER's MEMORY.md only.
+
+    Workers don't receive motion records — they should record their own
+    technical experience via the memory tool, not have team decisions
+    dumped into their memory by hooks.
+    """
     try:
         try:
             from tools.memory_tool import MemoryStore
@@ -179,14 +266,10 @@ def _write_to_memory(
         store = MemoryStore()
         store.load_from_disk()
 
-        items_str = ""
-        if action_items:
-            short_items = [ai[:80] for ai in action_items[:3]]
-            items_str = " | " + " ; ".join(short_items)
-
-        entry = f"Agora decision ({motion_id}): {title} → {rationale[:120]}{items_str}"
-        if len(entry) > 250:
-            entry = entry[:247] + "..."
+        # One concise line — the leader just needs to know what was decided.
+        entry = f"Motion {motion_id}: {title[:80]} → {rationale[:100]}"
+        if len(entry) > 200:
+            entry = entry[:197] + "..."
 
         result = store.add("memory", entry)
         if result.get("success"):
