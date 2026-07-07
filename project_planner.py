@@ -394,6 +394,73 @@ def stop_project(project_name: str) -> dict:
     return {"status": "stopped", "project": data}
 
 
+def update_project(
+    project_name: str,
+    goal: str | None = None,
+    description: str | None = None,
+    stop_condition: str | None = None,
+    reactivate: bool = False,
+) -> dict:
+    """Update a project's goal, description, or stop condition mid-flight.
+
+    This allows the leader to pivot a project's direction without stopping
+    and recreating it. Automatically refreshes AGENTS.md so all workers
+    see the new goal on their next spawn.
+
+    Args:
+        project_name:   Project to update
+        goal:           New high-level goal (None = keep current)
+        description:    New description (None = keep current)
+        stop_condition: New stop condition (None = keep current)
+        reactivate:     If True, set status back to "active" (e.g. after
+                        the project was completed/stopped and needs a new
+                        phase). Also re-creates the heartbeat cron if missing.
+
+    Returns:
+        dict with updated project info
+    """
+    pf = _project_file(project_name)
+    if not pf.exists():
+        return {"error": f"Project '{project_name}' not found"}
+    data = json.loads(pf.read_text())
+
+    changes = []
+    if goal is not None:
+        data["goal"] = goal
+        changes.append("goal")
+    if description is not None:
+        data["description"] = description
+        changes.append("description")
+    if stop_condition is not None:
+        data["stop_condition"] = stop_condition
+        changes.append("stop_condition")
+
+    if reactivate:
+        data["status"] = "active"
+        data["current_round"] = data.get("current_round", 0) + 1
+        # Re-create heartbeat cron if it was removed
+        if not data.get("heartbeat_cron_id") and data.get("heartbeat_member"):
+            cron_id = _create_heartbeat_cron(project_name, data.get("heartbeat_minutes", 15))
+            if cron_id:
+                data["heartbeat_cron_id"] = cron_id
+        changes.append("status=active")
+
+    pf.write_text(json.dumps(data, indent=2))
+    logger.info(
+        "Project %s updated: %s",
+        project_name, ", ".join(changes) if changes else "(no changes)",
+    )
+
+    # Refresh AGENTS.md so workers see the new goal immediately
+    if changes:
+        try:
+            update_project_agents_md(project_name)
+        except Exception as exc:
+            logger.warning("Failed to refresh AGENTS.md: %s", exc)
+
+    return {"status": "updated", "project": data, "changes": changes}
+
+
 def delete_project(project_name: str) -> dict:
     """Permanently delete a project — stop heartbeat, remove registry file,
     and remove the project from all workers' projects lists."""

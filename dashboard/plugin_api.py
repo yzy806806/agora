@@ -538,6 +538,29 @@ def get_discussion_state_endpoint(motion_id: str):
 # Worker management
 # --------------------------------------------------------------------------- #
 
+class UpdateProjectRequest(BaseModel):
+    goal: Optional[str] = Field(None, description="New high-level goal")
+    description: Optional[str] = Field(None, description="New project description")
+    stop_condition: Optional[str] = Field(None, description="New stop condition")
+    reactivate: bool = Field(False, description="Reactivate a completed/stopped project")
+
+
+@router.put("/projects/{project_name}")
+def update_project_endpoint(project_name: str, req: UpdateProjectRequest):
+    """Update a project's goal, description, or stop condition."""
+    try:
+        from project_planner import update_project
+        return update_project(
+            project_name,
+            goal=req.goal,
+            description=req.description,
+            stop_condition=req.stop_condition,
+            reactivate=req.reactivate,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 class CreateWorkerRequest(BaseModel):
     name: str = Field(..., description="Worker profile name")
     role: str = Field(..., description="Role: architect/developer/reviewer/tester/devops")

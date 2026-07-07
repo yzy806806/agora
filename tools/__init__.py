@@ -905,7 +905,43 @@ def _register_project_tools(ctx: Any) -> None:
         emoji="📊",
     )
 
-    logger.info("Registered 3 project management tools")
+    # --- Tool: agora_update_project ---
+    _UPDATE_PROJECT_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Project name to update"},
+            "goal": {"type": "string", "description": "New high-level goal (omit to keep current)", "default": ""},
+            "description": {"type": "string", "description": "New project description (omit to keep current)", "default": ""},
+            "stop_condition": {"type": "string", "description": "New stop condition (omit to keep current). Set to empty string to clear.", "default": ""},
+            "reactivate": {"type": "boolean", "description": "Set to True to reactivate a completed/stopped project with the new goal.", "default": False},
+        },
+        "required": ["name"],
+    }
+
+    async def _update_project_handler(args: dict, **kwargs) -> dict:
+        from project_planner import update_project
+        name = args.get("name", "")
+        if not name:
+            return {"error": "name is required"}
+        # Empty string = clear, None = not provided (keep current)
+        goal = args.get("goal") if args.get("goal") else None
+        description = args.get("description") if args.get("description") else None
+        stop_condition = args.get("stop_condition") if args.get("stop_condition") else None
+        reactivate = args.get("reactivate", False)
+        return update_project(name, goal=goal, description=description,
+                              stop_condition=stop_condition, reactivate=reactivate)
+
+    ctx.register_tool(
+        name="agora_update_project",
+        toolset="agora",
+        schema=_UPDATE_PROJECT_SCHEMA,
+        handler=_update_project_handler,
+        is_async=True,
+        description="Update a project's goal, description, or stop condition mid-flight. Automatically refreshes AGENTS.md so workers see the new direction. Use reactivate=true to restart a completed project with a new goal.",
+        emoji="🔄",
+    )
+
+    logger.info("Registered 4 project management tools")
 
 
 # --------------------------------------------------------------------------- #
