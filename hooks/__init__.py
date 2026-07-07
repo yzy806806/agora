@@ -324,11 +324,13 @@ def _on_task_claimed(
         is_agora = False
         if tenant:
             try:
-                from project_planner import get_project, update_project_agents_md
+                from project_planner import get_project
                 proj = get_project(tenant)
                 if proj is not None and proj.get("status") == "active":
                     is_agora = True
-                    update_project_agents_md(proj["name"])
+                    # Note: AGENTS.md is refreshed on heartbeat / motion create-close
+                    # / project update — no need to refresh it here on every task
+                    # claim. The worker reads AGENTS.md via TERMINAL_CWD auto-injection.
                     logger.info(
                         "Agora claim: task %s claimed by %s for project %s at %s",
                         task_id, assignee or "(none)", tenant,

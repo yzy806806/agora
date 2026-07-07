@@ -162,7 +162,24 @@ def update_project_agents_md(project_name: str) -> dict:
 
     agents_path = workdir_path / "AGENTS.md"
     try:
-        agents_path.write_text("\n".join(lines))
+        # Use atomic write (temp file + rename) to prevent partial reads
+        # when multiple processes refresh AGENTS.md concurrently.
+        import tempfile
+        content = "\n".join(lines)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=str(workdir_path), prefix=".agents_md_", suffix=".tmp",
+        )
+        try:
+            with os.fdopen(tmp_fd, "w") as tmp_f:
+                tmp_f.write(content)
+            os.replace(tmp_path, str(agents_path))
+        except Exception:
+            # Cleanup temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         logger.info("AGENTS.md written to %s for project '%s'", agents_path, project_name)
         return {"status": "updated", "path": str(agents_path), "members": len(members)}
     except Exception as exc:
