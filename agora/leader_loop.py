@@ -282,21 +282,12 @@ def _spawn_leader_agent(project: dict) -> dict:
     except Exception as exc:
         logger.debug("Session size check failed for %s/%s: %s", member_name, project_name, exc)
 
-    # Build the heartbeat prompt
-    # Inject active motions so the leader knows what discussions are already
-    # running and doesn't duplicate them.
-    active_motions_summary = _build_active_motions_summary(project_name)
-
-    # Read the current stop_condition from the project registry
-    stop_condition = project.get("stop_condition") or "(not specified)"
-
+    # Build the heartbeat prompt — context (goal, stop condition, team,
+    # active motions) is in AGENTS.md which Hermes auto-injects into the
+    # system prompt via TERMINAL_CWD. No need to duplicate it here.
     prompt = _HEARTBEAT_PROMPT.format(
         leader_name=member_name,
         project=project_name,
-        goal=goal or "(not specified)",
-        stop_condition=stop_condition,
-        workdir=workdir or "/root",
-        active_motions=active_motions_summary,
     )
 
     # Find hermes binary
@@ -474,21 +465,13 @@ def _update_complete_check_pos(project_name: str, pos: int) -> None:
 _HEARTBEAT_PROMPT = """\
 Heartbeat wake-up for {leader_name}, project '{project}'.
 
-Goal: {goal}
-Stop condition: {stop_condition}
-Workdir: {workdir}
+Read AGENTS.md in the project workdir for current goal, stop condition, \
+team members, and active discussions.
 
-{active_motions}
-
-Check current status and take action per your SOUL.md heartbeat protocol.
-The goal and stop condition above are the CURRENT project targets — if they
-differ from what you remember, the project direction has been updated and
-you should align your plans accordingly.
-If everything is running fine, say "ALL_GOOD" with a brief summary.
-If tasks are all done, assess the project and plan the next valuable work.
-Do NOT raise a new motion on the same topic as one already listed above —
-wait for the existing discussion to conclude or check its result first.
-Only output "PROJECT_COMPLETE" if you've confirmed twice that the stop
+Check current status and take action per your SOUL.md heartbeat protocol. \
+If everything is running fine, say "ALL_GOOD" with a brief summary. \
+If tasks are all done, assess the project and plan the next valuable work. \
+Only output "PROJECT_COMPLETE" if you've confirmed twice that the stop \
 condition is met and there's truly nothing left to do.
 """
 

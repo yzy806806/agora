@@ -344,6 +344,14 @@ def register_all_tools(ctx: Any) -> None:
         db.update_motion_state(motion_id, "closed")
         db.save_discussion_state(motion_id, current_state="closed")
 
+        # Refresh AGENTS.md so the closed motion is removed from active list
+        if motion.get("project"):
+            try:
+                from project_planner import update_project_agents_md
+                update_project_agents_md(motion["project"])
+            except Exception:
+                pass
+
         return {
             "motion_id": motion_id,
             "status": "closed",
@@ -499,6 +507,14 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
         max_steps=max_steps,
         project=resolved_project,
     )
+
+    # Refresh AGENTS.md so the new motion shows up in the active discussions list
+    if resolved_project:
+        try:
+            from project_planner import update_project_agents_md
+            update_project_agents_md(resolved_project)
+        except Exception:
+            pass
 
     motion_id = motion["id"]
 

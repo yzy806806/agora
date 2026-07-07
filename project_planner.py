@@ -46,16 +46,20 @@ def _ensure_project_board(project_name: str) -> str:
 
 
 def update_project_agents_md(project_name: str) -> dict:
-    """Write/update AGENTS.md in the project workdir with team info.
+    """Write/update AGENTS.md in the project workdir.
 
-    This file is auto-loaded by Hermes into every worker's system prompt
-    (via TERMINAL_CWD context file scanning). It gives workers awareness
-    of their team members, roles, and project context without requiring
-    any changes to Hermes itself.
+    This file is auto-loaded by Hermes into every agent's system prompt
+    (via TERMINAL_CWD context file scanning). It is the **single source
+    of truth** for project context — goal, stop condition, team members,
+    and active discussions. Both the leader (heartbeat) and workers
+    (task dispatch, discussion) read this file automatically.
 
     Called on:
     - start_project (initial write)
-    - leader heartbeat (refresh — members may have been added/removed)
+    - leader heartbeat (refresh)
+    - task claim (refresh)
+    - project update (goal/stop_condition changed)
+    - motion create/close
     """
     proj = get_project(project_name)
     if proj is None:
@@ -69,7 +73,7 @@ def update_project_agents_md(project_name: str) -> dict:
     if not workdir_path.exists():
         return {"skipped": "workdir does not exist"}
 
-    # Gather team info
+    # Gather team info with role template mapping
     team_name = proj.get("team", "")
     members = []
     if team_name:
@@ -113,18 +117,38 @@ def update_project_agents_md(project_name: str) -> dict:
         lines.append(f"**Heartbeat Member:** {proj['heartbeat_member']} (woken every {proj.get('heartbeat_minutes', '?')} min)")
         lines.append("")
 
+    # Team members table: profile name → role template (identity)
+    # This lets the leader know who to dispatch for each task type,
+    # and lets workers know who their teammates are.
     if members:
         lines.append("## Team Members")
         lines.append("")
-        lines.append("| Name | Role |")
-        lines.append("|------|------|")
+        lines.append("| Profile Name | Role (Template) |")
+        lines.append("|---|---|")
         for m in members:
             is_hb = " (heartbeat)" if m["name"] == proj.get("heartbeat_member") else ""
-            lines.append(f"| {m['name']}{is_hb} | {m['display_name']} |")
+            lines.append(f"| {m['name']}{is_hb} | {m['role']} — {m['display_name']} |")
         lines.append("")
-        lines.append("When creating follow-up tasks, assign them to the appropriate team member above.")
-        lines.append("Use `hermes profile list` to verify member availability.")
+        lines.append("Assign tasks by role name (e.g. `assignee='developer'`). The system routes to the correct worker automatically.")
         lines.append("")
+
+    # Active discussions — gives everyone context on ongoing debates
+    try:
+        from agora.storage import motions as db
+        active_motions = db.list_motions(status_filter="active", limit=10)
+        if active_motions:
+            lines.append("## Active Discussions")
+            lines.append("")
+            for m in active_motions:
+                mid = m["id"][:22]
+                title = m.get("title", "(untitled)")[:60]
+                steps = m.get("step_count", 0) or 0
+                max_steps = m.get("max_steps", 30) or 30
+                state = m.get("state", "") or ""
+                lines.append(f"- `[{mid}]` {title} (steps {steps}/{max_steps}, {state})")
+            lines.append("")
+    except Exception:
+        pass
 
     # Project-specific instructions
     lines.append("## Workflow")
