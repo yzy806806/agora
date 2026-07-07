@@ -1,10 +1,10 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.4.3**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.2**
 
 [中文文档](./README_CN.md)
 
-Agora turns Hermes into a self-driving team: multiple AI roles — each a **real Hermes agent subprocess** with its own SOUL.md, MEMORY.md, tools, and session context — discuss approaches, search the web, write content, and auto-dispatch tasks. A **leader** (just a worker created from the "leader" template) acts as **chair** in event-driven discussions, dynamically picking speakers, evaluating progress, calling votes, and summarizing outcomes. Discussion results are written to each participant's MEMORY.md. The leader plans the next phase, decides when the goal is achieved, and stops itself. Everything is managed from the Dashboard — no CLI needed.
+Agora turns Hermes into a self-driving team: multiple AI roles — each a **real Hermes agent subprocess** with its own SOUL.md, MEMORY.md, tools, and session context — discuss approaches, search the web, write content, and auto-dispatch tasks. A **leader** (just a worker created from the "leader" template) acts as **chair** in event-driven discussions, dynamically picking speakers, evaluating progress, calling votes, and summarizing outcomes. Discussion results are written to the leader's MEMORY.md. The leader plans the next phase, decides when the goal is achieved, and stops itself. Everything is managed from the Dashboard — no CLI needed.
 
 ## Key Features
 
@@ -16,12 +16,12 @@ Agora turns Hermes into a self-driving team: multiple AI roles — each a **real
 | **Per-project session isolation** | Leader uses `--resume` with project-specific `session_id` — context doesn't bleed between projects |
 | **Shared experience** | Same leader profile manages multiple projects — MEMORY.md, SOUL.md, and skills are shared across projects |
 | **Heartbeat on project, not profile** | `heartbeat_member`, `heartbeat_minutes`, `heartbeat_cron_id` live on the project — one leader can run different projects at different intervals |
-| **Team awareness** | `AGENTS.md` auto-generated in project workdir — workers and leader can see team members, roles, and project context. Refreshed on heartbeat and on `kanban_task_claimed` |
-| **Memory persistence** | Discussion decisions and action items written to each participant's MEMORY.md for accumulated team knowledge |
+| **AGENTS.md as single source of truth** | Project goal, stop condition, team roster (name → role template), and active discussions are written to AGENTS.md. Hermes auto-injects it into every agent's system prompt via TERMINAL_CWD. No prompt-level duplication. |
+| **Mid-flight project updates** | `agora_update_project` tool lets the leader change goal, description, or stop_condition without stopping the project. AGENTS.md is refreshed automatically. `reactivate=true` restarts a completed project with a new direction. |
 | **8 role templates** | Architect, Developer, Reviewer, Tester, DevOps, Researcher, Writer, Leader |
 | **Self-driving** | Heartbeat cron wakes leader to check kanban, unblock, plan, dispatch |
-| **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when goal achieved → **double confirmation required** (2 consecutive signals) → cron auto-paused |
-| **3 kanban hooks** | `kanban_task_completed` (memory + comment write-back), `kanban_task_claimed` (log + AGENTS.md refresh), `kanban_task_blocked` (auto-trigger discussion if design decision) |
+| **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when stop condition is met → **double confirmation required** → cron auto-paused |
+| **3 kanban hooks** | `kanban_task_completed` (memory + comment + skill nudge), `kanban_task_claimed` (log + motion comment), `kanban_task_blocked` (auto-trigger discussion if design decision) |
 | **Bundled skills** | Plugin ships with `agora-awareness` and `agora-deliberation` skills — auto-deployed to `~/.hermes/skills/collaboration/` on register, seeded into every new worker's profile |
 | **Human participation** | Jump into discussions anytime via Dashboard input box |
 | **Dashboard** | Projects tab (default) + Team tab (Members + Teams + Profiles sub-tabs), real-time polling, toast notifications, heartbeat control panel |
@@ -44,7 +44,7 @@ None of these outputs required any single model to hold the full decision tree i
 | **Loses focus in long context** | Each speaker sees a compact, structured history (`[role (step_type)]: content`), not raw conversation. Typical input: ~2000 chars. |
 | **Jumps to conclusions** | Step-based flow forces: opening → speak → chair evaluates → next speaker. No skipping ahead. |
 | **Blind spots / single perspective** | Chair explicitly checks "who hasn't spoken?" and dispatches them. All perspectives must be heard before closure. |
-| **Forgets prior decisions** | Discussion outcomes are written to each participant's MEMORY.md. Next discussion starts with accumulated team knowledge. |
+| **Forgets prior decisions** | Discussion outcomes are written to the leader's MEMORY.md. Next discussion starts with accumulated team knowledge. |
 | **Can't self-assess when stuck** | Chair's meta-decision loop: `continue | dispatch | vote | close` — the framework asks the right question at the right time. |
 | **Hallucinates without evidence** | Dispatch mode sends a worker to investigate with real tools (`web_search`, `read_file`, `terminal`) before committing to an opinion. |
 
@@ -54,30 +54,14 @@ Speakers do **domain reasoning** ("should we use SQLite or PostgreSQL?") — sin
 
 **Recommendation:** If budget is constrained, use your strongest available model for the Leader/Chair, and cheaper models for the other roles. The architecture's structural constraints — turn-taking, guided prompts, cross-validation — compensate for weaker speakers. But the chair's meta-cognitive load benefits from a more capable model.
 
-### What this means in practice
-
-You don't need GPT-4-class models at every position to get high-quality team output. A team of ordinary models, organized by Agora's discussion protocol, can produce decisions with:
-
-- **Cross-validation** (architect checks developer's feasibility, tester checks regression risk)
-- **Evidence-based reasoning** (dispatch mode forces tool use before opinion)
-- **Accumulated memory** (each discussion's outcome persists in MEMORY.md)
-- **Controlled convergence** (chair forces closure when consensus is reached, prevents endless debate)
-
-This is the Agora proposition: **structure, not model size, is the multiplier.**
-
 ## Install
 
 ```bash
 hermes plugins install yzy806806/agora
 hermes plugins enable agora
 hermes gateway restart
-hermes dashboard restart  # if dashboard is running — plugin's sidebar tab won't appear until restart
+hermes dashboard restart  # if dashboard is running
 ```
-
-> **Note:** Both the gateway **and** the dashboard need restarting after enabling.
-> The gateway loads plugin tools/hooks; the dashboard discovers plugin sidebar
-> tabs at startup. If you only restart the gateway, the Agora tab won't appear
-> in the dashboard sidebar.
 
 ## Quick Start
 
@@ -102,147 +86,115 @@ Open `hermes dashboard`, go to the **Agora** tab → **Team → Members**:
 | Writer | ✍️ | Content writing, structuring, tone |
 | Team Leader | 👨‍💼 | Project monitoring, phase planning, completion detection |
 
-Each worker is a Hermes profile with: `config.yaml` (cloned from parent), `SOUL.md` (from template), `memories/MEMORY.md`, `memories/USER.md`, `skills/`. Workers persist across projects — their memory, skills, and identity carry over, just like a real employee.
-
 ### 2. Start a project
 
 In the **Projects** tab, click "Start Project":
-- **Name** (e.g. `fashion-report`)
-- **Goal** (e.g. "Write a 2026 spring/summer fashion trends PDF")
+- **Name** (e.g. `docmind`)
+- **Goal** (e.g. "持续开发docmind")
+- **Stop condition** (e.g. "易用性与性能达到最优，对比同类项目，功能无缺失")
 - **Working directory**
 - **Team** — select the team you formed
-- **Heartbeat member** — select a leader worker to wake on heartbeat
-- **Heartbeat interval** — minutes between heartbeats (default: 15)
-- Click create
-
-The heartbeat cron is created automatically. `AGENTS.md` is written to the project workdir so all workers see team context.
+- **Heartbeat member** — select a leader worker
+- **Heartbeat interval** — minutes (default: 15)
 
 ### 3. Observe and participate
 
-Click into a project to see:
 - **Overview** — progress stats (todo/running/blocked/done)
-- **Kanban** — real-time task board with assignees
-- **Discussions** — event-driven discussion flow: chair guidance, speaker turns, votes, and summary + input box for human participation
-- **Team** — member status (idle/working)
+- **Kanban** — real-time task board
+- **Discussions** — event-driven flow with input box for human participation
 
-### 4. Leader self-driving
+### 4. Update project mid-flight
 
-Each heartbeat, the leader:
-1. Checks blocked tasks → unblock/split/reassign
-2. Checks triaged/failed tasks → analyze, fix, re-queue
-3. All done → plan next phase from goal, create tasks directly
-4. Direction decision needed → raise motion for team discussion
-5. Goal achieved → output `PROJECT_COMPLETE` → cron auto-paused
+The leader can change direction without stopping:
 
-The chair for discussions auto-resolves from `project.heartbeat_member`.
-
-## Event-Driven Discussion Engine
-
-Each discussion is a **real meeting of real agents**:
-
-### How it works
-
-```
-1. Chair (Leader) opens   → states topic, names first speaker + guiding question
-2. Speaker speaks         → real Hermes agent subprocess (hermes -p <profile> chat -q)
-                             with SOUL.md, MEMORY.md, tools, and --resume session context
-3. Chair evaluates        → continue? vote? close? (JSON-based meta-decisions)
-4. Repeat 2-3             → until close or max_steps (default 30)
-5. (Optional) Vote        → each participant votes → chair decides outcome
-6. Summary                → chair generates action items + writes to each participant's MEMORY.md
+```python
+agora_update_project(
+    name="docmind",
+    goal="Add multi-tenant support and REST API v2",
+    stop_condition="All v2 API endpoints tested and documented",
+    reactivate=True  # restart if project was completed
+)
 ```
 
-### Key design decisions
+AGENTS.md is refreshed automatically — all workers see the new goal on next spawn.
 
-| Aspect | Implementation |
-|--------|---------------|
-| **Speaker spawns** | `hermes -p <profile> --yolo chat -q` — a full agent with tools, memory, and identity |
-| **Session continuity** | Workers use `--resume <session_id>` to carry conversation context across kanban tasks and discussions |
-| **Per-project isolation** | Leader has separate `session_id` per project — context doesn't bleed, but MEMORY.md/skills are shared |
-| **Chair (Leader)** | Stateless meta-caller — evaluates discussion state, picks next speaker, calls votes. No `--resume` needed |
-| **Chair auto-resolve** | If `chair_profile` is omitted, auto-resolved from `project.heartbeat_member` |
-| **Role identity** | Comes from each worker's SOUL.md (including the **Discussion Protocol** section) |
-| **Leader SOUL.md** | Includes **Heartbeat Protocol** + **Chair Protocol** sections |
-| **Memory persistence** | Discussion decisions + action items written to each participant's MEMORY.md |
-| **Config inheritance** | Worker profiles inherit root `config.yaml` (compression, approvals, etc.) |
+## AGENTS.md — Single Source of Truth
 
-### Human participation
+AGENTS.md is auto-generated in the project workdir. Hermes auto-loads it into every agent's system prompt (leader, discussion participants, and kanban workers) via `TERMINAL_CWD` context file scanning.
 
-The Dashboard discussion view shows the full event-driven flow: chair opening, speaker turns with guidance, vote calls, and final summary. A human can type into the discussion input box at any time — the message becomes part of the discussion history that the chair and speakers see.
+**Contents:**
+- Project name, goal, status, description
+- Stop condition
+- Team members table: `| Profile Name | Role (Template) |`
+- Active discussions list
+- Workflow instructions
 
-## Team Awareness (AGENTS.md)
+**Refreshed on (atomic write):**
+- `start_project`
+- Leader heartbeat
+- `agora_update_project`
+- Motion create (`agora_raise_motion`)
+- Motion close (`agora_close_motion`)
 
-An `AGENTS.md` file is auto-generated in the project workdir. Hermes auto-loads it into every worker's system prompt, giving them awareness of:
-- Project name, goal, and status
-- Heartbeat member and interval
-- Team members table (name → role)
-- Workflow instructions (kanban check, task completion, blocking, raising motions)
+**Heartbeat prompt** is minimal — just a wake-up call. All context comes from AGENTS.md, not prompt injection.
 
-**Refreshed on:**
-- `start_project` (initial write)
-- Leader heartbeat (members may have been added/removed)
-- `kanban_task_claimed` hook (before worker spawns)
+## Tools (17)
+
+| Tool | Description |
+|------|-------------|
+| `agora_raise_motion` | Start a team discussion |
+| `agora_get_messages` | Read discussion messages |
+| `agora_get_result` | Get closed discussion result |
+| `agora_list_motions` | List active/closed discussions |
+| `agora_close_motion` | Close a stale/resolved motion |
+| `agora_create_task` | Create a kanban task |
+| `agora_start_project` | Start a self-driving project |
+| `agora_stop_project` | Stop a project |
+| `agora_project_status` | Check project status |
+| `agora_update_project` | Update goal/stop_condition mid-flight |
+| `agora_create_worker` | Create a worker from template |
+| `agora_list_workers` | List all workers |
+| `agora_remove_worker` | Remove a worker |
+| `agora_list_templates` | List role templates |
+| `agora_create_team` | Create a team |
+| `agora_list_teams` | List teams |
+| `agora_remove_team` | Remove a team |
 
 ## Kanban Hooks
 
 | Hook | When | Action |
 |------|------|--------|
-| `kanban_task_completed` | Worker finishes a task | Write discussion result as comment + memory entry; if no pending tasks remain, signal leader |
-| `kanban_task_claimed` | Dispatcher assigns a task (before worker spawns) | Log claim; refresh `AGENTS.md`; inject motion decision as task comment if applicable |
-| `kanban_task_blocked` | Worker blocks a task | If reason mentions "design decision" or "motion" → auto-create a discussion motion; otherwise log for leader |
-
-## Dashboard Structure
-
-| Tab | Content |
-|-----|---------|
-| **Projects** (default) | Project list, start new project (with heartbeat config), project detail (overview/kanban/discussions/team) |
-| **Team** | **Members** sub-tab (unified Workers + Leaders) / **Teams** sub-tab (team management) / **Profiles** sub-tab (profile config — model/SOUL.md/skills) |
-
-## Configuration
-
-`~/.hermes/config.yaml`:
-
-```yaml
-plugins:
-  enabled:
-    - agora
-  entries:
-    agora:
-      enabled: true
-      agora:
-        discussion:
-          max_rounds: 3
-          consensus_threshold: 0.7
-          max_steps: 30           # event-driven: max speaker turns before forced close
-```
+| `kanban_task_completed` | Worker finishes a task | Write motion result to leader's memory (not workers); if complex task (>1 run or >30min), write skill-creation nudge comment |
+| `kanban_task_claimed` | Dispatcher assigns a task | Log claim; inject motion decision as task comment |
+| `kanban_task_blocked` | Worker blocks a task | If reason mentions "design decision" or "motion" → auto-create discussion |
 
 ## Architecture
 
 ```
 agora/
-├── plugin.yaml                  # Plugin manifest (tools + hooks)
-├── __init__.py                  # register(ctx) — 16 tools + dashboard API + CLI + 3 hooks
-├── tools/__init__.py            # 16 tool definitions (raise/close/list motions, tasks, workers, teams, projects)
+├── plugin.yaml                  # Plugin manifest (17 tools + hooks)
+├── __init__.py                  # register(ctx)
+├── tools/__init__.py            # 17 tool definitions
 ├── cli.py                       # hermes agora CLI
-├── hooks/__init__.py            # 3 kanban hooks: completed, claimed, blocked
-├── project_planner.py           # Project lifecycle + heartbeat config + AGENTS.md generation
+├── hooks/__init__.py            # 3 kanban hooks
+├── project_planner.py           # Project lifecycle + heartbeat + AGENTS.md
 ├── agora/
 │   ├── utils.py                 # Shared utilities
-│   ├── discussion/              # Event-driven discussion engine
-│   │   ├── driver.py            #   DiscussionDriver: chair → speakers → evaluate → close
-│   │   ├── agent_spawn.py       #   Spawn real Hermes agent subprocesses (hermes -p chat -q)
-│   │   ├── chair.py             #   Chair (Leader) prompts: open, evaluate, vote, summary
-│   │   └── roles.py             #   Consensus checker + discussion templates
-│   ├── storage/                 # SQLite storage (motions, messages, votes, discussion_state)
-│   ├── session_manager.py       # Per-project session tracking + rotation
+│   ├── discussion/
+│   │   ├── driver.py            # DiscussionDriver
+│   │   ├── agent_spawn.py       # Spawn real Hermes agent subprocesses
+│   │   ├── chair.py             # Chair prompts + speaker prompt builder
+│   │   └── roles.py             # Discussion templates
+│   ├── storage/motions.py       # SQLite storage (WAL + busy_timeout)
+│   ├── session_manager.py       # Session size tracking + rotation
 │   ├── worker_templates.py      # 8 role templates (SOUL.md rendering)
-│   ├── worker_manager.py        # Worker lifecycle — unified (leader = worker with leader template)
+│   ├── worker_manager.py        # Worker lifecycle (fcntl-locked sessions)
 │   ├── team_manager.py          # Team + dispatch routing
-│   └── leader_loop.py           # Heartbeat spawn + PROJECT_COMPLETE detection + stuck motion rescue
+│   └── leader_loop.py           # Heartbeat + stuck motion rescue + stale state cleanup
 ├── dashboard/                   # Web UI + REST API
 └── skills/
-    ├── agora-awareness/         # Framework overview — every worker gets this
-    └── agora-deliberation/      # Discussion methodology — when/how to raise motions
+    ├── agora-awareness/
+    └── agora-deliberation/
 ```
 
 ## License
@@ -251,62 +203,44 @@ MIT
 
 ## Changelog
 
+### v1.5.2 — AGENTS.md as single source of truth + project updates
+
+- **AGENTS.md** now contains: goal, stop_condition, team members (name → role template), active discussions. Written atomically (temp + rename). Refreshed on: start_project, heartbeat, project update, motion create/close.
+- **Heartbeat prompt simplified** — 6 lines, no more inline context injection. All context via AGENTS.md auto-load.
+- **`agora_update_project` tool** — change goal/stop_condition mid-flight. `reactivate=true` restarts completed projects.
+- **Motion memory cleanup** — decision records only written to leader's MEMORY.md, not workers. Workers keep their own technical experience.
+- **Skill creation nudge** — complex tasks (>1 run or >30min) get a kanban comment prompting the worker to save reusable workflows.
+- **17 tools** (added `agora_update_project`).
+
+### v1.4.4–v1.4.6 — Code audit fixes
+
+- Chair prompt: prevent false truncation calls
+- Driver: MAX_SAME_SPEAKER=2 hard limit
+- `_has_pending_tasks()` now accepts project_name with tenant filter
+- SQLite busy_timeout=5000 for concurrent safety
+- `_find_project_for_task()` uses task.tenant instead of string matching
+- Worker session JSON uses fcntl.flock for concurrent safety
+- Stale discussion_state cleanup on every heartbeat
+- Session manager queries profile-specific state.db
+- 15 issues fixed across 3 releases
+
 ### v1.4.3 — Discussion state consistency and stale motion recovery
 
-**6 fixes from 5-hour production monitoring of the docmind team:**
+- `discussion_state` cleaned on close
+- Stuck discussions with messages recovered
+- `agora_close_motion` tool added
+- Speaker session preserved on timeout
+- Timeout increased (900s/300s)
 
-- **`discussion_state` not cleaned on close** — `driver.py` updated `motions.state` to "closed" but never updated the `discussion_state` table. Result: 17 closed motions still showed `current_state=discussing`. Now `save_discussion_state(motion_id, "closed")` is called in all three close paths (`_finalize`, `_abort`, `_rescue_stuck_motions`).
-- **Stuck discussions with messages never recovered** — `_rescue_stuck_motions()` only rescued motions with 0 messages. Motions where the driver crashed mid-discussion (had messages but no running driver) were skipped forever. Now re-spawns the driver for crashed mid-discussion motions.
-- **`motions.status` and `motions.state` inconsistency** — The two fields were updated by different functions and could diverge (e.g. `status=closed, state=discussing`). Now `update_motion_status("closed")` also sets `state="closed"`, and `update_motion_state("closed")` also sets `status="closed"`.
-- **New `agora_close_motion` tool** — Leader had no way to directly close stale motions. It repeatedly raised new motions to close old ones (infinite loop: motion→task→done, but motion DB unchanged). New tool closes a motion in one call with decision + rationale. Total tools: 16.
-- **Speaker session preserved on timeout** — When a speaker timed out (600s), the session was cleared, forcing a cold restart. Now the session is kept so the next attempt can resume with prior context.
-- **Timeout increased** — `speak_timeout` 600s→900s, `chair_timeout` 240s→300s. Local models via API relay need more time for web_search/analysis tasks.
+### v1.4.0–v1.4.2 — Discussion engine reliability
 
-### v1.4.2 — Code cleanup and hardcoded path fixes
-
-- **Version sync** — `__init__.py` `__version__` was stuck at `1.0.0`; now matches `plugin.yaml`.
-- **Tool count** — Registration log said "18 tools" but there are 15.
-- **Removed dead code** — Deleted `leader_manager.py` (deprecated shim, zero callers), `increment_round()` in `storage/motions.py` (unused, replaced by `step_count`), `list_available_templates()` in `worker_manager.py` (alias for `list_templates()`).
-- **Removed e2e test files** — `e2e_test.py`, `e2e_test_v2.py`, `e2e_dom_inspect.py` were development artifacts with hardcoded passwords.
-- **Fixed hardcoded paths** — `dashboard/plugin_api.py` had two `/root/.hermes/kanban.db` literals; now uses `HERMES_KANBAN_DB` env var with `Path.home()` fallback. `project_planner.py` heartbeat script search path now tries `$HOME` before `/root`.
-
-### v1.4.1 — Worker profile plugin inheritance
-
-Workers spawned with `-p <profile>` have `HERMES_HOME` pointing at their profile directory, so Hermes only scans `<profile>/plugins/` during plugin discovery — global plugins installed in `~/.hermes/plugins/` are invisible. This meant workers couldn't see Agora tools (`agora_raise_motion`, `agora_create_task`, etc.) even though the plugin was enabled in config.
-
-**Fix:** `create_worker()` now symlinks every plugin from the global `~/.hermes/plugins/` into the profile's `plugins/` directory at creation time. Uses symlinks so global plugin updates are reflected immediately.
-
-Also added `agora_create_task` to `provides_tools` in `plugin.yaml` (was missing from the manifest).
-
-### v1.4.0 — Discussion engine reliability
-
-The discussion engine now reliably completes full discussion cycles. Four root causes were fixed, verified with 3 successful end-to-end discussions (2 adopted, 1 rejected).
-
-**Fixes:**
-
-1. **Session-not-found recovery** — After session DB cleanup, worker registry still held stale `session_id`s. The discussion driver kept passing `--resume <dead-session>` to `hermes chat`, causing 3 consecutive dispatch failures → forced `no_consensus`. Now `agent_spawn.py` detects "Session not found" and automatically retries without `--resume` (creates a fresh session). `driver.py` also clears the worker's stale session on dispatch/speak failure.
-
-2. **Empty tool arguments from LLM** — `glm5.2` sometimes called `agora_raise_motion` with empty `{}` arguments, ignoring the `required: ["title"]` schema. The schema `description` fields now explicitly say "REQUIRED. Provide a concise title…". Leader SOUL.md includes a concrete call example and "Do NOT use the CLI — always call the tool directly".
-
-3. **Stale memory poisoning** — Leader's MEMORY.md had recorded "Agora plugin tools have empty schemas — use hermes kanban CLI instead", a self-reinforcing error that caused all subsequent heartbeats to skip the discussion engine entirely. Corrected to "Agora tools are functional — always provide title parameter".
-
-4. **Driver doesn't clear dead sessions** — Added `_clear_worker_session()` to `DiscussionDriver`. On dispatch failure or empty reply, the worker's `session_id` is set to `None` in the registry so the next spawn creates a new session instead of reusing the dead one.
-
-**Verification — 3 complete discussions:**
-
-| # | Motion | Steps | Decision |
-|---|--------|-------|----------|
-| 1 | Auth vs search-filter priority | 3 | adopted (3/3) |
-| 2 | Jinja2 vs frontend framework | 3 | adopted (2 adopt + 1 abstain) |
-| 3 | Alembic vs hand-rolled migrations | 0 | rejected (unanimous) |
+- Session-not-found recovery
+- Empty tool argument handling
+- Stale memory poisoning fix
+- Dead session cleanup
+- Code cleanup and hardcoded path fixes
 
 ### v1.3.0 — Discussion engine critical fixes
 
-1. **Leader had no Agora tools** — `leader_loop.py` spawned the leader without `--toolsets agora`.
-2. **Participants had no Agora tools** — `agent_spawn.py` spawned workers without `--toolsets agora`.
-3. **Motions stuck at round 0** — `kanban_task_blocked` hook created motions without resolving chair/participants.
-4. **No recovery for stuck motions** — Added `_rescue_stuck_motions()` to `leader_loop.py`.
-
-### v1.2.0 — Dashboard project management + form fields
-
-### v1.1.0 — Discussion engine infinite loop fix
+- Leader and participants now get `--toolsets agora`
+- Stuck motion recovery via `_rescue_stuck_motions()`
