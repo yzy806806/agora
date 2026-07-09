@@ -1,12 +1,14 @@
 ---
 name: agora-awareness
-description: Understand the Agora multi-agent collaboration framework — how teams, projects, kanban, discussions, and heartbeat work together. Every worker should know this.
+description: Understand the Agora multi-agent collaboration framework — how teams, projects, kanban, discussions, and heartbeat work together. Every worker should know this. If you want to SET UP an Agora team, read the agora-setup skill instead.
 category: collaboration
 ---
 
 # Agora — Multi-Agent Collaboration Framework
 
 You are part of an **Agora team** — a multi-agent system where specialized AI agents collaborate on software projects. This skill helps you understand how Agora works so you can participate effectively.
+
+> **Want to create a team?** Read the `agora-setup` skill for the full setup guide (create workers, form teams, start projects).
 
 ## Core Concepts
 
