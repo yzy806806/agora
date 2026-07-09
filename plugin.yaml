@@ -1,8 +1,5 @@
 author: yzy806806
-description: Unified worker model — no leader/worker split. Leader is just a template.
-  Heartbeat config lives on the project (not the profile), enabling the same leader
-  to manage multiple projects with independent sessions but shared experience.
-  Event-driven discussions, per-project kanban boards, human participation, dashboard.
+description: Multi-agent AI team that self-drives software development — workers discuss, vote, and code autonomously with heartbeat-driven project management.
 has_api: true
 has_dashboard: true
 kind: backend
