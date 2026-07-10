@@ -925,17 +925,17 @@
           var stepType = msg.step_type || "speak";
           var speakerName = msg.role || "unknown";
           var stepIcon = {
-            opening: "\xF0\x9F\x93\xA2",     // 📢
-            speak: "\xF0\x9F\x92\xAC",        // 💬
-            guidance: "\xF0\x9F\x8E\xAF",     // 🎯
-            vote_call: "\xF0\x9F\x97\xB3\xEF\xB8\x8F", // 🗳️
-            vote: "\xF0\x9F\x97\xB3\xEF\xB8\x8F",      // 🗳️
-            summary: "\xF0\x9F\x93\x8B",      // 📋
-            human_input: "\xF0\x9F\x91\xA4",  // 👤
-          }[stepType] || "\xF0\x9F\x92\xAC";
-          var speakerIcon = isChair ? "\xF0\x9F\x8E\xAD" : "\xF0\x9F\x8E\xAD"; // 🎭
+            opening: "\uD83D\uDCE2",     // 📢
+            speak: "\uD83D\uDCAC",        // 💬
+            guidance: "\uD83C\uDFAF",     // 🎯
+            vote_call: "\uD83D\uDDF3\uFE0F", // 🗳️
+            vote: "\uD83D\uDDF3\uFE0F",      // 🗳️
+            summary: "\uD83D\uDCCB",      // 📋
+            human_input: "\uD83D\uDC64",  // 👤
+          }[stepType] || "\uD83D\uDCAC";
+          var speakerIcon = "\uD83C\uDFAD"; // 🎭
           var headerText = speakerIcon + " " + speakerName;
-          if (isChair) headerText = "\xF0\x9F\x91\x91 " + speakerName; // 👑 for chair
+          if (isChair) headerText = "\uD83D\uDC51 " + speakerName; // 👑 for chair
           return React.createElement("div", {
             key: msg.id || (msg.role + "-" + msg.round_num + "-" + messages.indexOf(msg)),
             className: cn(
@@ -947,7 +947,7 @@
           },
             React.createElement("div", { className: "agora-message-header" },
               React.createElement("strong", { className: isChair ? "agora-speaker-chair" : "agora-speaker" },
-                headerText + " \xC2\xB7 Round " + (msg.round_num || 0)
+                headerText + " \u00B7 Round " + (msg.round_num || 0)
               ),
               stepType !== "speak" && stepType !== "human_input" && React.createElement(Badge, null, stepType),
               msg.stance && stepType === "speak" && React.createElement(Badge, null, msg.stance),
