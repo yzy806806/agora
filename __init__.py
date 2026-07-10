@@ -17,7 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__version__ = "1.5.2"
+__version__ = "1.5.3"
 
 
 def _deploy_skills() -> None:
