@@ -47,7 +47,7 @@ def spawn_agent_speak(
         prompt:        The full discussion prompt to send
         session_id:    If given, --resume this session to keep conversation context
         workdir:       Working directory for the agent (project dir)
-        timeout:       Max seconds to wait (default 300 = 5 min)
+        timeout:       Max seconds to wait (default 3600 = 1 hour)
         extra_env:     Additional environment variables
 
     Returns:
