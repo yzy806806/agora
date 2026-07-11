@@ -37,7 +37,7 @@ def spawn_agent_speak(
     *,
     session_id: str | None = None,
     workdir: str | None = None,
-    timeout: int = 300,
+    timeout: int = 3600,
     extra_env: dict[str, str] | None = None,
 ) -> dict:
     """Spawn a Hermes profile agent to respond to a discussion prompt.
@@ -191,7 +191,7 @@ def spawn_chair_speak(
     prompt: str,
     *,
     workdir: str | None = None,
-    timeout: int = 120,
+    timeout: int = 3600,
 ) -> dict:
     """Spawn the chair (Leader) agent for meta-decisions.
 
