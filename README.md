@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.4**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.6**
 
 [中文文档](./README_CN.md)
 
@@ -22,9 +22,10 @@ Agora turns Hermes into a self-driving team: multiple AI roles — each a **real
 | **Self-driving** | Heartbeat cron wakes leader to check kanban, unblock, plan, dispatch |
 | **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when stop condition is met → **double confirmation required** → cron auto-paused |
 | **3 kanban hooks** | `kanban_task_completed` (memory + comment + skill nudge), `kanban_task_claimed` (log + motion comment), `kanban_task_blocked` (auto-trigger discussion if design decision) |
-| **Bundled skills** | Plugin ships with `agora-awareness` and `agora-deliberation` skills — auto-deployed to `~/.hermes/skills/collaboration/` on register, seeded into every new worker's profile |
+| **3 bundled skills** | `agora-setup` (operator onboarding), `agora-awareness` (worker framework knowledge), `agora-deliberation` (discussion methodology) — auto-deployed to `~/.hermes/skills/collaboration/` on register |
 | **Human participation** | Jump into discussions anytime via Dashboard input box |
 | **Dashboard** | Projects tab (default) + Team tab (Members + Teams + Profiles sub-tabs), real-time polling, toast notifications, heartbeat control panel |
+| **Generous timeouts** | All LLM calls (speak, chair, vote, dispatch) default to 1 hour (3600s). Hermes HTTP client auto-retries on timeout; Agora subprocess timeout is the hard ceiling. Tuned for local models with long context preprocessing. |
 
 ## Why Agora? — Structured Discussion Amplifies Ordinary Models
 
@@ -63,9 +64,24 @@ hermes gateway restart
 hermes dashboard restart  # if dashboard is running
 ```
 
+> **Note:** Both the gateway **and** the dashboard need restarting after enabling.
+> The gateway loads plugin tools/hooks; the dashboard discovers plugin sidebar
+> tabs at startup. If you only restart the gateway, the Agora tab won't appear
+> in the dashboard sidebar.
+
 ## Quick Start
 
-### 1. Create workers from Dashboard
+### Option A: Conversational setup (no dashboard needed)
+
+Just tell Hermes: *"Install the Agora plugin and set up a development team."*
+
+Hermes reads the `agora-setup` skill and handles the full flow:
+1. `agora_list_templates()` — see available roles
+2. `agora_create_worker(name="leader", role="leader")` — create workers
+3. `agora_create_team(team_name="alpha", workers=[...])` — form a team
+4. `agora_start_project(name="my-project", workdir="/path/to/repo", goal="...", stop_condition="...")` — start
+
+### Option B: Dashboard setup
 
 Open `hermes dashboard`, go to the **Agora** tab → **Team → Members**:
 
@@ -86,7 +102,7 @@ Open `hermes dashboard`, go to the **Agora** tab → **Team → Members**:
 | Writer | ✍️ | Content writing, structuring, tone |
 | Team Leader | 👨‍💼 | Project monitoring, phase planning, completion detection |
 
-### 2. Start a project
+### Start a project
 
 In the **Projects** tab, click "Start Project":
 - **Name** (e.g. `docmind`)
@@ -97,13 +113,7 @@ In the **Projects** tab, click "Start Project":
 - **Heartbeat member** — select a leader worker
 - **Heartbeat interval** — minutes (default: 15)
 
-### 3. Observe and participate
-
-- **Overview** — progress stats (todo/running/blocked/done)
-- **Kanban** — real-time task board
-- **Discussions** — event-driven flow with input box for human participation
-
-### 4. Update project mid-flight
+### Update project mid-flight
 
 The leader can change direction without stopping:
 
@@ -129,7 +139,7 @@ AGENTS.md is auto-generated in the project workdir. Hermes auto-loads it into ev
 - Active discussions list
 - Workflow instructions
 
-**Refreshed on (atomic write):**
+**Refreshed on (atomic write — temp file + os.replace):**
 - `start_project`
 - Leader heartbeat
 - `agora_update_project`
@@ -160,6 +170,8 @@ AGENTS.md is auto-generated in the project workdir. Hermes auto-loads it into ev
 | `agora_list_teams` | List teams |
 | `agora_remove_team` | Remove a team |
 
+> **Note:** All tool handlers return JSON strings (auto-serialized via `_wrap_handler` / `_wrap_handler_async`). Hermes tool registry requires `str`, not `dict`.
+
 ## Kanban Hooks
 
 | Hook | When | Action |
@@ -168,33 +180,51 @@ AGENTS.md is auto-generated in the project workdir. Hermes auto-loads it into ev
 | `kanban_task_claimed` | Dispatcher assigns a task | Log claim; inject motion decision as task comment |
 | `kanban_task_blocked` | Worker blocks a task | If reason mentions "design decision" or "motion" → auto-create discussion |
 
+## Timeout Configuration
+
+All LLM-related timeouts default to **1 hour (3600s)**:
+
+| Scenario | Default | Notes |
+|---|---|---|
+| Speaker发言 (`speak_timeout`) | 3600s | Worker spawned to discuss |
+| Chair评估 (`chair_timeout`) | 3600s | Leader evaluates discussion state |
+| Dispatch/调研 | 3840s | `speak_timeout + 240s` buffer |
+| 投票 | 3600s | Same as speak_timeout |
+| `spawn_agent_speak` | 3600s | Function default |
+| `spawn_chair_speak` | 3600s | Function default |
+
+Hermes HTTP client auto-retries on timeout. Agora subprocess timeout is the hard ceiling — if exceeded, the worker is marked as failed and the discussion continues.
+
 ## Architecture
 
 ```
 agora/
 ├── plugin.yaml                  # Plugin manifest (17 tools + hooks)
 ├── __init__.py                  # register(ctx)
-├── tools/__init__.py            # 17 tool definitions
+├── tools/__init__.py            # 17 tool definitions + _wrap_handler
 ├── cli.py                       # hermes agora CLI
 ├── hooks/__init__.py            # 3 kanban hooks
-├── project_planner.py           # Project lifecycle + heartbeat + AGENTS.md
+├── project_planner.py           # Project lifecycle + heartbeat + AGENTS.md (atomic)
 ├── agora/
 │   ├── utils.py                 # Shared utilities
 │   ├── discussion/
-│   │   ├── driver.py            # DiscussionDriver
-│   │   ├── agent_spawn.py       # Spawn real Hermes agent subprocesses
+│   │   ├── driver.py            # DiscussionDriver (speak/chair/vote/dispatch)
+│   │   ├── agent_spawn.py       # Spawn Hermes agent subprocesses (3600s timeout)
 │   │   ├── chair.py             # Chair prompts + speaker prompt builder
 │   │   └── roles.py             # Discussion templates
-│   ├── storage/motions.py       # SQLite storage (WAL + busy_timeout)
-│   ├── session_manager.py       # Session size tracking + rotation
+│   ├── storage/motions.py       # SQLite storage (WAL + busy_timeout=5000)
+│   ├── session_manager.py       # Session size tracking + rotation (profile-specific state.db)
 │   ├── worker_templates.py      # 8 role templates (SOUL.md rendering)
 │   ├── worker_manager.py        # Worker lifecycle (fcntl-locked sessions)
 │   ├── team_manager.py          # Team + dispatch routing
 │   └── leader_loop.py           # Heartbeat + stuck motion rescue + stale state cleanup
 ├── dashboard/                   # Web UI + REST API
+│   ├── plugin_api.py            # FastAPI routes
+│   └── dist/                    # Compiled React frontend
 └── skills/
-    ├── agora-awareness/
-    └── agora-deliberation/
+    ├── agora-setup/             # Operator onboarding guide
+    ├── agora-awareness/         # Worker framework knowledge
+    └── agora-deliberation/      # Discussion methodology
 ```
 
 ## License
@@ -203,13 +233,13 @@ MIT
 
 ## Changelog
 
-### v1.5.4 — Dashboard emoji fix + tool handler return type
+### v1.5.6 — Timeout unification + tool handler fix + dashboard emoji + onboarding
 
-- **Dashboard emoji encoding** — JS used `\xF0\x9F` byte escapes (Latin-1, not UTF-8), causing garbled display (`ð` instead of `👑`, `Â·` instead of `·`). Changed to `\uXXXX` Unicode escapes.
-- **Tool handler return type** — Hermes registry requires `str` (JSON), not `dict`. Added `_wrap_handler` / `_wrap_handler_async` at module level that auto-serializes dict returns to JSON strings. All 17 tools now register and return correctly.
+- **All LLM timeouts unified to 1 hour (3600s)** — speak_timeout, chair_timeout, vote, dispatch, spawn defaults. Removed `min(speak_timeout, 240)` cap. Local models with long context preprocessing need generous timeouts.
+- **Tool handler return type fix** — Hermes registry requires `str` (JSON), not `dict`. Added `_wrap_handler` / `_wrap_handler_async` at module level. All 17 tools now register and return correctly.
+- **Dashboard emoji encoding** — JS byte escapes (`\xF0\x9F`) → Unicode escapes (`\uXXXX`). Fixed garbled `ð` → `👑`.
 - **agora-setup skill** — New onboarding skill for operators (step-by-step: create workers, form teams, start projects).
-- **plugin.yaml description** — User-facing one-liner for search discoverability.
-- **MODULE_DEPENDENCIES.md** — Complete rewrite with all Hermes API dependencies.
+- **Dead code cleanup** — Removed `_build_active_motions_summary()` (superseded by AGENTS.md).
 
 ### v1.5.2 — AGENTS.md as single source of truth + project updates
 
