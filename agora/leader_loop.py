@@ -474,28 +474,3 @@ If tasks are all done, assess the project and plan the next valuable work. \
 Only output "PROJECT_COMPLETE" if you've confirmed twice that the stop \
 condition is met and there's truly nothing left to do.
 """
-
-
-def _build_active_motions_summary(project_name: str) -> str:
-    """Build a summary of active (non-closed) motions for the heartbeat prompt.
-
-    This gives the leader immediate visibility into ongoing discussions so it
-    doesn't raise duplicate motions on the same topic.
-    """
-    try:
-        from agora.storage import motions as db
-        motions = db.list_motions(status_filter="active", limit=20)
-        if not motions:
-            return "Active discussions: none."
-        lines = ["Active discussions:"]
-        for m in motions:
-            mid = m["id"][:22]
-            title = m.get("title", "(untitled)")[:80]
-            steps = m.get("step_count", 0) or 0
-            max_steps = m.get("max_steps", 30) or 30
-            state = m.get("state", "") or ""
-            created = (m.get("created_at", "") or "")[:16]
-            lines.append(f"  • [{mid}] {title} (steps {steps}/{max_steps}, {state}, {created})")
-        return "\n".join(lines)
-    except Exception:
-        return "Active discussions: (unable to query)"
