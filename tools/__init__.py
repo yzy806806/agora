@@ -196,7 +196,46 @@ _CREATE_TASK_SCHEMA = {
 
 def register_all_tools(ctx: Any) -> None:
     """Register all Agora tools and the /agora slash command."""
+    import json as _json
     from agora.storage import motions as db
+
+    def _wrap(handler):
+        """Wrap a tool handler to ensure it returns a JSON string.
+
+        Hermes tool registry expects str or multimodal dict, not plain dict.
+        This wrapper auto-serializes dict returns to JSON strings.
+        """
+        import functools
+
+        @functools.wraps(handler)
+        def _wrapped(args, **kwargs):
+            result = handler(args, **kwargs)
+            if isinstance(result, str):
+                return result
+            if isinstance(result, dict) and result.get("_multimodal") is True:
+                return result
+            if isinstance(result, dict):
+                return _json.dumps(result, ensure_ascii=False)
+            return _json.dumps({"result": result}, ensure_ascii=False)
+
+        return _wrapped
+
+    def _wrap_async(handler):
+        """Same as _wrap but for async handlers."""
+        import functools
+
+        @functools.wraps(handler)
+        async def _wrapped(args, **kwargs):
+            result = await handler(args, **kwargs)
+            if isinstance(result, str):
+                return result
+            if isinstance(result, dict) and result.get("_multimodal") is True:
+                return result
+            if isinstance(result, dict):
+                return _json.dumps(result, ensure_ascii=False)
+            return _json.dumps({"result": result}, ensure_ascii=False)
+
+        return _wrapped
 
     # --- Tool: agora_raise_motion ---
     async def _raise_motion_handler(args: dict, **kwargs) -> dict:
@@ -206,7 +245,7 @@ def register_all_tools(ctx: Any) -> None:
         name="agora_raise_motion",
         toolset="agora",
         schema=_RAISE_MOTION_SCHEMA,
-        handler=_raise_motion_handler,
+        handler=_wrap_async(_raise_motion_handler),
         is_async=True,
         description="Raise a motion for team discussion. REQUIRED parameter: title (string). Example: agora_raise_motion({\"title\": \"Should we use SQLite or PostgreSQL?\", \"description\": \"We need to choose a database for production.\"}). Creates the motion and spawns the discussion driver immediately. The discussion runs in the background — check results with agora_get_result.",
         emoji="🏛️",
@@ -246,7 +285,7 @@ def register_all_tools(ctx: Any) -> None:
         name="agora_get_messages",
         toolset="agora",
         schema=_GET_MESSAGES_SCHEMA,
-        handler=_get_messages_handler,
+        handler=_wrap(_get_messages_handler),
         description="Read discussion messages for a motion.",
         emoji="💬",
     )
@@ -281,7 +320,7 @@ def register_all_tools(ctx: Any) -> None:
         name="agora_get_result",
         toolset="agora",
         schema=_GET_RESULT_SCHEMA,
-        handler=_get_result_handler,
+        handler=_wrap(_get_result_handler),
         description="Get the result of a closed discussion (decision, action items).",
         emoji="✅",
     )
@@ -313,7 +352,7 @@ def register_all_tools(ctx: Any) -> None:
         name="agora_list_motions",
         toolset="agora",
         schema=_LIST_MOTIONS_SCHEMA,
-        handler=_list_motions_handler,
+        handler=_wrap(_list_motions_handler),
         description="List active or closed discussions.",
         emoji="📋",
     )
@@ -363,7 +402,7 @@ def register_all_tools(ctx: Any) -> None:
         name="agora_close_motion",
         toolset="agora",
         schema=_CLOSE_MOTION_SCHEMA,
-        handler=_close_motion_handler,
+        handler=_wrap(_close_motion_handler),
         description="Close a motion directly. Use this to clean up stale or resolved discussions without going through the full discussion cycle. Example: agora_close_motion({\"motion_id\": \"motion-abc123\", \"decision\": \"superseded\", \"rationale\": \"Work already done in motion-xyz789\"}).",
         emoji="🔒",
     )
@@ -376,7 +415,7 @@ def register_all_tools(ctx: Any) -> None:
         name="agora_create_task",
         toolset="agora",
         schema=_CREATE_TASK_SCHEMA,
-        handler=_create_task_handler,
+        handler=_wrap(_create_task_handler),
         description="Create a kanban task and assign it to a worker. Uses the Python API directly (no CLI subprocess), so no 'No gateway running' false warning. The dispatcher in the default-profile gateway will pick up ready tasks automatically.",
         emoji="📌",
     )
@@ -879,7 +918,7 @@ def _register_project_tools(ctx: Any) -> None:
         name="agora_start_project",
         toolset="agora",
         schema=_START_PROJECT_SCHEMA,
-        handler=_start_project_handler,
+        handler=_wrap_async(_start_project_handler),
         is_async=True,
         description="Start a self-driving development project. Agora autonomously plans, discusses, and dispatches tasks until the goal is met.",
         emoji="🚀",
@@ -896,7 +935,7 @@ def _register_project_tools(ctx: Any) -> None:
         name="agora_stop_project",
         toolset="agora",
         schema=_STOP_PROJECT_SCHEMA,
-        handler=_stop_project_handler,
+        handler=_wrap_async(_stop_project_handler),
         is_async=True,
         description="Stop a self-driving project.",
         emoji="🛑",
@@ -916,7 +955,7 @@ def _register_project_tools(ctx: Any) -> None:
         name="agora_project_status",
         toolset="agora",
         schema=_PROJECT_STATUS_SCHEMA,
-        handler=_project_status_handler,
+        handler=_wrap(_project_status_handler),
         description="Check status of self-driving projects.",
         emoji="📊",
     )
@@ -951,7 +990,7 @@ def _register_project_tools(ctx: Any) -> None:
         name="agora_update_project",
         toolset="agora",
         schema=_UPDATE_PROJECT_SCHEMA,
-        handler=_update_project_handler,
+        handler=_wrap_async(_update_project_handler),
         is_async=True,
         description="Update a project's goal, description, or stop condition mid-flight. Automatically refreshes AGENTS.md so workers see the new direction. Use reactivate=true to restart a completed project with a new goal.",
         emoji="🔄",
@@ -1022,7 +1061,7 @@ def _register_worker_tools(ctx: Any) -> None:
 
     ctx.register_tool(
         name="agora_create_worker", toolset="agora", schema=_CREATE_WORKER_SCHEMA,
-        handler=_create_worker_handler, is_async=True,
+        handler=_wrap_async(_create_worker_handler), is_async=True,
         description="Create a worker profile from a role template. Generates config, SOUL.md (identity), memory, and skills directory. The same worker can participate in multiple projects.",
         emoji="\U0001f464",
     )
@@ -1033,7 +1072,7 @@ def _register_worker_tools(ctx: Any) -> None:
 
     ctx.register_tool(
         name="agora_list_workers", toolset="agora", schema=_LIST_WORKERS_SCHEMA,
-        handler=_list_workers_handler,
+        handler=_wrap(_list_workers_handler),
         description="List all registered Agora worker profiles.",
         emoji="\U0001f465",
     )
@@ -1044,7 +1083,7 @@ def _register_worker_tools(ctx: Any) -> None:
 
     ctx.register_tool(
         name="agora_remove_worker", toolset="agora", schema=_REMOVE_WORKER_SCHEMA,
-        handler=_remove_worker_handler, is_async=True,
+        handler=_wrap_async(_remove_worker_handler), is_async=True,
         description="Remove a worker from the Agora registry and optionally delete the profile.",
         emoji="\U0001f5d1\ufe0f",
     )
@@ -1055,7 +1094,7 @@ def _register_worker_tools(ctx: Any) -> None:
 
     ctx.register_tool(
         name="agora_list_templates", toolset="agora", schema=_LIST_TEMPLATES_SCHEMA,
-        handler=_list_templates_handler,
+        handler=_wrap(_list_templates_handler),
         description="List available role templates for creating workers.",
         emoji="\U0001f4cb",
     )
@@ -1070,7 +1109,7 @@ def _register_worker_tools(ctx: Any) -> None:
 
     ctx.register_tool(
         name="agora_create_team", toolset="agora", schema=_CREATE_TEAM_SCHEMA,
-        handler=_create_team_handler, is_async=True,
+        handler=_wrap_async(_create_team_handler), is_async=True,
         description="Create a team by selecting existing workers. A team is the assignee pool for a project. The same worker can be on multiple teams.",
         emoji="\U0001f91d",
     )
@@ -1081,7 +1120,7 @@ def _register_worker_tools(ctx: Any) -> None:
 
     ctx.register_tool(
         name="agora_list_teams", toolset="agora", schema=_LIST_TEAMS_SCHEMA,
-        handler=_list_teams_handler,
+        handler=_wrap(_list_teams_handler),
         description="List all registered teams.",
         emoji="\U0001f3c6",
     )
@@ -1092,7 +1131,7 @@ def _register_worker_tools(ctx: Any) -> None:
 
     ctx.register_tool(
         name="agora_remove_team", toolset="agora", schema=_REMOVE_TEAM_SCHEMA,
-        handler=_remove_team_handler, is_async=True,
+        handler=_wrap_async(_remove_team_handler), is_async=True,
         description="Remove a team from the registry.",
         emoji="\U0001f4a5",
     )
