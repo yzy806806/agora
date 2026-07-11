@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.2**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.4**
 
 [中文文档](./README_CN.md)
 
@@ -202,6 +202,14 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.5.4 — Dashboard emoji fix + tool handler return type
+
+- **Dashboard emoji encoding** — JS used `\xF0\x9F` byte escapes (Latin-1, not UTF-8), causing garbled display (`ð` instead of `👑`, `Â·` instead of `·`). Changed to `\uXXXX` Unicode escapes.
+- **Tool handler return type** — Hermes registry requires `str` (JSON), not `dict`. Added `_wrap_handler` / `_wrap_handler_async` at module level that auto-serializes dict returns to JSON strings. All 17 tools now register and return correctly.
+- **agora-setup skill** — New onboarding skill for operators (step-by-step: create workers, form teams, start projects).
+- **plugin.yaml description** — User-facing one-liner for search discoverability.
+- **MODULE_DEPENDENCIES.md** — Complete rewrite with all Hermes API dependencies.
 
 ### v1.5.2 — AGENTS.md as single source of truth + project updates
 

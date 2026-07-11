@@ -1,6 +1,6 @@
 # Agora Module Dependencies
 
-> Last updated: v1.5.2
+> Last updated: v1.5.4
 
 ## Overview
 
@@ -25,9 +25,11 @@ Used in `__init__.py:register(ctx)`:
 
 | Method | Purpose |
 |--------|---------|
-| `ctx.register_tool(name, toolset, schema, handler, ...)` | Register 17 Agora tools |
+| `ctx.register_tool(name, toolset, schema, handler, ...)` | Register 17 Agora tools (handlers wrapped with `_wrap_handler` / `_wrap_handler_async` to return JSON string) |
 | `ctx.register_hook(event_name, callback)` | Register 3 kanban hooks |
 | `ctx.register_cli_command(name, help, setup_fn, handler_fn, ...)` | Register `hermes agora` CLI |
+
+> **Important:** Hermes tool registry requires handlers to return `str` (JSON) or multimodal dict, not plain dict. Agora wraps all handlers with `_wrap_handler` (sync) / `_wrap_handler_async` (async) at module level in `tools/__init__.py` to auto-serialize dict returns via `json.dumps(result, ensure_ascii=False)`.
 
 ### `hermes_cli.kanban_db`
 
@@ -273,7 +275,7 @@ Tables used: `tasks`, `task_runs`, `task_comments`, `boards`
 
 | Agora | Hermes Agent | Notes |
 |-------|-------------|-------|
-| v1.5.2 | v0.18+ | Uses `ctx.register_cli_command`, kanban hooks, `kanban_db.add_comment` |
+| v1.5.4 | v0.18+ | Tool handlers return JSON string (`_wrap_handler`); uses `ctx.register_cli_command`, kanban hooks, `kanban_db.add_comment` |
 | v1.4.x | v0.17+ | Basic plugin API, no CLI command |
 
 Hermes backward compatibility: Agora uses try/except fallbacks for optional imports (FastAPI, memory_tool path).
