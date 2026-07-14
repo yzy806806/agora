@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.6**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.7**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,17 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.5.7 — Hermes v0.18.2 compatibility fix
+
+- **`kanban_db.add_comment` signature changed** — now requires `author` parameter. Updated all 3 call sites in hooks.
+- Compatibility verified against Hermes v0.18.2 (2026.7.7.2):
+  - `ctx.register_tool` / `register_hook` / `register_cli_command` — unchanged ✅
+  - kanban hooks (claimed/completed/blocked) — still in VALID_HOOKS ✅
+  - `_normalize_handler_result` requires str — Agora uses `_wrap_handler` ✅
+  - `Task` class fields (tenant, body, assignee, started_at, completed_at) — unchanged ✅
+  - `create_task` / `block_task` / `get_task` — backward compatible ✅
+  - AGENTS.md context file loading — unchanged ✅
 
 ### v1.5.6 — Timeout unification + tool handler fix + dashboard emoji + onboarding
 

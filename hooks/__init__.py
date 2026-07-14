@@ -177,7 +177,7 @@ def _maybe_nudge_skill_creation(task_id: str, profile_name: str) -> None:
                 f"Skills persist across projects and help future you."
             )
 
-            kanban_db.add_comment(conn, task_id, nudge)
+            kanban_db.add_comment(conn, task_id, "agora", nudge)
             conn.commit()
             logger.info(
                 "Skill nudge written for task %s (%s, profile=%s)",
@@ -234,7 +234,7 @@ def _write_kanban_comment(
     try:
         conn = kanban_db.connect()
         try:
-            kanban_db.add_comment(conn, task_id, comment)
+            kanban_db.add_comment(conn, task_id, "agora", comment)
             conn.commit()
         finally:
             conn.close()
@@ -355,7 +355,7 @@ def _on_task_claimed(
                         from hermes_cli import kanban_db
                         conn = kanban_db.connect()
                         try:
-                            kanban_db.add_comment(conn, task_id, comment)
+                            kanban_db.add_comment(conn, task_id, "agora", comment)
                             conn.commit()
                         finally:
                             conn.close()
