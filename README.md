@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.7**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.8**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,11 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.5.8 — Dashboard project settings UI
+
+- **Project Settings panel** in dashboard Overview tab — edit goal and stop_condition inline, reactivate completed/stopped projects with one click. Calls `PUT /api/plugins/agora/projects/{name}`.
+- Added `agora-form-field` and `agora-input` CSS classes.
 
 ### v1.5.7 — Hermes v0.18.2 compatibility fix
 

@@ -1185,3 +1185,9 @@
 .agora-toast-error { border-left: 3px solid var(--agora-danger, #ef4444); background: #2a1010; }
 @keyframes agora-toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 
+
+.agora-form-field { margin-bottom: 10px; }
+.agora-form-field label { display: block; margin-bottom: 4px; }
+.agora-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border, #ccc); border-radius: 4px; background: var(--input-bg, #fff); color: var(--text, #333); font-size: 13px; box-sizing: border-box; }
+.agora-input:focus { outline: none; border-color: var(--primary, #6366f1); }
+

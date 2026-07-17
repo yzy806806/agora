@@ -597,10 +597,137 @@
             "📋 Last cron run: ", isoTimeAgo(cronStatus.last_run),
           ),
           cronStatus.next_run && !hb.paused && React.createElement("p", { className: "agora-hint" },
-            "⏭️ Next cron run: ", timeUntil(cronStatus.next_run),
+            "\u23ED\uFE0F Next cron run: ", timeUntil(cronStatus.next_run),
           ),
         ),
+        /* Project settings — edit goal / stop_condition / reactivate */
+        React.createElement(ProjectSettings, { project: project, onUpdated: load }),
       ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // Project Settings — edit goal, stop_condition, reactivate
+  // ------------------------------------------------------------------------
+
+  function ProjectSettings({ project, onUpdated }) {
+    var editState = useState(false);
+    var editing = editState[0], setEditing = editState[1];
+
+    var goalState = useState(project.goal || "");
+    var goal = goalState[0], setGoal = goalState[1];
+
+    var scState = useState(project.stop_condition || "");
+    var stopCondition = scState[0], setStopCondition = scState[1];
+
+    var reactState = useState(false);
+    var reactivate = reactState[0], setReactivate = reactState[1];
+
+    var savingState = useState(false);
+    var saving = savingState[0], setSaving = savingState[1];
+
+    var msgState = useState("");
+    var msg = msgState[0], setMsg = msgState[1];
+
+    var showMsg = function(text) {
+      setMsg(text);
+      setTimeout(function() { setMsg(""); }, 3000);
+    };
+
+    // Sync form fields when project data refreshes
+    useEffect(function() {
+      if (!editing) {
+        setGoal(project.goal || "");
+        setStopCondition(project.stop_condition || "");
+      }
+    }, [project.goal, project.stop_condition]);
+
+    var save = async function() {
+      setSaving(true);
+      try {
+        var body = {};
+        if (goal !== (project.goal || "")) body.goal = goal;
+        if (stopCondition !== (project.stop_condition || "")) body.stop_condition = stopCondition;
+        if (reactivate) body.reactivate = true;
+        if (Object.keys(body).length === 0) {
+          showMsg("No changes to save.");
+          setEditing(false);
+          setSaving(false);
+          return;
+        }
+        await apiPut("/projects/" + project.name, body);
+        showMsg("\u2705 Project updated" + (reactivate ? " \u2014 reactivated" : ""));
+        setEditing(false);
+        setReactivate(false);
+        onUpdated();
+      } catch (e) {
+        showMsg("Failed: " + e.message);
+      }
+      setSaving(false);
+    };
+
+    var cancel = function() {
+      setGoal(project.goal || "");
+      setStopCondition(project.stop_condition || "");
+      setReactivate(false);
+      setEditing(false);
+    };
+
+    return React.createElement("div", { className: "agora-hb-control" },
+      React.createElement("h4", { className: "agora-sidebar-title" }, "\u2699\uFE0F Project Settings"),
+      !editing && React.createElement("div", null,
+        React.createElement("div", { className: "agora-project-meta" },
+          React.createElement("span", null, "\uD83C\uDFAF Goal: ", project.goal || "(not set)"),
+        ),
+        React.createElement("div", { className: "agora-project-meta" },
+          React.createElement("span", null, "\uD83C\uDCCF Stop condition: ", project.stop_condition || "(not set)"),
+        ),
+        React.createElement("div", { style: { marginTop: "8px" } },
+          React.createElement(Button, { size: "sm", variant: "outline", onClick: function() { setEditing(true); } }, "\u270F\uFE0F Edit"),
+          project.status !== "active" && React.createElement(Button, {
+            size: "sm", variant: "outline", style: { marginLeft: "8px" },
+            onClick: function() { setEditing(true); setReactivate(true); },
+          }, "\uD83D\uDD04 Reactivate"),
+        ),
+      ),
+      editing && React.createElement("div", null,
+        React.createElement("div", { className: "agora-form-field" },
+          React.createElement("label", { className: "agora-hb-label" }, "Goal"),
+          React.createElement("input", {
+            type: "text",
+            value: goal,
+            onChange: function(e) { setGoal(e.target.value); },
+            className: "agora-input",
+            placeholder: "What should the team build?",
+          }),
+        ),
+        React.createElement("div", { className: "agora-form-field" },
+          React.createElement("label", { className: "agora-hb-label" }, "Stop condition"),
+          React.createElement("textarea", {
+            value: stopCondition,
+            onChange: function(e) { setStopCondition(e.target.value); },
+            className: "agora-input",
+            rows: 2,
+            placeholder: "When is the project done?",
+          }),
+        ),
+        project.status !== "active" && React.createElement("div", { className: "agora-form-field" },
+          React.createElement("label", { className: "agora-hb-label" },
+            React.createElement("input", {
+              type: "checkbox",
+              checked: reactivate,
+              onChange: function(e) { setReactivate(e.target.checked); },
+              style: { marginRight: "6px" },
+            }),
+            "Reactivate project (restore heartbeat cron)",
+          ),
+        ),
+        React.createElement("div", { style: { marginTop: "8px" } },
+          React.createElement(Button, { size: "sm", disabled: saving, onClick: save }, saving ? "Saving..." : "Save"),
+          React.createElement(Button, { size: "sm", variant: "outline", style: { marginLeft: "8px" }, onClick: cancel }, "Cancel"),
+        ),
+      ),
+      msg && React.createElement("p", { className: "agora-hb-status" }, msg),
     );
   }
 
