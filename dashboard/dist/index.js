@@ -455,7 +455,7 @@
             React.createElement(TabsTrigger, { value: "discussions", active: activeSubtab === "discussions", onClick: function() { setActiveSubtab("discussions"); } }, "Discussions"),
             React.createElement(TabsTrigger, { value: "team", active: activeSubtab === "team", onClick: function() { setActiveSubtab("team"); } }, "Team"),
           ),
-          activeSubtab === "overview" && React.createElement(ProjectOverview, { key: "content", project: project }),
+          activeSubtab === "overview" && React.createElement(ProjectOverview, { key: "content", project: project, onUpdated: load }),
           activeSubtab === "kanban" && React.createElement(ProjectKanban, { key: "content", projectName: projectName }),
           activeSubtab === "discussions" && React.createElement(ProjectDiscussions, { key: "content", projectName: projectName }),
           activeSubtab === "team" && React.createElement(ProjectTeam, { key: "content", project: project }),
@@ -468,7 +468,7 @@
   // Project Overview sub-tab
   // ------------------------------------------------------------------------
 
-  function ProjectOverview({ project }) {
+  function ProjectOverview({ project, onUpdated }) {
     var counts = project.task_counts || {};
     var total = (counts.todo || 0) + (counts.running || 0) + (counts.blocked || 0) + (counts.done || 0);
     var progressPct = total > 0 ? Math.round(((counts.done || 0) / total) * 100) : 0;
@@ -601,7 +601,7 @@
           ),
         ),
         /* Project settings — edit goal / stop_condition / reactivate */
-        React.createElement(ProjectSettings, { project: project, onUpdated: load }),
+        React.createElement(ProjectSettings, { project: project, onUpdated: onUpdated }),
       ),
     );
   }
