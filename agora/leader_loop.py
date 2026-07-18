@@ -473,6 +473,8 @@ heartbeat, treat this as a NEW project phase. Do NOT carry over previous \
 PROJECT_COMPLETE decisions — reassess from scratch against the CURRENT goal.
 
 Check current status and take action per your SOUL.md heartbeat protocol. \
+Before creating tasks, check existing running/ready tasks to avoid duplicates. \
+Never assign tasks to yourself — you are the leader, not an implementer. \
 If everything is running fine, say "ALL_GOOD" with a brief summary. \
 If tasks are all done, assess the project and plan the next valuable work. \
 Only output "PROJECT_COMPLETE" if you've confirmed twice that the stop \
