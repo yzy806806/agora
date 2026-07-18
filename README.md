@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.6.0**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.6.1**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,13 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.6.1 — Code audit fixes + task creation guardrails
+
+- **`start_project` reactivate now detects stale cron** — same stale-detection logic as `update_project`: verifies cron_id against `hermes cron list` before reuse.
+- **`stop_project` / `on_project_complete` clear `heartbeat_cron_id`** — previously deleted the cron job but left the stale ID in project JSON, causing reactivate to skip cron creation.
+- **Task creation guardrails in SOUL.md + heartbeat prompt** — leader must check existing tasks before creating new ones (prevent duplicates); must never assign tasks to self (leader is facilitator, not implementer).
+- **Fixed tool count in log** — 16 → 17 (agora_update_project added in v1.5.0).
 
 ### v1.6.0 — Reactivate fix: reset completion state + heartbeat prompt
 

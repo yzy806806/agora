@@ -1,6 +1,6 @@
 # Agora Module Dependencies
 
-> Last updated: v1.5.4
+> Last updated: v1.6.1
 
 ## Overview
 
