@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.9**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.6.0**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,15 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.6.0 — Reactivate fix: reset completion state + heartbeat prompt
+
+- **Reactivate now resets `complete_count`, `leader_session_id`, `completion_check_pos`** — Previously, reactivating a completed project left stale completion state. Leader would read old memory, see complete_count > 0, and immediately output PROJECT_COMPLETE without evaluating the new goal.
+- **Heartbeat prompt warns about goal changes** — Added "If the goal or stop condition has changed since your last heartbeat, treat this as a NEW project phase. Do NOT carry over previous PROJECT_COMPLETE decisions."
+- **Reactivate verifies cron job existence** — Checks `hermes cron list` to detect stale cron IDs (deleted during PROJECT_COMPLETE but still in project JSON).
+- **`start_project` preserves existing project data** — No longer overwrites all fields when project already exists (from v1.5.9, now also in reactivate path).
+- **Schema expanded** — `agora_start_project` now accepts `description`, `stop_condition`, `team`. `workdir` no longer required for existing projects.
+- **Verified end-to-end** — Reactivated docmind project with new goal, leader correctly identified new phase, raised motions, team discussed and adopted, tasks being assigned.
 
 ### v1.5.9 — Fix start_project overwriting existing project data
 

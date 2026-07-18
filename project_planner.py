@@ -363,6 +363,9 @@ def start_project(
             # Update only status and heartbeat-related fields
             existing["status"] = "active"
             existing["current_round"] = existing.get("current_round", 0)
+            existing["complete_count"] = 0
+            existing["leader_session_id"] = None
+            existing["completion_check_pos"] = 0
             # Preserve workdir if not provided
             if workdir:
                 existing["workdir"] = workdir
@@ -516,6 +519,9 @@ def update_project(
     if reactivate:
         data["status"] = "active"
         data["current_round"] = data.get("current_round", 0) + 1
+        data["complete_count"] = 0
+        data["leader_session_id"] = None
+        data["completion_check_pos"] = 0
         # Re-create heartbeat cron if it was removed or is stale
         if data.get("heartbeat_member"):
             old_cron_id = data.get("heartbeat_cron_id")

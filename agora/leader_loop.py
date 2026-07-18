@@ -468,6 +468,10 @@ Heartbeat wake-up for {leader_name}, project '{project}'.
 Read AGENTS.md in the project workdir for current goal, stop condition, \
 team members, and active discussions.
 
+IMPORTANT: If the goal or stop condition has changed since your last \
+heartbeat, treat this as a NEW project phase. Do NOT carry over previous \
+PROJECT_COMPLETE decisions — reassess from scratch against the CURRENT goal.
+
 Check current status and take action per your SOUL.md heartbeat protocol. \
 If everything is running fine, say "ALL_GOOD" with a brief summary. \
 If tasks are all done, assess the project and plan the next valuable work. \
