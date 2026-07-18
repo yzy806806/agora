@@ -352,6 +352,43 @@ def start_project(
     pf = _project_file(project_name)
     board_name = _ensure_project_board(project_name)
 
+    # If project already exists, preserve existing fields and just reactivate
+    if pf.exists():
+        existing = json.loads(pf.read_text())
+        if existing.get("status") in ("active", "completed", "stopped"):
+            logger.info(
+                "Project %s already exists (status=%s) — reactivating, preserving fields",
+                project_name, existing.get("status"),
+            )
+            # Update only status and heartbeat-related fields
+            existing["status"] = "active"
+            existing["current_round"] = existing.get("current_round", 0)
+            # Preserve workdir if not provided
+            if workdir:
+                existing["workdir"] = workdir
+            # Allow overriding heartbeat config if explicitly provided
+            if heartbeat_member:
+                existing["heartbeat_member"] = heartbeat_member
+            if heartbeat_minutes != 15 or "heartbeat_minutes" not in existing:
+                existing["heartbeat_minutes"] = heartbeat_minutes
+            # Allow overriding goal/description/stop_condition if non-empty
+            if goal:
+                existing["goal"] = goal
+            if description:
+                existing["description"] = description
+            if stop_condition:
+                existing["stop_condition"] = stop_condition
+            if team:
+                existing["team"] = team
+            # Recreate heartbeat cron if member is set
+            if existing.get("heartbeat_member") and not existing.get("heartbeat_cron_id"):
+                cron_id = _create_heartbeat_cron(project_name, existing["heartbeat_minutes"])
+                if cron_id:
+                    existing["heartbeat_cron_id"] = cron_id
+            pf.write_text(json.dumps(existing, indent=2))
+            update_project_agents_md(project_name)
+            return existing
+
     # Validate heartbeat_member if provided
     if heartbeat_member:
         from agora.worker_manager import get_worker

@@ -871,14 +871,17 @@ _START_PROJECT_SCHEMA = {
     "type": "object",
     "properties": {
         "name": {"type": "string", "description": "Short project name (e.g. 'docmind')"},
-        "workdir": {"type": "string", "description": "Absolute path to the project repository"},
-        "goal": {"type": "string", "description": "High-level project goal", "default": ""},
+        "workdir": {"type": "string", "description": "Absolute path to the project repository. Required for new projects; ignored if project already exists.", "default": ""},
+        "goal": {"type": "string", "description": "High-level project goal. Preserved if project already exists; only overrides if non-empty.", "default": ""},
+        "description": {"type": "string", "description": "Detailed project description", "default": ""},
+        "stop_condition": {"type": "string", "description": "Natural-language stop condition. Preserved if project already exists; only overrides if non-empty.", "default": ""},
         "initial_topic": {"type": "string", "description": "First discussion topic. If empty, planner auto-generates.", "default": ""},
         "max_rounds": {"type": "integer", "description": "Maximum planning rounds before stopping", "default": 10},
-        "heartbeat_member": {"type": "string", "description": "Worker name to wake on heartbeat (usually a leader). If omitted, no heartbeat is scheduled.", "default": ""},
+        "team": {"type": "string", "description": "Team name for assignee routing. Preserved if project already exists.", "default": ""},
+        "heartbeat_member": {"type": "string", "description": "Worker name to wake on heartbeat (usually a leader). Preserved if project already exists; only overrides if non-empty.", "default": ""},
         "heartbeat_minutes": {"type": "integer", "description": "Heartbeat interval in minutes", "default": 15},
     },
-    "required": ["name", "workdir"],
+    "required": ["name"],
 }
 
 _STOP_PROJECT_SCHEMA = {
@@ -905,16 +908,21 @@ def _register_project_tools(ctx: Any) -> None:
         name = args.get("name", "")
         workdir = args.get("workdir", "")
         goal = args.get("goal", "")
+        description = args.get("description", "")
+        stop_condition = args.get("stop_condition", "")
         initial_topic = args.get("initial_topic", "")
         max_rounds = args.get("max_rounds", 10)
+        team = args.get("team", "") or None
         heartbeat_member = args.get("heartbeat_member", "") or None
         heartbeat_minutes = args.get("heartbeat_minutes", 15)
-        if not name or not workdir:
-            return {"error": "name and workdir are required"}
+        if not name:
+            return {"error": "name is required"}
         return start_project(
             project_name=name, workdir=workdir, goal=goal,
+            description=description, stop_condition=stop_condition,
             initial_topic=initial_topic, max_rounds=max_rounds,
-            heartbeat_member=heartbeat_member, heartbeat_minutes=heartbeat_minutes,
+            team=team, heartbeat_member=heartbeat_member,
+            heartbeat_minutes=heartbeat_minutes,
         )
 
     ctx.register_tool(

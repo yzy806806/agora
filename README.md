@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.8**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.5.9**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,12 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.5.9 — Fix start_project overwriting existing project data
+
+- **`agora_start_project` no longer overwrites existing projects** — if a project already exists, it preserves all fields (team, goal, stop_condition, heartbeat_member, etc.) and only reactivates. Previously, calling `start_project` on an existing project would reset everything to defaults.
+- **Schema expanded** — added `description`, `stop_condition`, `team` parameters. `workdir` is no longer required (preserved from existing project). All new params only override if non-empty.
+- **Heartbeat cron auto-recreated** — if a reactivated project has `heartbeat_member` but no `heartbeat_cron_id`, the cron job is automatically recreated.
 
 ### v1.5.8 — Dashboard project settings UI
 

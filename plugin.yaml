@@ -25,4 +25,4 @@ provides_tools:
 - agora_create_team
 - agora_list_teams
 - agora_remove_team
-version: "1.5.8"
+version: "1.5.9"
