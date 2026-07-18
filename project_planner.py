@@ -516,11 +516,31 @@ def update_project(
     if reactivate:
         data["status"] = "active"
         data["current_round"] = data.get("current_round", 0) + 1
-        # Re-create heartbeat cron if it was removed
-        if not data.get("heartbeat_cron_id") and data.get("heartbeat_member"):
-            cron_id = _create_heartbeat_cron(project_name, data.get("heartbeat_minutes", 15))
-            if cron_id:
-                data["heartbeat_cron_id"] = cron_id
+        # Re-create heartbeat cron if it was removed or is stale
+        if data.get("heartbeat_member"):
+            old_cron_id = data.get("heartbeat_cron_id")
+            if old_cron_id:
+                # Check if the cron job still exists
+                import subprocess as _sp
+                _hermes = find_hermes_binary()
+                try:
+                    _r = _sp.run(
+                        [_hermes, "cron", "list", "--json"],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    import json as _json
+                    _jobs = _json.loads(_r.stdout) if _r.stdout.strip() else []
+                    _active_ids = set()
+                    for _j in _jobs:
+                        _active_ids.add(_j.get("id", ""))
+                    if old_cron_id not in _active_ids:
+                        old_cron_id = None  # stale, treat as missing
+                except Exception:
+                    old_cron_id = None  # can't verify, recreate to be safe
+            if not old_cron_id:
+                cron_id = _create_heartbeat_cron(project_name, data.get("heartbeat_minutes", 15))
+                if cron_id:
+                    data["heartbeat_cron_id"] = cron_id
         changes.append("status=active")
 
     pf.write_text(json.dumps(data, indent=2))
