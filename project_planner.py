@@ -383,11 +383,28 @@ def start_project(
                 existing["stop_condition"] = stop_condition
             if team:
                 existing["team"] = team
-            # Recreate heartbeat cron if member is set
-            if existing.get("heartbeat_member") and not existing.get("heartbeat_cron_id"):
-                cron_id = _create_heartbeat_cron(project_name, existing["heartbeat_minutes"])
-                if cron_id:
-                    existing["heartbeat_cron_id"] = cron_id
+            # Recreate heartbeat cron if member is set and cron is missing or stale
+            if existing.get("heartbeat_member"):
+                old_cron_id = existing.get("heartbeat_cron_id")
+                if old_cron_id:
+                    # Verify the cron job still exists
+                    import subprocess as _sp
+                    _hermes = find_hermes_binary()
+                    try:
+                        _r = _sp.run(
+                            [_hermes, "cron", "list", "--json"],
+                            capture_output=True, text=True, timeout=15,
+                        )
+                        _jobs = json.loads(_r.stdout) if _r.stdout.strip() else []
+                        _active_ids = {j.get("id", "") for j in _jobs}
+                        if old_cron_id not in _active_ids:
+                            old_cron_id = None
+                    except Exception:
+                        old_cron_id = None
+                if not old_cron_id:
+                    cron_id = _create_heartbeat_cron(project_name, existing["heartbeat_minutes"])
+                    if cron_id:
+                        existing["heartbeat_cron_id"] = cron_id
             pf.write_text(json.dumps(existing, indent=2))
             update_project_agents_md(project_name)
             return existing
@@ -468,6 +485,7 @@ def stop_project(project_name: str) -> dict:
     cron_id = data.get("heartbeat_cron_id")
     if cron_id:
         _remove_heartbeat_cron(cron_id)
+    data["heartbeat_cron_id"] = None
 
     data["status"] = "stopped"
     pf.write_text(json.dumps(data, indent=2))
@@ -754,6 +772,7 @@ def on_project_complete(project_name: str) -> None:
             cron_id = proj.get("heartbeat_cron_id")
             if cron_id:
                 _remove_heartbeat_cron(cron_id)
+                proj["heartbeat_cron_id"] = None
 
             proj["status"] = "completed"
             proj["completed_at"] = now_iso()
