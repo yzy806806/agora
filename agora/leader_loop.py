@@ -409,6 +409,44 @@ def check_project_complete(project_name: str) -> bool:
             return False
 
         # PROJECT_COMPLETE found in new output
+        # Verify kanban is actually clean — no running/ready/blocked tasks for this project
+        board_name = f"agora-{safe_name(project_name)}"
+        _pending: list = []
+        _ready: list = []
+        _blocked: list = []
+        try:
+            from hermes_cli import kanban_db as _kdb
+            _conn = _kdb.connect()
+            try:
+                _pending = _kdb.list_tasks(_conn, status="running", tenant=board_name)
+                _ready = _kdb.list_tasks(_conn, status="ready", tenant=board_name)
+                _blocked = _kdb.list_tasks(_conn, status="blocked", tenant=board_name)
+            finally:
+                _conn.close()
+        except Exception as exc:
+            logger.warning("check_project_complete: failed to query kanban for %s: %s", project_name, exc)
+
+        _pending_count = len(_pending) + len(_ready) + len(_blocked)
+        if _pending_count > 0:
+            logger.info(
+                "Project '%s': PROJECT_COMPLETE ignored — %d pending tasks (running=%d, ready=%d, blocked=%d)",
+                project_name, _pending_count, len(_pending), len(_ready), len(_blocked),
+            )
+            # Append to heartbeat log so leader sees the rejection on next heartbeat
+            try:
+                with open(log_path, "a") as _lf:
+                    _lf.write(
+                        f"\n[SYSTEM] PROJECT_COMPLETE rejected: {_pending_count} pending kanban tasks "
+                        f"(running={len(_pending)}, ready={len(_ready)}, blocked={len(_blocked)}). "
+                        f"Complete or cancel these tasks before declaring project complete.\n"
+                    )
+            except Exception:
+                pass
+            # Reset counter — kanban is not clean
+            if proj.get("complete_count", 0) > 0:
+                _update_complete_count(project_name, 0)
+            return False
+
         count = proj.get("complete_count", 0) + 1
         _update_complete_count(project_name, count)
 
