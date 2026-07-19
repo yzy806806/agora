@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.6.1**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.6.2**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,13 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.6.2 — Leader fresh session + AGENTS.md enhancement + kanban gate
+
+- **Leader uses fresh session every heartbeat** — no more `--resume`. Accumulated session history caused attention degradation: leader repeated already-completed motions, ignored SOUL.md constraints, claimed "no running tasks" without checking. Context now comes entirely from AGENTS.md + MEMORY.md + SOUL.md.
+- **AGENTS.md enhanced** — now includes Kanban Summary (running/ready/blocked/done counts + task list), Last heartbeat timestamp, and Recent Decisions (last 3 adopted motions). Gives fresh-session leader full project state.
+- **PROJECT_COMPLETE kanban gate** — `check_project_complete` now queries kanban by tenant before counting PROJECT_COMPLETE. If running/ready/blocked tasks exist, rejects with `[SYSTEM] PROJECT_COMPLETE rejected` message in log. Multi-project safe (tenant-filtered).
+- **Cleaned worker memory** — 5 workers had ~34K chars of stale motion records (pre-v1.4.7 hooks). Cleaned to only retain technical experience.
 
 ### v1.6.1 — Code audit fixes + task creation guardrails
 

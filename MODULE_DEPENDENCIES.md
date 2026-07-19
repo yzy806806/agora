@@ -1,6 +1,6 @@
 # Agora Module Dependencies
 
-> Last updated: v1.6.1
+> Last updated: v1.6.2
 
 ## Overview
 
@@ -275,7 +275,7 @@ Tables used: `tasks`, `task_runs`, `task_comments`, `boards`
 
 | Agora | Hermes Agent | Notes |
 |-------|-------------|-------|
-| v1.5.4 | v0.18+ | Tool handlers return JSON string (`_wrap_handler`); uses `ctx.register_cli_command`, kanban hooks, `kanban_db.add_comment` |
+| v1.6.2 | v0.18+ | Leader uses fresh session (no --resume); check_project_complete queries kanban; AGENTS.md includes kanban summary + recent decisions; uses `ctx.register_cli_command`, kanban hooks, `kanban_db.add_comment(author=...)` |
 | v1.4.x | v0.17+ | Basic plugin API, no CLI command |
 
 Hermes backward compatibility: Agora uses try/except fallbacks for optional imports (FastAPI, memory_tool path).

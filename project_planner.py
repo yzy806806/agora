@@ -150,6 +150,61 @@ def update_project_agents_md(project_name: str) -> dict:
     except Exception:
         pass
 
+    # Kanban task summary — tells leader what's pending/done
+    try:
+        from hermes_cli import kanban_db as _kdb
+        board = proj.get("board") or f"agora-{safe_name(project_name)}"
+        _conn = _kdb.connect()
+        try:
+            _running = _kdb.list_tasks(_conn, status="running", tenant=board)
+            _ready = _kdb.list_tasks(_conn, status="ready", tenant=board)
+            _blocked = _kdb.list_tasks(_conn, status="blocked", tenant=board)
+            _done = _kdb.list_tasks(_conn, status="done", tenant=board)
+        finally:
+            _conn.close()
+        lines.append("## Kanban Summary")
+        lines.append("")
+        lines.append(f"- Running: {len(_running)} | Ready: {len(_ready)} | Blocked: {len(_blocked)} | Done: {len(_done)}")
+        if _running:
+            lines.append("")
+            lines.append("**Running tasks:**")
+            for t in _running[:5]:
+                lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
+            if len(_running) > 5:
+                lines.append(f"- ... +{len(_running)-5} more")
+        if _blocked:
+            lines.append("")
+            lines.append("**Blocked tasks:**")
+            for t in _blocked[:5]:
+                lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
+            if len(_blocked) > 5:
+                lines.append(f"- ... +{len(_blocked)-5} more")
+        lines.append("")
+    except Exception:
+        pass
+
+    # Last heartbeat info — tells leader when the last cycle ran
+    last_hb = proj.get("last_heartbeat_at")
+    if last_hb:
+        lines.append(f"**Last heartbeat:** {last_hb}")
+        lines.append("")
+
+    # Recent motion results — tells leader what was recently decided
+    try:
+        from agora.storage import motions as db
+        recent = db.list_motions(status_filter="closed", limit=5)
+        adopted = [m for m in recent if m.get("decision") == "adopted"]
+        if adopted:
+            lines.append("## Recent Decisions")
+            lines.append("")
+            for m in adopted[:3]:
+                title = m.get("title", "")[:60]
+                mid = m["id"][:22]
+                lines.append(f"- `[{mid}]` ✅ {title}")
+            lines.append("")
+    except Exception:
+        pass
+
     # Project-specific instructions
     lines.append("## Workflow")
     lines.append("")

@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.4.3**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.6.2**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -267,7 +267,14 @@ MIT
 
 ## 更新日志
 
-### v1.4.3 — 讨论状态一致性 & 卡住 motion 恢复
+### v1.6.2 — Leader 每次新 session + AGENTS.md 增强 + kanban 门禁
+
+- **Leader 心跳每次用全新 session** — 不再 `--resume`。累积的 session 历史导致长上下文注意力衰减：leader 重复已完成的 motion、无视 SOUL.md 约束、声称"没有运行中的任务"但不检查。上下文现在完全来自 AGENTS.md + MEMORY.md + SOUL.md。
+- **AGENTS.md 增强** — 新增 Kanban 概况（running/ready/blocked/done 计数 + 任务列表）、上次心跳时间、最近决策（最近 3 个已通过的 motion）。让全新 session 的 leader 能掌握完整项目状态。
+- **PROJECT_COMPLETE kanban 门禁** — `check_project_complete` 现在在计数 PROJECT_COMPLETE 前按 tenant 查询 kanban。如果有 running/ready/blocked 任务，拒绝并往日志写 `[SYSTEM] PROJECT_COMPLETE rejected` 提示。多项目安全（按 tenant 过滤）。
+- **清理 worker memory** — 5 个 worker 有约 34K 字符的旧 motion 记录（v1.4.7 hooks 修复前积累）。清理后只保留自主技术经验。
+
+### v1.6.1 — 代码审计修复 + 任务创建约束
 
 **5 小时生产环境监测 docmind 团队后发现 6 个问题：**
 

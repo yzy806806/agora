@@ -234,9 +234,12 @@ def _spawn_leader_agent(project: dict) -> dict:
     returns immediately with status="spawned". PROJECT_COMPLETE detection
     is done by checking the log file on subsequent runs.
 
-    Per-project session isolation: the leader uses --resume with a
-    project-specific session_id, so context doesn't bleed between
-    projects. But MEMORY.md and skills are shared (experience reuse).
+    Fresh session every heartbeat: the leader does NOT use --resume.
+    Context comes from AGENTS.md (auto-injected via TERMINAL_CWD),
+    MEMORY.md, and SOUL.md — no conversation history needed. This
+    prevents attention degradation in long-running projects where
+    accumulated session history causes the leader to lose focus, repeat
+    already-completed motions, or ignore SOUL.md constraints.
     """
     from project_planner import update_heartbeat_status, set_leader_session, get_leader_session
     from agora.worker_manager import get_worker, get_worker_session, update_worker_session
@@ -254,33 +257,16 @@ def _spawn_leader_agent(project: dict) -> dict:
     workdir = project.get("workdir", "")
     goal = project.get("goal", "")
 
-    # Get project-specific session for context isolation
-    session_id = get_leader_session(project_name)
-    # Also check worker's per-project session map
-    if not session_id:
-        session_id = get_worker_session(member_name, project_name)
+    # Fresh session every heartbeat — no --resume.
+    # Clear any stored session_id so stale IDs don't linger.
+    set_leader_session(project_name, None)
 
-    # Refresh AGENTS.md so the leader and workers always see current team
+    # Refresh AGENTS.md so the leader sees current project state
     try:
         from project_planner import update_project_agents_md
         update_project_agents_md(project_name)
     except Exception:
         pass
-
-    # Check session size — rotate if too large
-    try:
-        from agora.session_manager import check_session_size, rotate_session
-        size_info = check_session_size(member_name, session_id)
-        if size_info.get("needs_rotation"):
-            logger.info(
-                "Leader '%s' session for project '%s' is large (count=%d) — rotating",
-                member_name, project_name, size_info.get("message_count", 0),
-            )
-            rotate_session(member_name, member_name)
-            session_id = None  # force fresh session
-            set_leader_session(project_name, None)
-    except Exception as exc:
-        logger.debug("Session size check failed for %s/%s: %s", member_name, project_name, exc)
 
     # Build the heartbeat prompt — context (goal, stop condition, team,
     # active motions) is in AGENTS.md which Hermes auto-injects into the
@@ -310,8 +296,7 @@ def _spawn_leader_agent(project: dict) -> dict:
     ]
 
     # Resume project-specific session if available
-    if session_id:
-        cmd.extend(["--resume", session_id])
+    # — DISABLED: fresh session every heartbeat for attention quality
 
     # Environment — do NOT override HERMES_HOME here.
     # The -p flag makes Hermes set HERMES_HOME to the profile directory
@@ -346,15 +331,15 @@ def _spawn_leader_agent(project: dict) -> dict:
         update_heartbeat_status(project_name, pid=proc.pid)
 
         logger.info(
-            "Leader '%s' heartbeat spawned for project '%s' (PID %d, session=%s, log=%s)",
-            member_name, project_name, proc.pid, session_id or "new", log_path,
+            "Leader '%s' heartbeat spawned for project '%s' (PID %d, fresh session, log=%s)",
+            member_name, project_name, proc.pid, log_path,
         )
         return {
             "status": "spawned",
             "leader": member_name,
             "project": project_name,
             "pid": proc.pid,
-            "session_id": session_id,
+            "session_id": None,
             "log": str(log_path),
         }
     except Exception as exc:
