@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.6.2**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.7.0**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,17 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.7.0 — Discussion speaker tool access + chair retry + task management
+
+- **Discussion speakers now have full tool access** — changed `--toolsets agora` to `--toolsets hermes-cli` in `agent_spawn.py`. Previously, discussion participants (architect, developer, researcher, tester, reviewer, writer) only had the 17 Agora tools — no `terminal`, `read_file`, `search_files`, `web_search`, `web_extract`. This caused 112+ messages across two projects where workers reported they couldn't read code, run tests, or research reference projects. Now speakers have all built-in tools + Agora tools.
+- **Chair open/evaluate retry on non-JSON** — when the chair (leader) returns a non-JSON response, the discussion driver retries once with a stronger "respond with JSON ONLY" prompt before aborting. Prevents `decision=error, steps=0` motions caused by occasional LLM formatting failures.
+- **`spawn_discussion_driver` uses global `~/.hermes/agora/`** — runner scripts and log files now always go to the global agora directory, not the profile-scoped `HERMES_HOME`. Fixes the issue where leader heartbeat created runner scripts in `~/.hermes/profiles/leader/agora/` but they couldn't be found by other processes.
+- **Stuck motion auto-cleanup** — motions stuck at `steps=0` for more than 5 minutes are now automatically closed as `error` by `_rescue_stuck_motions`. Previously these stayed in `discussing` forever, blocking leader from closing them.
+- **Kanban task counts filtered by tenant** — `_count_tasks()` now accepts a `tenant` parameter. Dashboard project list and detail views show per-project task counts instead of global totals. Fixes "kanban count not resetting" for new projects.
+- **New `agora_close_task` tool** — leader can now close stale blocked/running tasks directly (action=`complete` or `cancel`) without needing kanban CLI or `HERMES_KANBAN_TASK` env var. SOUL.md updated with stale task cleanup instructions.
+- **`complete_count` initialized on new project** — new projects now start with `complete_count: 0` and `completion_check_pos: 0` instead of `None`.
+- **Researcher SOUL.md strengthened** — researcher must use `web_search`, `web_extract`, `terminal`, and `read_file` to investigate topics. Cannot rely on memory alone. Must read reference project source code before giving recommendations.
 
 ### v1.6.2 — Leader fresh session + AGENTS.md enhancement + kanban gate
 

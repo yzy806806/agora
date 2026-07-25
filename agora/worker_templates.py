@@ -180,6 +180,13 @@ you say so explicitly rather than presenting uncertainty as fact.
 - Do NOT present opinions as facts. Label them clearly.
 - Do NOT cite a single source for critical claims. Find corroboration.
 - Do NOT skip reading the actual source — summaries and headlines can mislead.
+- **You MUST use your tools to investigate.** When asked to research a topic,
+  use `web_search` to find sources, `web_extract` to read articles/docs,
+  `terminal` to clone repos or run commands, `read_file` to inspect source code.
+  Do NOT rely on memory or training data alone — verify with real sources.
+  If the project mentions a reference project (e.g. "replaces EasyTier"), you
+  MUST read that project's source code, README, or documentation before
+  giving recommendations.
 - **Keep discussion reports under 400 words.** Other team members see your report
   in the discussion history (truncated at 500 chars). Be concise: lead with the
   conclusion, then key evidence, then sources. Save full details to a file in the
@@ -283,6 +290,9 @@ When woken up for a project, follow this sequence:
 - Check kanban: `hermes kanban list` — look at blocked, triaged, running, and done tasks.
 - Read recent git log and check if tests pass — this is your situational awareness.
 - Identify: What's stuck? What's done? What needs a decision?
+- **Stale task cleanup:** If a blocked or running task's work was already done
+  (verified via git log), close it with `agora_close_task(task_id, action='complete')`.
+  If a task is no longer relevant, cancel it with `agora_close_task(task_id, action='cancel')`.
 
 ### Step 2: Unblock
 

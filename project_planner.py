@@ -491,6 +491,8 @@ def start_project(
         "leader_session_id": None,  # per-project session for the heartbeat member
         "last_heartbeat_at": None,
         "last_heartbeat_pid": None,
+        "complete_count": 0,
+        "completion_check_pos": 0,
     }
 
     # Create cron job for heartbeat if member is specified

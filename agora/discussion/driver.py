@@ -298,7 +298,7 @@ class DiscussionDriver:
     def _chair_open(
         self, title: str, description: str, task_context: str,
     ) -> dict | None:
-        """Chair opens the discussion."""
+        """Chair opens the discussion. Retries once on non-JSON response."""
         prompt = CHAIR_OPENING_PROMPT.format(
             title=title,
             description=description,
@@ -316,8 +316,25 @@ class DiscussionDriver:
 
         data = parse_json_response(result["reply"])
         if data is None:
-            logger.error("Chair open returned non-JSON: %s", result["reply"][:200])
-            return None
+            # Retry with a stronger JSON instruction
+            logger.warning("Chair open returned non-JSON, retrying: %s", result["reply"][:200])
+            retry_prompt = (
+                "Your previous response was not valid JSON. "
+                "You MUST respond with ONLY a JSON object, no other text.\n\n"
+                + prompt
+            )
+            result = spawn_chair_speak(
+                self.chair_profile, retry_prompt,
+                workdir=self.workdir,
+                timeout=self.chair_timeout,
+            )
+            if result.get("error"):
+                logger.error("Chair open retry failed: %s", result["error"])
+                return None
+            data = parse_json_response(result["reply"])
+            if data is None:
+                logger.error("Chair open retry still non-JSON: %s", result["reply"][:200])
+                return None
 
         # Store the opening as a chair message
         db.add_message(
@@ -357,8 +374,25 @@ class DiscussionDriver:
 
         data = parse_json_response(result["reply"])
         if data is None:
-            logger.warning("Chair evaluate returned non-JSON, defaulting to close")
-            return {"action": "close", "reason": "Chair returned non-JSON, forcing close"}
+            # Retry with a stronger JSON instruction
+            logger.warning("Chair evaluate returned non-JSON, retrying")
+            retry_prompt = (
+                "Your previous response was not valid JSON. "
+                "You MUST respond with ONLY a JSON object, no other text.\n\n"
+                + prompt
+            )
+            result = spawn_chair_speak(
+                self.chair_profile, retry_prompt,
+                workdir=self.workdir,
+                timeout=self.chair_timeout,
+            )
+            if result.get("error"):
+                logger.error("Chair evaluate retry failed: %s", result["error"])
+                return {"action": "close", "reason": "Chair evaluate failed after retry"}
+            data = parse_json_response(result["reply"])
+            if data is None:
+                logger.warning("Chair evaluate retry still non-JSON, defaulting to close")
+                return {"action": "close", "reason": "Chair returned non-JSON after retry, forcing close"}
         return data
 
     # ------------------------------------------------------------------ #

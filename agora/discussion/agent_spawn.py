@@ -108,7 +108,7 @@ def _run_agent_subprocess(
         "-p", profile_name,
         "--yolo",
         "--accept-hooks",
-        "--toolsets", "agora",
+        "--toolsets", "hermes-cli",
     ]
     if session_id:
         cmd.extend(["--resume", session_id])
@@ -287,15 +287,15 @@ def spawn_discussion_driver(
         # agent_spawn.py lives at <plugin_root>/agora/discussion/agent_spawn.py
         plugin_root = Path(__file__).resolve().parent.parent.parent
 
-        # Determine HERMES_HOME for the runner/log paths
-        hermes_home = os.environ.get(
-            "HERMES_HOME", str(Path.home() / ".hermes"),
-        )
-        agora_dir = Path(hermes_home) / "agora"
-        agora_dir.mkdir(parents=True, exist_ok=True)
+        # Use the GLOBAL ~/.hermes/agora for runner/log paths — not the
+        # profile-scoped HERMES_HOME (which is ~/.hermes/profiles/<name>/
+        # when -p is used).  The motion DB lives in the global agora dir,
+        # so runner scripts and logs must go there too for consistency.
+        global_agora = Path.home() / ".hermes" / "agora"
+        global_agora.mkdir(parents=True, exist_ok=True)
 
-        runner_path = agora_dir / f"run_discussion_{motion_id}.py"
-        log_path = agora_dir / f"discussion_{motion_id}.log"
+        runner_path = global_agora / f"run_discussion_{motion_id}.py"
+        log_path = global_agora / f"discussion_{motion_id}.log"
 
         # Build the runner script content
         # Use repr() for safe string embedding

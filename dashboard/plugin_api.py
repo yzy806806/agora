@@ -690,17 +690,24 @@ class UpdateHeartbeatRequest(BaseModel):
     minutes: int = Field(..., description="New heartbeat interval in minutes")
 
 
-def _count_tasks() -> dict:
-    """Count tasks by status on the default kanban board."""
+def _count_tasks(tenant: str = "") -> dict:
+    """Count tasks by status, optionally filtered by tenant (board name)."""
     import sqlite3
     counts = {"todo": 0, "running": 0, "blocked": 0, "done": 0}
     try:
         db_path = os.environ.get("HERMES_KANBAN_DB", str(Path.home() / ".hermes" / "kanban.db"))
         conn = sqlite3.connect(db_path)
         try:
-            for r in conn.execute(
-                "SELECT status, COUNT(*) AS n FROM tasks WHERE status != 'archived' GROUP BY status"
-            ):
+            if tenant:
+                rows = conn.execute(
+                    "SELECT status, COUNT(*) AS n FROM tasks WHERE status != 'archived' AND tenant = ? GROUP BY status",
+                    (tenant,),
+                )
+            else:
+                rows = conn.execute(
+                    "SELECT status, COUNT(*) AS n FROM tasks WHERE status != 'archived' GROUP BY status"
+                )
+            for r in rows:
                 s = r[0]
                 if s in counts:
                     counts[s] = r[1]
@@ -721,7 +728,7 @@ def list_projects_api():
             proj_name = proj.get("name", "")
             if proj_name:
                 proj["cron_status"] = get_cron_status(proj_name)
-                proj["task_counts"] = _count_tasks()
+                proj["task_counts"] = _count_tasks(tenant=proj.get("board") or f"agora-{proj_name}")
         return {"projects": projects}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -736,7 +743,7 @@ def get_project_api(name: str):
         if proj is None:
             raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
         proj["cron_status"] = get_cron_status(name)
-        proj["task_counts"] = _count_tasks()
+        proj["task_counts"] = _count_tasks(tenant=proj.get("board") or f"agora-{name}")
         return proj
     except HTTPException:
         raise

@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.6.2**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.7.0**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -266,6 +266,17 @@ agora/
 MIT
 
 ## 更新日志
+
+### v1.7.0 — 讨论参与者工具权限 + chair 重试 + 任务管理
+
+- **讨论参与者现在有完整工具权限** — `agent_spawn.py` 中 `--toolsets agora` 改为 `--toolsets hermes-cli`。之前讨论参与者（architect、developer、researcher、tester、reviewer、writer）只有 17 个 Agora 工具——没有 `terminal`、`read_file`、`search_files`、`web_search`、`web_extract`。导致两个项目中 112+ 条消息反映无法读代码、跑测试、调研参考项目。现在参与者拥有全部内置工具 + Agora 工具。
+- **Chair 开场/评估非 JSON 时重试** — chair（leader）返回非 JSON 时，讨论 driver 会用更强的"只用 JSON 回复"提示重试一次再 abort。避免偶尔的 LLM 格式错误导致 `decision=error, steps=0`。
+- **`spawn_discussion_driver` 使用全局 `~/.hermes/agora/`** — runner 脚本和日志文件始终写到全局 agora 目录，不再跟随 profile 级 `HERMES_HOME`。
+- **卡住的 motion 自动清理** — `steps=0` 超过 5 分钟的 motion 现在会被 `_rescue_stuck_motions` 自动关闭为 `error`。
+- **Kanban 计数按 tenant 过滤** — `_count_tasks()` 现在接受 `tenant` 参数。Dashboard 项目列表和详情页显示按项目过滤的 task 计数，不再是全局总数。
+- **新增 `agora_close_task` 工具** — leader 可以直接关闭 stale blocked/running task（action=`complete` 或 `cancel`），不需要 kanban CLI 或 `HERMES_KANBAN_TASK` 环境变量。SOUL.md 已更新 stale task 清理指引。
+- **新项目初始化 `complete_count`** — 新项目创建时设 `complete_count: 0` 和 `completion_check_pos: 0`。
+- **Researcher SOUL.md 强化** — researcher 必须使用 `web_search`、`web_extract`、`terminal`、`read_file` 调研主题，不能只凭记忆。涉及参考项目时必须阅读其源码或文档。
 
 ### v1.6.2 — Leader 每次新 session + AGENTS.md 增强 + kanban 门禁
 

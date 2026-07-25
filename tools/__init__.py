@@ -1147,4 +1147,61 @@ def _register_worker_tools(ctx: Any) -> None:
         emoji="\U0001f4a5",
     )
 
-    logger.info("Registered 7 worker & team management tools")
+    # --- Tool: agora_close_task ---
+    _CLOSE_TASK_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "The kanban task ID to close (e.g. 't_abc123')"},
+            "action": {"type": "string", "enum": ["complete", "cancel"],
+                       "description": "complete = mark as done; cancel = archive the task"},
+            "summary": {"type": "string", "description": "Optional summary of why this task is being closed"},
+        },
+        "required": ["task_id", "action"],
+    }
+
+    def _close_task_handler(args: dict, **kwargs) -> dict:
+        """Close a stale or completed kanban task directly.
+
+        This lets the leader clean up stale blocked/running tasks without
+        needing the kanban CLI or HERMES_KANBAN_TASK env var. Uses the
+        kanban_db Python API directly.
+        """
+        task_id = args.get("task_id", "")
+        action = args.get("action", "complete")
+        summary = args.get("summary", "")
+
+        if not task_id:
+            return {"error": "task_id is required"}
+
+        try:
+            from hermes_cli import kanban_db as _kdb
+            conn = _kdb.connect()
+            try:
+                task = _kdb.get_task(conn, task_id)
+                if task is None:
+                    return {"error": f"Task '{task_id}' not found"}
+
+                if action == "complete":
+                    _kdb.complete_task(conn, task_id, summary=summary or "Closed by leader via agora_close_task")
+                    return {"status": "completed", "task_id": task_id, "title": task.title}
+                elif action == "cancel":
+                    _kdb.archive_task(conn, task_id)
+                    return {"status": "archived", "task_id": task_id, "title": task.title}
+                else:
+                    return {"error": f"Unknown action: {action}"}
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("agora_close_task failed: %s", exc)
+            return {"error": str(exc)}
+
+    ctx.register_tool(
+        name="agora_close_task",
+        toolset="agora",
+        schema=_CLOSE_TASK_SCHEMA,
+        handler=_wrap_handler(_close_task_handler),
+        description="Close a stale or completed kanban task. Use action='complete' if the work was done, or action='cancel' to archive a stale task.",
+        emoji="✅",
+    )
+
+    logger.info("Registered 7 worker & team management tools + 1 task management tool")

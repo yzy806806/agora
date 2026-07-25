@@ -160,8 +160,28 @@ def _rescue_stuck_motions(project: dict) -> None:
                 continue
             elif not messages and state and state.get("last_action"):
                 # Driver started but crashed before writing messages.
-                # Skip to avoid re-spawning in a tight loop. Leader will
-                # close it manually.
+                # Check if this motion has been stuck for >5 minutes — if so,
+                # close it as error so the leader can move on. Otherwise skip
+                # to avoid re-spawning in a tight loop.
+                created = m.get("created_at", "")
+                if created:
+                    try:
+                        from datetime import datetime, timezone, timedelta
+                        created_dt = datetime.fromisoformat(created)
+                        if created_dt.tzinfo is None:
+                            created_dt = created_dt.replace(tzinfo=timezone.utc)
+                        age = datetime.now(timezone.utc) - created_dt
+                        if age > timedelta(minutes=5):
+                            logger.warning(
+                                "Stuck motion %s: 0 steps after %d min — closing as error",
+                                m["id"], int(age.total_seconds() // 60),
+                            )
+                            db.update_motion_status(m["id"], status="closed", decision="error")
+                            db.update_motion_state(m["id"], "closed")
+                            db.save_discussion_state(m["id"], current_state="closed")
+                            continue
+                    except Exception:
+                        pass
                 continue
             # else: no messages, no state → never started, re-spawn below
 
