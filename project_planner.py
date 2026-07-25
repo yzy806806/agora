@@ -265,10 +265,18 @@ def _create_heartbeat_cron(project_name: str, minutes: int) -> str | None:
         "--deliver", "local",
     ]
     try:
+        # Force GLOBAL hermes home so the cron job is registered in the
+        # global ~/.hermes/cron/jobs.json — not the profile-scoped one.
+        # When this function is called from a leader heartbeat subprocess
+        # (hermes -p leader), HERMES_HOME is set to ~/.hermes/profiles/leader/,
+        # which would cause the cron job to be invisible from the dashboard
+        # and the gateway's main cron scheduler.
+        cron_env = {**os.environ}
+        cron_env["HERMES_HOME"] = str(Path.home() / ".hermes")
         result = subprocess.run(
             cmd,
             capture_output=True, text=True, timeout=15,
-            env={**os.environ},
+            env=cron_env,
         )
         if result.returncode == 0:
             for line in result.stdout.split("\n"):
@@ -354,9 +362,12 @@ def _remove_heartbeat_cron(cron_id: str) -> None:
     """Remove a Hermes cron job by ID."""
     hermes = find_hermes_binary()
     try:
+        cron_env = {**os.environ}
+        cron_env["HERMES_HOME"] = str(Path.home() / ".hermes")
         subprocess.run(
             [hermes, "cron", "remove", cron_id],
             capture_output=True, text=True, timeout=10,
+            env=cron_env,
         )
         logger.info("Cron job %s removed", cron_id)
     except Exception as exc:
@@ -446,9 +457,12 @@ def start_project(
                     import subprocess as _sp
                     _hermes = find_hermes_binary()
                     try:
+                        _cron_env = {**os.environ}
+                        _cron_env["HERMES_HOME"] = str(Path.home() / ".hermes")
                         _r = _sp.run(
                             [_hermes, "cron", "list", "--json"],
                             capture_output=True, text=True, timeout=15,
+                            env=_cron_env,
                         )
                         _jobs = json.loads(_r.stdout) if _r.stdout.strip() else []
                         _active_ids = {j.get("id", "") for j in _jobs}
