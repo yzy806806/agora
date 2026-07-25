@@ -303,15 +303,17 @@ def _spawn_leader_agent(project: dict) -> dict:
 
     # Build command — must include --yolo and --accept-hooks for unattended
     # operation. -Q gives quiet mode.
-    # --toolsets agora is required so the leader can call agora_raise_motion,
-    # agora_list_motions, etc. Without it, the leader's profile config only
-    # loads the platform_toolsets.cli set (which doesn't include agora).
+    # --toolsets hermes-cli gives the leader full built-in tools (terminal,
+    # read_file, search_files, web_search, etc.) PLUS agora tools (registered
+    # by the plugin regardless of toolset). Previously used --toolsets agora
+    # which gave ONLY agora tools — leader couldn't read files or run commands.
     cmd = [
         hermes_bin,
         "-p", member_name,
         "--yolo",
         "--accept-hooks",
-        "--toolsets", "agora",
+        "--cli",
+        "--toolsets", "hermes-cli",
         "chat", "-Q", "-q", prompt,
     ]
 
