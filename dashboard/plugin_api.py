@@ -727,7 +727,14 @@ def list_projects_api():
         for proj in projects:
             proj_name = proj.get("name", "")
             if proj_name:
-                proj["cron_status"] = get_cron_status(proj_name)
+                cron_status = get_cron_status(proj_name)
+                proj["cron_status"] = cron_status
+                sched = cron_status.get("schedule", "")
+                if sched and sched.startswith("every ") and sched.endswith("m"):
+                    try:
+                        proj["heartbeat_minutes"] = int(sched[6:-1])
+                    except (ValueError, IndexError):
+                        pass
                 proj["task_counts"] = _count_tasks(tenant=proj.get("board") or f"agora-{proj_name}")
         return {"projects": projects}
     except Exception as exc:
@@ -742,7 +749,17 @@ def get_project_api(name: str):
         proj = get_project(name)
         if proj is None:
             raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
-        proj["cron_status"] = get_cron_status(name)
+        cron_status = get_cron_status(name)
+        proj["cron_status"] = cron_status
+        # Sync heartbeat_minutes with the actual cron schedule so the
+        # dashboard always shows the real interval (users may change it
+        # via `hermes cron edit` or the WebUI cron manager).
+        sched = cron_status.get("schedule", "")
+        if sched and sched.startswith("every ") and sched.endswith("m"):
+            try:
+                proj["heartbeat_minutes"] = int(sched[6:-1])
+            except (ValueError, IndexError):
+                pass
         proj["task_counts"] = _count_tasks(tenant=proj.get("board") or f"agora-{name}")
         return proj
     except HTTPException:
