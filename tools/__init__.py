@@ -377,6 +377,24 @@ def register_all_tools(ctx: Any) -> None:
                 "message": "Motion is already closed",
             }
 
+        # Guard: "adopted" requires actual discussion to have occurred.
+        # Prevents leader from bypassing the discussion engine.
+        if decision == "adopted":
+            step_count = motion.get("step_count", 0) or 0
+            if step_count == 0:
+                return {
+                    "error": "Cannot adopt a motion with 0 discussion steps. "
+                             "Run the discussion first, or use decision='error' "
+                             "or decision='superseded' to close without discussion.",
+                    "code": 400,
+                }
+            messages = db.get_messages(motion_id)
+            if not messages:
+                return {
+                    "error": "Cannot adopt a motion with no discussion messages.",
+                    "code": 400,
+                }
+
         db.update_motion_status(
             motion_id,
             status="closed",
@@ -392,7 +410,7 @@ def register_all_tools(ctx: Any) -> None:
                 from project_planner import update_project_agents_md
                 update_project_agents_md(motion["project"])
             except Exception:
-                pass
+                logger.warning("Failed to refresh AGENTS.md for %s", motion.get("project"))
 
         return {
             "motion_id": motion_id,
@@ -467,7 +485,9 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     blocking = args.get("blocking", False)
     participants = args.get("participants")
     chair = args.get("chair", "")
-    max_steps = args.get("max_steps", 30)
+    max_steps = args.get("max_steps")
+    if max_steps is None:
+        max_steps = 30
     rounds = args.get("rounds", 3)
     template_name = args.get("template")
 
@@ -1183,9 +1203,11 @@ def _register_worker_tools(ctx: Any) -> None:
 
                 if action == "complete":
                     _kdb.complete_task(conn, task_id, summary=summary or "Closed by leader via agora_close_task")
+                    conn.commit()
                     return {"status": "completed", "task_id": task_id, "title": task.title}
                 elif action == "cancel":
                     _kdb.archive_task(conn, task_id)
+                    conn.commit()
                     return {"status": "archived", "task_id": task_id, "title": task.title}
                 else:
                     return {"error": f"Unknown action: {action}"}

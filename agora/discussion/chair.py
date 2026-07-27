@@ -10,6 +10,19 @@ All chair outputs are JSON for machine parsing by the driver.
 from __future__ import annotations
 
 
+def _escape_format(s: str) -> str:
+    """Escape literal curly braces in a user-supplied string so it can be
+    safely interpolated into a ``.format()`` template without injection.
+
+    ``str.format`` treats ``{...}`` as a replacement field. A user-supplied
+    title containing ``{`` or ``}`` would either raise ``KeyError`` /
+    ``ValueError`` (e.g. ``"{__builtins__}"``) or, worse, interpolate an
+    unintended value. Doubling the braces makes ``.format`` emit the literal
+    characters.
+    """
+    return s.replace("{", "{{").replace("}", "}}")
+
+
 # --- Opening ---------------------------------------------------------------
 
 CHAIR_OPENING_PROMPT = """\
@@ -143,6 +156,10 @@ def build_speaker_prompt(
     task_context: str = "",
 ) -> str:
     """Build the prompt for a participant's turn to speak."""
+    # Escape user-supplied strings to prevent f-string curly-brace injection
+    title = _escape_format(title)
+    description = _escape_format(description)
+    role = _escape_format(role)
     parts = [
         f"You are **{role}** participating in an Agora team discussion.",
         "",
@@ -153,7 +170,7 @@ def build_speaker_prompt(
         parts.append(f"## Description\n{description}")
         parts.append("")
     if task_context:
-        parts.append(f"## Task Context\n{task_context[:2000]}")
+        parts.append(f"## Task Context\n{task_context[:8000]}")
         parts.append("")
     if discussion_history:
         parts.append(f"## Discussion So Far\n{discussion_history}")
@@ -182,6 +199,9 @@ def build_vote_prompt(
     discussion_history: str,
 ) -> str:
     """Build the prompt for a participant to cast their vote."""
+    # Escape user-supplied strings to prevent f-string curly-brace injection
+    title = _escape_format(title)
+    role = _escape_format(role)
     return (
         f"You are **{role}** in an Agora discussion. It's time to vote.\n"
         f"\n"

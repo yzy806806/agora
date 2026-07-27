@@ -83,7 +83,7 @@ def patch_config_model(config_path: Path, model: str) -> None:
         content = config_path.read_text()
         new_content = re.sub(
             r'(\nmodel:\n  default: )([^\n]+)',
-            f'\\g<1>{model}',
+            f'\\g<1>{re.escape(model)}',
             content, count=1,
         )
         if new_content != content:

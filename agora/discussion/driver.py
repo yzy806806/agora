@@ -21,7 +21,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from agora.storage import motions as db
 from agora.utils import get_global_root, parse_json_response
@@ -33,6 +33,7 @@ from .chair import (
     CHAIR_VOTE_CALL_PROMPT,
     build_speaker_prompt,
     build_vote_prompt,
+    _escape_format,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,9 @@ class DiscussionDriver:
         self.workdir = workdir or None
         self.project_name = project_name
         self.max_steps = max_steps
+        # Minimum steps before chair can close — ensures every participant
+        # gets at least one chance to speak before the discussion ends.
+        self.min_steps = max(3, len(participants))
         self.speak_timeout = speak_timeout
         self.chair_timeout = chair_timeout
 
@@ -207,9 +211,21 @@ class DiscussionDriver:
 
             next_action = action.get("action", "continue")
             if next_action == "close":
+                if step < self.min_steps:
+                    logger.info(
+                        "Chair tried to close at step %d (min_steps=%d) — forcing continue",
+                        step, self.min_steps,
+                    )
+                    continue
                 logger.info("Chair called close at step %d", step)
                 break
             elif next_action == "vote":
+                if step < self.min_steps:
+                    logger.info(
+                        "Chair tried to vote at step %d (min_steps=%d) — forcing continue",
+                        step, self.min_steps,
+                    )
+                    continue
                 logger.info("Chair called vote at step %d", step)
                 self._run_voting(title)
                 break
@@ -285,7 +301,7 @@ class DiscussionDriver:
         # --- Finalize: summary + memory ---
         # If we exited the loop due to max_steps (not because the chair called
         # close or vote), force a formal vote before finalizing.
-        if step >= self.max_steps:
+        if step >= self.max_steps and step > 0:
             logger.info("Max steps (%d) reached, forcing vote", self.max_steps)
             self._run_forced_vote(title)
 
@@ -300,8 +316,8 @@ class DiscussionDriver:
     ) -> dict | None:
         """Chair opens the discussion. Retries once on non-JSON response."""
         prompt = CHAIR_OPENING_PROMPT.format(
-            title=title,
-            description=description,
+            title=_escape_format(title),
+            description=_escape_format(description),
             participants=", ".join(self.participants),
             task_context=task_context or "(none)",
         )
@@ -352,7 +368,7 @@ class DiscussionDriver:
         """Chair evaluates the discussion after each speaker."""
         history = self._build_history()
         prompt = CHAIR_EVALUATE_PROMPT.format(
-            title=title,
+            title=_escape_format(title),
             participants=", ".join(self.participants),
             discussion_history=history,
         )
@@ -458,7 +474,7 @@ class DiscussionDriver:
             f"to gather concrete information.\n\n"
             f"## Topic\n{title}\n\n"
             f"## Investigation Task\n{dispatch_task}\n\n"
-            f"## Discussion Context\n{history[:2000]}\n\n"
+            f"## Discussion Context\n{history[:8000]}\n\n"
             f"## Instructions\n"
             f"1. Use your tools to investigate the task thoroughly.\n"
             f"2. Report your findings clearly: what you found, with evidence.\n"
@@ -495,7 +511,7 @@ class DiscussionDriver:
         # Chair announces the vote
         history = self._build_history()
         vote_call = CHAIR_VOTE_CALL_PROMPT.format(
-            title=title,
+            title=_escape_format(title),
             discussion_history=history[:3000],
         )
         call_result = spawn_chair_speak(
@@ -613,7 +629,7 @@ class DiscussionDriver:
                 f"proposed the following. Please vote.\n\n"
                 f"## Topic\n{title}\n\n"
                 f"## Chair's Proposal\n{chair_proposal}\n\n"
-                f"## Discussion Context\n{history[:2000]}\n\n"
+                f"## Discussion Context\n{history[:8000]}\n\n"
                 f"Cast your vote. Respond with JSON ONLY:\n"
                 f'{{"vote": "adopt" | "reject" | "abstain", "reason": "<1-2 sentences>"}}\n'
             )
@@ -673,7 +689,7 @@ class DiscussionDriver:
             vote_summary = "## Votes\n" + "\n".join(vote_lines)
 
         prompt = CHAIR_SUMMARY_PROMPT.format(
-            title=title,
+            title=_escape_format(title),
             discussion_history=history[:6000],
             vote_summary=vote_summary,
             participants=", ".join(self.participants),
@@ -758,7 +774,7 @@ class DiscussionDriver:
             speaker = msg.get("role", "?")
             chair_tag = " [Chair]" if msg.get("is_chair") else ""
             step_type = msg.get("step_type", "speak")
-            content = msg.get("content", "")[:500]
+            content = msg.get("content", "")[:1000]
             lines.append(f"[{speaker}{chair_tag} ({step_type})]: {content}")
         return "\n\n".join(lines)
 
@@ -778,7 +794,7 @@ class DiscussionDriver:
             1 for w in support_words
             if re.search(r'(?<!dis)' + re.escape(w) + r'\b', lower)
         )
-        oppose = sum(1 for w in oppose_words if w in lower)
+        oppose = sum(1 for w in oppose_words if re.search(r'\b' + re.escape(w) + r'\b', lower))
         if support > oppose + 1:
             return "support"
         elif oppose > support + 1:
@@ -795,7 +811,7 @@ class DiscussionDriver:
             try:
                 task = kanban_db.get_task(conn, source_task_id)
                 if task and task.body:
-                    return f"Source task: {task.title}\n{task.body[:2000]}"
+                    return f"Source task: {task.title}\n{task.body[:8000]}"
             finally:
                 conn.close()
         except Exception as exc:

@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.7.1**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.8.0**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -266,6 +266,36 @@ agora/
 MIT
 
 ## 更新日志
+
+### v1.8.0 — 全量代码审查：motion 守卫、讨论质量、截断修复、20 个 bug 修复
+
+全面代码审查（OCR 标准模式 + 子代理审计）发现并修复 20 个问题，涉及 7 个文件：
+
+**Critical：**
+- **`agora_close_motion` adopted 守卫** — 不能以 0 步讨论或 0 条消息的 motion 标记为 "adopted"。防止 leader 绕过讨论引擎。
+- **文件描述符泄漏** — 每次 heartbeat 打开的 `log_fd` 在父进程中从不关闭。现在 Popen 后立即关闭。
+- **讨论最低步数门槛** — chair 不能在 `max(3, len(participants))` 步之前 close/vote。确保每个参与者至少发言一次。
+
+**High：**
+- **Motion 阈值指引** — SOUL.md 新增 "Do NOT raise a motion for" 排除清单（日常评估、stale 清理、重复主题、近期 stop condition 检查）。
+- **Stop condition 冷却期** — heartbeat prompt 注入 complete_count 提示，防止重复评估。
+- **`_has_pending_tasks` 包含 blocked** — 之前排除了 blocked task，导致过早发出"全部完成"信号。
+- **Tenant strip bug** — `replace("agora-", "")` → `removeprefix("agora-")`，避免错误匹配内部子串。
+- **`_infer_stance` oppose 匹配** — substring match → regex word boundary，与 support 检查一致。
+- **`agora_close_task` 缺少 commit** — `conn.commit()` 在 `conn.close()` 前缺失。
+- **chair.py f-string 注入** — 用户输入中的花括号不再导致 KeyError。
+- **utils.py model 正则转义** — `re.escape(model)` 防止反向引用注入。
+
+**Medium：**
+- **输出截断 2000→8000** — 讨论上下文、task 上下文、task body 全部从 2000 增加到 8000 字符。
+- **`_build_history` 每条消息 500→1000** — chair 评估有更多上下文。
+- **移除未使用的 `Optional` 导入**。
+- **`max_steps=0` 边界情况** 加守卫。
+- **`max_steps` 默认值检测** 使用 None 哨兵代替 `== 30`。
+- **误导性工具计数日志** 修正。
+- **`except Exception: pass`** → `logger.warning(...)` 在 5 个关键位置。
+- **reactivate 验证 `heartbeat_member`** 存在。
+- **Stale cleanup 时间戳** 避免每次 heartbeat 都跑。
 
 ### v1.7.1 — 任务后技能审查：worker SOUL.md 强制技能创建
 

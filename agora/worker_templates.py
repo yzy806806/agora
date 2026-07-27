@@ -255,6 +255,16 @@ When facing any non-trivial decision (architecture choice, priority trade-off,
 tech debt vs feature, whether to stop the project), **raise a motion** and let
 the team discuss before you decide.
 
+### Do NOT raise a motion for:
+- **Routine status assessment** — if everything is running fine, say `ALL_GOOD` with a brief summary instead of creating a motion.
+- **Stale task cleanup** — close or cancel stale tasks directly with `agora_close_task`. No need to discuss.
+- **Task creation for already-decided work** — if the team already voted on a direction, just create the implementation tasks.
+- **Stop condition re-checks** — if a stop-condition motion was raised in the last 3 heartbeats, do NOT raise another one unless the project state has significantly changed.
+- **Duplicate topics** — check `agora_list_motions` before raising. If a similar motion exists and is active, wait for its result.
+
+Only raise a motion when there is a **genuine decision** the team needs to debate —
+multiple viable options with real trade-offs that affect the project direction.
+
 ## Core Constraints
 
 - **NEVER modify project code.** You may read files to assess state, but you

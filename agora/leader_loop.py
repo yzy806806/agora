@@ -106,6 +106,47 @@ def _cleanup_stale_discussion_states(db_module: Any) -> None:
         logger.debug("Stale state cleanup failed: %s", exc)
 
 
+def _maybe_cleanup_stale_discussion_states(db_module: Any, project_name: str) -> None:
+    """Throttled wrapper around _cleanup_stale_discussion_states.
+
+    Only runs the cleanup if ``last_stale_cleanup_at`` in the project JSON is
+    more than 10 minutes ago (or absent). Updates the timestamp after running.
+    (M2 fix: previously ran on every heartbeat.)
+    """
+    from datetime import datetime, timezone, timedelta
+
+    pf = get_registry_dir("projects") / f"{safe_name(project_name)}.json"
+    last_cleanup = None
+    if pf.exists():
+        try:
+            data = json.loads(pf.read_text())
+            last_cleanup = data.get("last_stale_cleanup_at")
+        except Exception:
+            pass
+
+    now = datetime.now(timezone.utc)
+    run_cleanup = True
+    if last_cleanup:
+        try:
+            last_dt = datetime.fromisoformat(last_cleanup)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            run_cleanup = (now - last_dt) > timedelta(minutes=10)
+        except Exception:
+            run_cleanup = True
+
+    if run_cleanup:
+        _cleanup_stale_discussion_states(db_module)
+        # Update the timestamp in the project JSON
+        try:
+            if pf.exists():
+                data = json.loads(pf.read_text())
+                data["last_stale_cleanup_at"] = now.isoformat()
+                pf.write_text(json.dumps(data, indent=2))
+        except Exception as exc:
+            logger.debug("Failed to update last_stale_cleanup_at: %s", exc)
+
+
 def _rescue_stuck_motions(project: dict) -> None:
     """Find motions stuck in 'discussing' and re-spawn or close them.
 
@@ -127,16 +168,15 @@ def _rescue_stuck_motions(project: dict) -> None:
         if not project_name:
             return
 
-        # Clean up stale discussion_state records for closed motions
-        # (M4 fix: closed motions should not have 'discussing'/'investigating' state)
-        _cleanup_stale_discussion_states(db)
+        # Clean up stale discussion_state records for closed motions — but
+        # only once per 10 minutes to avoid running on every heartbeat (M2 fix).
+        _maybe_cleanup_stale_discussion_states(db, project_name)
 
-        # Find discussing motions for this project
-        motions = db.list_motions(status_filter="active", limit=50)
+        # Find discussing motions for this project — filter at the SQL level
+        # (M3 fix: previously fetched all active motions and filtered in Python).
+        motions = db.list_motions(status_filter="active", limit=50, project=project_name)
         for m in motions:
             if m.get("status") != "discussing":
-                continue
-            if m.get("project") and m["project"] != project_name:
                 continue
 
             messages = db.get_messages(m["id"])
@@ -285,16 +325,26 @@ def _spawn_leader_agent(project: dict) -> dict:
     try:
         from project_planner import update_project_agents_md
         update_project_agents_md(project_name)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to refresh AGENTS.md for project '%s': %s", project_name, exc)
 
     # Build the heartbeat prompt — context (goal, stop condition, team,
     # active motions) is in AGENTS.md which Hermes auto-injects into the
     # system prompt via TERMINAL_CWD. No need to duplicate it here.
+    # Include stop-condition cooldown info so the leader doesn't re-evaluate
+    # too frequently.
+    extra_hint = ""
+    complete_count = project.get("complete_count", 0) or 0
+    if complete_count > 0:
+        extra_hint = (
+            f"\n\nNOTE: You have output PROJECT_COMPLETE {complete_count} time(s) already. "
+            f"If the stop condition was recently evaluated in a motion, do NOT raise "
+            f"another stop-condition motion. Wait for task results or significant changes."
+        )
     prompt = _HEARTBEAT_PROMPT.format(
         leader_name=member_name,
         project=project_name,
-    )
+    ) + extra_hint
 
     # Find hermes binary
     hermes_bin = find_hermes_binary()
@@ -348,6 +398,9 @@ def _spawn_leader_agent(project: dict) -> dict:
             cwd=workdir if workdir and os.path.isabs(workdir) else None,
             start_new_session=True,
         )
+        # Close parent's copy of the fd — child has its own via dup2.
+        # Without this, every heartbeat leaks a file descriptor.
+        log_fd.close()
 
         # Update heartbeat record
         update_heartbeat_status(project_name, pid=proc.pid)
@@ -486,8 +539,8 @@ def _update_complete_count(project_name: str, count: int) -> None:
         data = json.loads(pf.read_text())
         data["complete_count"] = count
         pf.write_text(json.dumps(data, indent=2))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to update complete_count for project '%s': %s", project_name, exc)
 
 
 def _update_complete_check_pos(project_name: str, pos: int) -> None:
@@ -499,8 +552,8 @@ def _update_complete_check_pos(project_name: str, pos: int) -> None:
         data = json.loads(pf.read_text())
         data["complete_check_pos"] = pos
         pf.write_text(json.dumps(data, indent=2))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to update complete_check_pos for project '%s': %s", project_name, exc)
 
 
 # --------------------------------------------------------------------------- #

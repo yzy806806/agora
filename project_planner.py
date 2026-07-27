@@ -418,6 +418,14 @@ def start_project(
     pf = _project_file(project_name)
     board_name = _ensure_project_board(project_name)
 
+    # Validate heartbeat_member if provided — runs for both new and
+    # reactivated projects (M6 fix: previously only validated for new projects).
+    if heartbeat_member:
+        from agora.worker_manager import get_worker
+        worker = get_worker(heartbeat_member)
+        if worker is None:
+            return {"error": f"Heartbeat member '{heartbeat_member}' not found in worker registry"}
+
     # If project already exists, preserve existing fields and just reactivate
     if pf.exists():
         existing = json.loads(pf.read_text())
@@ -477,13 +485,6 @@ def start_project(
             pf.write_text(json.dumps(existing, indent=2))
             update_project_agents_md(project_name)
             return existing
-
-    # Validate heartbeat_member if provided
-    if heartbeat_member:
-        from agora.worker_manager import get_worker
-        worker = get_worker(heartbeat_member)
-        if worker is None:
-            return {"error": f"Heartbeat member '{heartbeat_member}' not found in worker registry"}
 
     data = {
         "name": project_name,
@@ -676,8 +677,8 @@ def delete_project(project_name: str) -> dict:
             if tm:
                 for w in tm.get("workers", []):
                     _remove_project_from_worker(w["name"], project_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Worker cleanup failed for project '%s' (team=%s): %s", project_name, team, exc)
     heartbeat_member = data.get("heartbeat_member")
     if heartbeat_member and not team:
         _remove_project_from_worker(heartbeat_member, project_name)
@@ -699,8 +700,8 @@ def _remove_project_from_worker(worker_name: str, project_name: str) -> None:
         if project_name in data.get("projects", []):
             data["projects"].remove(project_name)
             wf.write_text(json.dumps(data, indent=2))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to remove project '%s' from worker '%s': %s", project_name, worker_name, exc)
 
 
 def get_project(project_name: str) -> dict | None:
@@ -948,7 +949,7 @@ def _find_project_for_task(task_id: str) -> str | None:
                 tenant = getattr(task, "tenant", None) or task.__dict__.get("tenant")
                 if tenant:
                     # tenant is "agora-<project_name>" — strip the prefix
-                    project_name = tenant.replace("agora-", "", 1)
+                    project_name = tenant.removeprefix("agora-")
                     # Verify this project exists in the registry
                     for proj in list_projects():
                         if proj["name"] == project_name:
@@ -978,12 +979,12 @@ def _has_pending_tasks(project_name: str | None = None) -> bool:
             if project_name:
                 tenant = f"agora-{project_name}"
                 rows = conn.execute(
-                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running') AND tenant = ?",
+                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running', 'blocked') AND tenant = ?",
                     (tenant,),
                 ).fetchone()
             else:
                 rows = conn.execute(
-                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running')"
+                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running', 'blocked')"
                 ).fetchone()
             return rows["n"] > 0
         finally:

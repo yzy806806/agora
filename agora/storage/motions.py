@@ -207,27 +207,38 @@ def get_motion(motion_id: str) -> Optional[dict]:
 def list_motions(
     status_filter: str = "all",
     limit: int = 20,
+    project: str = "",
 ) -> list[dict]:
-    """List motions, optionally filtered by status."""
+    """List motions, optionally filtered by status and/or project.
+
+    Args:
+        status_filter: "all" (default), "active", or "closed".
+        limit: Maximum number of rows to return.
+        project: If non-empty, only return motions whose ``project`` column
+            matches. Empty string (default) returns motions for all projects.
+    """
     conn = _connect()
     try:
+        # Build the WHERE clause and params based on filters.
+        conditions: list[str] = []
+        params: list[Any] = []
         if status_filter == "active":
-            rows = conn.execute(
-                "SELECT * FROM motions WHERE status NOT IN ('closed') "
-                "ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            conditions.append("status NOT IN ('closed')")
+            order_col = "created_at"
         elif status_filter == "closed":
-            rows = conn.execute(
-                "SELECT * FROM motions WHERE status = 'closed' "
-                "ORDER BY closed_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            conditions.append("status = 'closed'")
+            order_col = "closed_at"
         else:
-            rows = conn.execute(
-                "SELECT * FROM motions ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            order_col = "created_at"
+        if project:
+            conditions.append("project = ?")
+            params.append(project)
+
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+        rows = conn.execute(
+            f"SELECT * FROM motions{where} ORDER BY {order_col} DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
         return [_row_to_motion(dict(r)) for r in rows]
     finally:
         conn.close()

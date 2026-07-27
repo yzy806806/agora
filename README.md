@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.7.1**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.8.0**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,37 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.8.0 — Full code audit: motion guards, discussion quality, truncation fix, 20 bug fixes
+
+Comprehensive code review (OCR standard mode + subagent audit) identified and fixed 20 issues across 7 files:
+
+**Critical:**
+- **`agora_close_motion` adopted guard** — cannot close a motion as "adopted" with 0 discussion steps or 0 messages. Prevents leader from bypassing the discussion engine.
+- **File descriptor leak** — `log_fd` opened per heartbeat but never closed in parent process. Now closed after `Popen`.
+- **Discussion min_steps floor** — chair can no longer close/vote before `max(3, len(participants))` steps. Ensures every participant gets at least one turn.
+
+**High:**
+- **Motion threshold guidance** — SOUL.md now has explicit "Do NOT raise a motion for" list (routine assessment, stale cleanup, duplicate topics, recent stop-condition checks).
+- **Stop condition cooldown** — heartbeat prompt includes complete_count reminder to prevent re-evaluation.
+- **`_has_pending_tasks` includes blocked** — was excluding blocked tasks, causing premature "all done" signals.
+- **Tenant strip bug** — `replace("agora-", "")` → `removeprefix("agora-")` to avoid stripping interior matches.
+- **`_infer_stance` oppose matching** — substring match → regex word boundary, same as support check.
+- **`agora_close_task` missing commit** — `conn.commit()` added before `conn.close()`.
+- **chair.py f-string injection** — literal curly braces in user input no longer cause KeyError.
+- **utils.py model regex escape** — `re.escape(model)` added.
+- **reactivate cron HERMES_HOME** — already fixed in v1.7.0, confirmed applied.
+
+**Medium:**
+- **Output truncation 2000→8000** — discussion context, task context, and task body all increased from 2000 to 8000 chars.
+- **`_build_history` per-message 500→1000** — more context for chair evaluation.
+- **Unused `Optional` import** removed from driver.py.
+- **`max_steps=0` edge case** guarded.
+- **`max_steps` default detection** uses None sentinel instead of `== 30`.
+- **Misleading tool count log** corrected.
+- **`except Exception: pass`** → `logger.warning(...)` in 5 critical locations.
+- **reactivate validates `heartbeat_member`** before proceeding.
+- **Stale cleanup timestamp** added to avoid running every heartbeat.
 
 ### v1.7.1 — Post-Task Skill Review: mandatory skill creation in worker SOUL.md
 
