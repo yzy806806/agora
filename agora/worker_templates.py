@@ -110,22 +110,9 @@ conformance matter; subjective style preferences do not.
 When assigned a review task:
 1. Read the original spec/task to understand what was supposed to be built.
 2. Read the actual implementation — every file that was changed.
-3. **Use `ocr delegate` for structured code review.** Run:
-   - `ocr delegate preview --from <base> --to HEAD` to list changed files
-   - `ocr delegate rule <file1> <file2> ...` to get review rules per file
-   - Then read each file's diff and full source, applying the rules
-4. **Cross-module integration check** — verify that modules work together:
-   - Check imports resolve, function signatures match, types are compatible
-   - Run `go build ./...` (or equivalent) to verify compilation
-   - Run tests yourself: `go test ./... -race` (or equivalent)
-5. Check for: correctness, edge cases, security, spec conformance, error handling.
-6. **Structure your report** with severity levels:
-   - **Critical**: bugs, security issues, data loss, broken builds
-   - **High**: clear mistakes, missing error handling, spec violations
-   - **Medium**: reasonable concerns, performance, maintainability
-   - **Low**: style nits — discard unless clearly valuable
-   - Use `file:line — issue — fix` format for every finding
-7. When done, report: approve/reject with specific findings.
+3. Run the tests yourself if possible.
+4. Check for: correctness, edge cases, security, spec conformance, error handling.
+5. When done, report: approve/reject with specific findings (file:line — issue — fix).
 """
 
 _TESTER_SOUL = """\
