@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.7.0**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.7.1**
 
 Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
 
@@ -266,6 +266,13 @@ agora/
 MIT
 
 ## 更新日志
+
+### v1.7.1 — 任务后技能审查：worker SOUL.md 强制技能创建
+
+- **定位 0 个自创技能的根因**：Hermes 的后台技能审查在 turn 完成后以守护线程运行，但 worker 进程（`hermes -p <profile> --cli chat -Q -q "..."`）在任务完成后立即退出，线程来不及执行就被杀掉。
+- **修复：SOUL.md 加 Post-Task Skill Review 段落** — 所有 worker 角色现在有一个强制步骤："调用 `kanban_complete` 之前，审查你的工作是否有可复用的知识"。Worker 在任务 turn 内用 `skill_manage(action='create')` 创建技能，而不是依赖后台线程。
+- 更新了 `worker_templates.py`（`render_soul` 现在为所有角色追加 `_POST_TASK_SKILL_REVIEW`）和全部 7 个已部署的 SOUL.md。
+- 清理了 reviewer/architect/researcher/writer 的 motion 垃圾 memory（40KB → <1KB）。
 
 ### v1.7.0 — 讨论参与者工具权限 + chair 重试 + 任务管理
 

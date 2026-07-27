@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.7.0**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.7.1**
 
 [中文文档](./README_CN.md)
 
@@ -232,6 +232,13 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.7.1 — Post-Task Skill Review: mandatory skill creation in worker SOUL.md
+
+- **Root cause of 0 self-created skills identified**: Hermes' background skill review runs as a daemon thread *after* the turn completes, but worker processes (`hermes -p <profile> --cli chat -Q -q "..."`) exit immediately after the task, killing the thread before it can run.
+- **Fix: Post-Task Skill Review section in SOUL.md** — all worker roles now have a mandatory "Before calling `kanban_complete`, review your work for reusable knowledge" step. Workers create skills *during* the task turn using `skill_manage(action='create')`, not after via a background thread.
+- Updated `worker_templates.py` (`render_soul` now appends `_POST_TASK_SKILL_REVIEW` to every role) and all 7 deployed SOUL.md files.
+- Cleaned motion record garbage from reviewer/architect/researcher/writer memory (40KB → <1KB total).
 
 ### v1.7.0 — Discussion speaker tool access + chair retry + task management
 

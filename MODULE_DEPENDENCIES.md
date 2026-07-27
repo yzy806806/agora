@@ -1,6 +1,6 @@
 # Agora Module Dependencies
 
-> Last updated: v1.7.0
+> Last updated: v1.7.1
 
 ## Overview
 
@@ -275,6 +275,7 @@ Tables used: `tasks`, `task_runs`, `task_comments`, `boards`
 
 | Agora | Hermes Agent | Notes |
 |-------|-------------|-------|
+| v1.7.1 | v0.18+ | Post-Task Skill Review in all worker SOUL.md templates; `render_soul` appends `_POST_TASK_SKILL_REVIEW` |
 | v1.7.0 | v0.18+ | Discussion speakers use `hermes-cli` toolset (full tools); chair retry on non-JSON; `agora_close_task` tool; kanban tenant filtering; `complete_count` init; researcher SOUL.md enforces tool usage |
 | v1.4.x | v0.17+ | Basic plugin API, no CLI command |
 

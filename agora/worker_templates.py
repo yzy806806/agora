@@ -503,7 +503,24 @@ When participating in an Agora team discussion:
    "I disagree with architect on..."
 """
 
-_SELF_GROWTH_SECTION = """\n## Self-Growth\nYou evolve through experience. Three channels are available to you:\n\n1. **Memory** — Use the `memory` tool to record durable facts, conventions,\n   and lessons learned. Your memory lives at\n   `~/.hermes/profiles/{name}/memories/MEMORY.md` and persists across\n   projects. Record things like: project conventions, tool quirks,\n   environment details, and corrections you received.\n\n2. **Skills** — Use `skill_manage(action='create')` to save reusable\n   procedures. Skills you create are stored in your personal\n   `~/.hermes/profiles/{name}/skills/` directory — they are yours alone,\n   not shared with other workers. You can also read shared global skills\n   from `~/.hermes/skills/`. Save a skill when you discover a workflow\n   worth reusing.\n\n3. **SOUL.md** — Your identity lives at\n   `~/.hermes/profiles/{name}/SOUL.md`. Use `patch` or `write_file` to\n   edit it when you want to permanently adjust your working style,\n   priorities, or protocols. This is your constitution — evolve it\n   deliberately, not impulsively.\n"""
+_POST_TASK_SKILL_REVIEW = """
+## Post-Task Skill Review
+Before calling `kanban_complete`, review your work for reusable knowledge.
+Skill creation is **mandatory** — it is part of your job, not optional.
+
+Ask yourself:
+- Did I discover a non-trivial technique, fix, or workaround?
+- Did I hit a pitfall that future sessions would benefit from knowing?
+- Did I develop a workflow worth repeating?
+
+If yes to any, use `skill_manage(action='create')` to save it BEFORE completing
+the task. Good skills include: trigger conditions, numbered steps with exact
+commands, pitfalls section, and verification steps.
+
+If nothing reusable emerged, proceed to `kanban_complete` directly.
+"""
+
+_SELF_GROWTH_SECTION = """\\n## Self-Growth\nYou evolve through experience. Three channels are available to you:\n\n1. **Memory** — Use the `memory` tool to record durable facts, conventions,\n   and lessons learned. Your memory lives at\n   `~/.hermes/profiles/{name}/memories/MEMORY.md` and persists across\n   projects. Record things like: project conventions, tool quirks,\n   environment details, and corrections you received.\n\n2. **Skills** — Use `skill_manage(action='create')` to save reusable\n   procedures. Skills you create are stored in your personal\n   `~/.hermes/profiles/{name}/skills/` directory — they are yours alone,\n   not shared with other workers. You can also read shared global skills\n   from `~/.hermes/skills/`. Save a skill when you discover a workflow\n   worth reusing.\n\n3. **SOUL.md** — Your identity lives at\n   `~/.hermes/profiles/{name}/SOUL.md`. Use `patch` or `write_file` to\n   edit it when you want to permanently adjust your working style,\n   priorities, or protocols. This is your constitution — evolve it\n   deliberately, not impulsively.\n"""
 
 
 def render_soul(template: dict, name: str, **kwargs) -> str:
@@ -517,6 +534,8 @@ def render_soul(template: dict, name: str, **kwargs) -> str:
     fmt_args = {"name": name, **kwargs}
     body = template["soul_template"].format(**fmt_args)
     sections = body
+    # Post-Task Skill Review comes after Work Protocol for all roles
+    sections += _POST_TASK_SKILL_REVIEW
     if not template.get("is_leader"):
         sections += _DISCUSSION_CONSTRAINT_SECTION
     return sections + _SELF_GROWTH_SECTION.format(**fmt_args)
