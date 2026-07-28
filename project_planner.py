@@ -486,6 +486,15 @@ def start_project(
             update_project_agents_md(project_name)
             return existing
 
+    # Warn if no team bound — leader won't be able to route tasks by role
+    if not team:
+        logger.warning(
+            "Project '%s' started without a team — task assignee routing will "
+            "fall back to 'default' profile. Call agora_update_project(name=%s, "
+            "team=<team_name>) to bind a team.",
+            project_name, project_name,
+        )
+
     data = {
         "name": project_name,
         "workdir": workdir,
