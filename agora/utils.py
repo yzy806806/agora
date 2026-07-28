@@ -77,10 +77,22 @@ def now_iso() -> str:
 
 
 def patch_config_model(config_path: Path, model: str) -> None:
-    """Patch the model.default field in a profile's config.yaml."""
+    """Patch the model field in a profile's config.yaml.
+
+    Handles both formats:
+    - New (dict): ``model:\\n  default: <name>``
+    - Old (flat string): ``model: <name>``
+
+    If the old flat format is found, it is upgraded to the new dict format
+    so Hermes can resolve the provider and base_url from custom_providers.
+    """
     import re
+    import logging
+    logger = logging.getLogger(__name__)
     try:
         content = config_path.read_text()
+
+        # Try new format first: model:\n  default: <name>
         new_content = re.sub(
             r'(\nmodel:\n  default: )([^\n]+)',
             f'\\g<1>{re.escape(model)}',
@@ -88,8 +100,27 @@ def patch_config_model(config_path: Path, model: str) -> None:
         )
         if new_content != content:
             config_path.write_text(new_content)
-    except Exception:
-        pass
+            logger.info("patch_config_model: set model.default=%s (dict format)", model)
+            return
+
+        # Fall back to old flat format: model: <name>
+        # Upgrade it to the new dict format so provider/base_url resolution works.
+        new_content = re.sub(
+            r'\nmodel: [^\n]+',
+            f'\nmodel:\n  default: {model}',
+            content, count=1,
+        )
+        if new_content != content:
+            config_path.write_text(new_content)
+            logger.info("patch_config_model: upgraded model from flat to dict format, default=%s", model)
+            return
+
+        # No model field at all — insert one at the top
+        new_content = f'model:\n  default: {model}\n' + content
+        config_path.write_text(new_content)
+        logger.info("patch_config_model: inserted model.default=%s (was missing)", model)
+    except Exception as exc:
+        logger.warning("patch_config_model failed for %s: %s", config_path, exc)
 
 
 def ensure_in_place_compression(config_path: Path) -> None:

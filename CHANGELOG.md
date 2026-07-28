@@ -2,6 +2,34 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.2] — 2026-07-28
+
+### Fix: `patch_config_model` fails on flat `model:` format — workers get "No inference provider configured"
+
+**Root cause:** `patch_config_model()` in `utils.py` used a regex that
+only matched the new dict format (`model:\n  default: <name>`). When
+`hermes config set model <name>` writes the old flat string format
+(`model: <name>`), the regex silently fails to match, leaving the
+config with a flat `model: glm5.2` string instead of
+`model:\n  default: glm5.2`. Hermes cannot resolve the provider or
+API key from a flat string, so workers fail with "No inference
+provider configured".
+
+The old code also swallowed all exceptions silently (`except: pass`),
+making the failure invisible.
+
+**Fix:** Rewrote `patch_config_model()` to handle three cases:
+1. New dict format (`model:\n  default: <name>`) — update in place
+2. Old flat format (`model: <name>`) — upgrade to dict format
+3. No model field at all — insert at top of file
+
+Added proper logging on all paths (success + failure).
+
+Files changed:
+- `agora/utils.py` — rewrote `patch_config_model()`
+- `__init__.py` — version bump
+- `plugin.yaml` — version bump
+
 ## [1.8.1] — 2026-07-28
 
 ### Critical: Worker profiles missing .env — "No inference provider configured"
