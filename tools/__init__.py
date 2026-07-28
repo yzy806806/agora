@@ -509,52 +509,51 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     source_task_id = os.environ.get("HERMES_KANBAN_TASK", "")
     source = "agent" if source_task_id else "user"
 
-    # Try to auto-resolve participants and chair from the project
+    # Always try to resolve the project name — needed for AGENTS.md refresh,
+    # motion rescue, and task routing even when participants/chair are set.
     resolved_project = ""
-    if not participants or not chair:
+    try:
+        from project_planner import get_heartbeat_member, get_project
+        from agora.team_manager import get_team_for_project, get_team
+        from hermes_cli import kanban_db
+
+        # 1. Resolve project name from source task
+        conn = kanban_db.connect()
         try:
-            from project_planner import get_heartbeat_member, get_project
-            from agora.team_manager import get_team_for_project, get_team
-            from hermes_cli import kanban_db
+            if source_task_id:
+                task = kanban_db.get_task(conn, source_task_id)
+                if task and task.tenant:
+                    resolved_project = task.tenant.replace("agora-", "")
+        finally:
+            conn.close()
 
-            # 1. Resolve project name from source task
-            resolved_project = ""
-            conn = kanban_db.connect()
+        # 2. If no project from task, try the active project
+        if not resolved_project:
             try:
-                if source_task_id:
-                    task = kanban_db.get_task(conn, source_task_id)
-                    if task and task.tenant:
-                        resolved_project = task.tenant.replace("agora-", "")
-            finally:
-                conn.close()
+                from project_planner import list_projects
+                for p in list_projects():
+                    if p.get("status") == "active":
+                        resolved_project = p["name"]
+                        break
+            except Exception:
+                pass
 
-            # 2. If no project from task, try the active project
-            if not resolved_project:
-                try:
-                    from project_planner import list_projects
-                    for p in list_projects():
-                        if p.get("status") == "active":
-                            resolved_project = p["name"]
-                            break
-                except Exception:
-                    pass
+        # 3. Get heartbeat_member as default chair (only if not provided)
+        if resolved_project and not chair:
+            chair = get_heartbeat_member(resolved_project) or ""
 
-            # 3. Get heartbeat_member as default chair
-            if resolved_project and not chair:
-                chair = get_heartbeat_member(resolved_project) or ""
-
-            # 4. Get team participants + default max_steps
-            if resolved_project and (not participants or max_steps == 30):
-                proj = get_project(resolved_project)
-                if proj and proj.get("team"):
+        # 4. Get team participants + default max_steps (only if not provided)
+        if resolved_project and (not participants or max_steps == 30):
+            proj = get_project(resolved_project)
+            if proj and proj.get("team"):
                     team = get_team(proj["team"])
                     if team:
                         if not participants:
                             participants = [w["name"] for w in team.get("workers", [])]
                         if max_steps == 30 and team.get("default_max_steps"):
                             max_steps = team["default_max_steps"]
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     # Create the motion
     motion = db.create_motion(
