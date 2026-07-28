@@ -176,6 +176,13 @@ def create_worker(
     # ~/.hermes/plugins/ (e.g. agora itself) and their tools are unavailable.
     _link_global_plugins(profile_dir, profiles_root.parent)
 
+    # Step 1f: Link global .env into the profile directory.
+    # Workers spawned with -p <profile> have HERMES_HOME pointing at their
+    # profile directory, so Hermes reads <profile>/.env for secrets. Without
+    # this, workers can't find API keys and fail with "No inference provider
+    # configured". Uses symlink so key rotation in the global .env is immediate.
+    _link_global_env(profile_dir, profiles_root.parent)
+
     # Step 2: Write SOUL.md
     if template is not None:
         soul_path = profile_dir / "SOUL.md"
@@ -493,3 +500,30 @@ def _link_global_plugins(profile_dir: Path, hermes_root: Path) -> None:
                 logger.warning("Failed to symlink plugin %s: %s", entry.name, exc)
     except Exception as exc:
         logger.warning("Failed to link global plugins into %s: %s", profile_dir, exc)
+
+
+def _link_global_env(profile_dir: Path, hermes_root: Path) -> None:
+    """Symlink the global .env into the profile directory.
+
+    Workers spawned with -p <profile> have HERMES_HOME pointing at their
+    profile directory, so Hermes reads ``<profile>/.env`` for API keys
+    and secrets. Without this, workers can't find credentials and fail
+    with "No inference provider configured".
+
+    Uses symlink so key rotation in the global ~/.hermes/.env is reflected
+    immediately. Existing .env files (real files or symlinks) are left
+    untouched to respect manual overrides.
+    """
+    try:
+        global_env = hermes_root / ".env"
+        if not global_env.exists():
+            return
+
+        profile_env = profile_dir / ".env"
+        if profile_env.exists() or profile_env.is_symlink():
+            return
+
+        profile_env.symlink_to(global_env.resolve())
+        logger.info("Linked .env %s → %s", profile_env, global_env)
+    except Exception as exc:
+        logger.warning("Failed to symlink .env into %s: %s", profile_dir, exc)

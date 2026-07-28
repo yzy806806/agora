@@ -2,6 +2,37 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.1] — 2026-07-28
+
+### Critical: Worker profiles missing .env — "No inference provider configured"
+
+**Root cause:** `create_worker()` in `worker_manager.py` linked global
+plugins (step 1e) and injected external skills (step 1d) into each
+worker profile, but did not link the global `~/.hermes/.env` file.
+
+Workers spawned with `-p <profile>` have `HERMES_HOME` pointing at
+their profile directory (`~/.hermes/profiles/<name>/`). Hermes reads
+`<profile>/.env` for API keys and secrets. Without the link, workers
+cannot find credentials and fail with:
+
+> No inference provider configured. Run 'hermes model' to choose a
+> provider and model, or set an API key (OPENROUTER_API_KEY,
+> OPENAI_API_KEY, etc.) in ~/.hermes/.env.
+
+This caused every leader heartbeat to fail silently — the leader
+agent spawned, immediately hit the error, and produced no tasks,
+motions, or output.
+
+**Fix:** Added `_link_global_env()` function (mirrors the existing
+`_link_global_plugins` pattern) and call it as step 1f in
+`create_worker()`. Symlinks the global `.env` into the profile
+directory, respecting existing files/symlinks (manual overrides).
+
+Files changed:
+- `agora/worker_manager.py` — new `_link_global_env()` + step 1f call
+- `__init__.py` — version bump
+- `plugin.yaml` — version bump
+
 ## [1.3.0] — 2026-07-05
 
 ### Discussion engine — critical fixes
