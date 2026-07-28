@@ -2,6 +2,51 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.3] — 2026-07-28
+
+### Fix: AGENTS.md and check_project_complete miss tasks with NULL tenant
+
+Tasks created via kanban CLI (not `agora_create_task`) have
+`tenant=NULL`. `list_tasks(tenant=board)` only matches non-NULL
+tenants, so these tasks were invisible in:
+
+- **AGENTS.md Kanban Summary** — leader saw empty kanban, created
+  duplicate tasks or raised PROJECT_COMPLETE prematurely
+- **`check_project_complete`** — pending task gate didn't count
+  NULL-tenant tasks, allowing premature project completion
+- **Dashboard task counts** — project view showed wrong numbers
+
+Fixed all 3 locations to query `tenant = ? OR tenant IS NULL`:
+
+- `project_planner.py: update_project_agents_md()`
+- `agora/leader_loop.py: check_project_complete()`
+- `dashboard/plugin_api.py: _count_tasks()`
+
+### Fix: `agora_raise_motion` doesn't always set project field
+
+Project auto-resolution only ran when participants or chair were
+missing (`if not participants or not chair`). When the leader
+provided participants but not the project, the motion was created
+with `project=''`, making it invisible to `_rescue_stuck_motions`
+(which filters by project) — the motion stuck at 0 steps forever.
+
+Now project resolution always runs. Chair and participants are
+still only auto-filled when not provided.
+
+### Fix: `start_project` warns when called without a team
+
+Without a team bound, task assignee routing falls back to the
+`default` profile instead of the correct worker. Added a warning
+log so the issue is visible in gateway logs.
+
+### Files changed
+- `project_planner.py` — NULL tenant query + team warning
+- `agora/leader_loop.py` — NULL tenant query in check_project_complete
+- `dashboard/plugin_api.py` — NULL tenant query in _count_tasks
+- `tools/__init__.py` — always resolve project in agora_raise_motion
+- `__init__.py` — version bump
+- `plugin.yaml` — version bump
+
 ## [1.8.2] — 2026-07-28
 
 ### Fix: `patch_config_model` fails on flat `model:` format — workers get "No inference provider configured"
