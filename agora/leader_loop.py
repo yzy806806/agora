@@ -478,9 +478,19 @@ def check_project_complete(project_name: str) -> bool:
             from hermes_cli import kanban_db as _kdb
             _conn = _kdb.connect()
             try:
-                _pending = _kdb.list_tasks(_conn, status="running", tenant=board_name)
-                _ready = _kdb.list_tasks(_conn, status="ready", tenant=board_name)
-                _blocked = _kdb.list_tasks(_conn, status="blocked", tenant=board_name)
+                # Query by board tenant OR NULL tenant — tasks created via
+                # kanban CLI have tenant=NULL and must be counted too.
+                def _count_project_tasks(conn, status):
+                    rows = conn.execute(
+                        "SELECT * FROM tasks WHERE status = ? "
+                        "AND (tenant = ? OR tenant IS NULL)",
+                        (status, board_name),
+                    ).fetchall()
+                    return [_kdb.Task.from_row(r) for r in rows]
+
+                _pending = _count_project_tasks(_conn, "running")
+                _ready = _count_project_tasks(_conn, "ready")
+                _blocked = _count_project_tasks(_conn, "blocked")
             finally:
                 _conn.close()
         except Exception as exc:

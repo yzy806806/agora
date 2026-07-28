@@ -691,7 +691,12 @@ class UpdateHeartbeatRequest(BaseModel):
 
 
 def _count_tasks(tenant: str = "") -> dict:
-    """Count tasks by status, optionally filtered by tenant (board name)."""
+    """Count tasks by status, optionally filtered by tenant (board name).
+
+    Includes tasks with NULL tenant — they may have been created via
+    kanban CLI which doesn't set tenant. Both tenant=? AND tenant IS NULL
+    are counted when tenant is given.
+    """
     import sqlite3
     counts = {"todo": 0, "running": 0, "blocked": 0, "done": 0}
     try:
@@ -700,7 +705,9 @@ def _count_tasks(tenant: str = "") -> dict:
         try:
             if tenant:
                 rows = conn.execute(
-                    "SELECT status, COUNT(*) AS n FROM tasks WHERE status != 'archived' AND tenant = ? GROUP BY status",
+                    "SELECT status, COUNT(*) AS n FROM tasks "
+                    "WHERE status != 'archived' AND (tenant = ? OR tenant IS NULL) "
+                    "GROUP BY status",
                     (tenant,),
                 )
             else:

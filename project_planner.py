@@ -150,16 +150,32 @@ def update_project_agents_md(project_name: str) -> dict:
     except Exception:
         pass
 
-    # Kanban task summary — tells leader what's pending/done
+    # Kanban task summary — tells leader what's pending/done.
+    # Query both the project board tenant AND tasks with no tenant
+    # (NULL) — leader may have created tasks via kanban CLI which
+    # doesn't set tenant. Without the NULL query, those tasks are
+    # invisible in AGENTS.md and the leader thinks kanban is empty.
     try:
         from hermes_cli import kanban_db as _kdb
         board = proj.get("board") or f"agora-{safe_name(project_name)}"
         _conn = _kdb.connect()
         try:
-            _running = _kdb.list_tasks(_conn, status="running", tenant=board)
-            _ready = _kdb.list_tasks(_conn, status="ready", tenant=board)
-            _blocked = _kdb.list_tasks(_conn, status="blocked", tenant=board)
-            _done = _kdb.list_tasks(_conn, status="done", tenant=board)
+            # Query by board tenant OR NULL tenant — both belong to this project.
+            # list_tasks(tenant=board) only matches non-NULL tenants, so tasks
+            # created via kanban CLI (which leaves tenant NULL) would be missed.
+            def _list_project_tasks(conn, status):
+                """List tasks for this project's board OR with NULL tenant."""
+                rows = conn.execute(
+                    "SELECT * FROM tasks WHERE status = ? "
+                    "AND (tenant = ? OR tenant IS NULL)",
+                    (status, board),
+                ).fetchall()
+                return [_kdb.Task.from_row(r) for r in rows]
+
+            _running = _list_project_tasks(_conn, "running")
+            _ready = _list_project_tasks(_conn, "ready")
+            _blocked = _list_project_tasks(_conn, "blocked")
+            _done = _list_project_tasks(_conn, "done")
         finally:
             _conn.close()
         lines.append("## Kanban Summary")
