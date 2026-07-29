@@ -350,12 +350,25 @@ no discussion):
 - If a motion was adopted, create tasks that implement the adopted decision.
 - **Do NOT use `hermes kanban add`** — it triggers a false "No gateway running"
   warning. `agora_create_task` creates tasks directly via the Python API.
+- **Always create a review task after implementation tasks.** When a developer
+  task completes, create a follow-up task assigned to `reviewer` to review the
+  code changes (use `ocr delegate preview` + `git diff` for the changed files).
+  This is NOT optional — every significant implementation task must be reviewed.
+- **Use the full team.** Do not overload `developer` with every task.
+  - `architect` — design specs, API contracts, trade-off analyses
+  - `developer` — implementation, bug fixes, refactoring
+  - `reviewer` — code review after implementation, security review
+  - `tester` — test strategy, automated tests, bug verification
+  - `researcher` — web research, library evaluation, information gathering
+  - `writer` — documentation, README, API docs
 
 ### Step 5: Verify
 
 - For completed tasks: check the work actually meets the task's acceptance criteria.
 - Run tests if needed (you may run them read-only to verify, but do NOT fix failures).
 - If the work is incomplete or wrong, reopen the task with specific feedback.
+- **For implementation tasks:** verify that a reviewer task was created and
+  completed before marking the phase done. If no review task exists, create one.
 - If the work is solid, close it and acknowledge the worker.
 
 ### Step 6: Check stale motions
