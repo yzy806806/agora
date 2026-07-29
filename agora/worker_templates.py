@@ -566,6 +566,38 @@ commands, pitfalls section, and verification steps.
 If nothing reusable emerged, proceed to `kanban_complete` directly.
 """
 
+_POST_HEARTBEAT_SKILL_REVIEW = """
+## Post-Heartbeat Skill Review
+After each heartbeat, before outputting `ALL_GOOD` or `PROJECT_COMPLETE`,
+review your work for reusable knowledge. You don't execute tasks — but you
+**do** make decisions, assess project state, and discover patterns. These
+are worth saving as skills.
+
+Skill creation is **not optional** — it is part of your job.
+
+### What leader skills look like
+Leader skills are about **judgment and process**, not code:
+- **Assessment patterns** — "How to quickly assess a Go project's health in 2 minutes" (build + vet + test + git log + grep for TODOs)
+- **Task decomposition strategies** — "How to split a large refactoring into a safe task chain" (subtractive first → interface changes → test updates → smoke test)
+- **Motion timing heuristics** — "When to raise a motion vs just create tasks" (genuine trade-off with multiple viable options → motion; clear path forward → tasks)
+- **Stuck task recovery** — "How to diagnose a crashed task: check task_runs, read worker logs, verify if work was actually done before crashing"
+- **Phase transition checklists** — "Checklist for declaring a project phase complete" (build passes, tests pass, no TODOs in scope, code committed, review done)
+
+### When to create a skill
+Ask yourself after each heartbeat:
+- Did I discover a non-obvious way to assess project state?
+- Did I find a task decomposition pattern that worked well?
+- Did I learn how to diagnose a stuck/crashed task?
+- Did I develop a heuristic for when to raise a motion vs create tasks directly?
+- Did I make a mistake this heartbeat that a checklist would prevent?
+
+If yes to any, use `skill_manage(action='create')` to save it. Good skills
+include: trigger conditions, numbered steps with exact commands, pitfalls
+section, and verification steps.
+
+If nothing reusable emerged, proceed to output `ALL_GOOD` or `PROJECT_COMPLETE`.
+"""
+
 _SELF_GROWTH_SECTION = """\\n## Self-Growth\nYou evolve through experience. Three channels are available to you:\n\n1. **Memory** — Use the `memory` tool to record durable facts, conventions,\n   and lessons learned. Your memory lives at\n   `~/.hermes/profiles/{name}/memories/MEMORY.md` and persists across\n   projects. Record things like: project conventions, tool quirks,\n   environment details, and corrections you received.\n\n2. **Skills** — Use `skill_manage(action='create')` to save reusable\n   procedures. Skills you create are stored in your personal\n   `~/.hermes/profiles/{name}/skills/` directory — they are yours alone,\n   not shared with other workers. You can also read shared global skills\n   from `~/.hermes/skills/`. Save a skill when you discover a workflow\n   worth reusing.\n\n3. **SOUL.md** — Your identity lives at\n   `~/.hermes/profiles/{name}/SOUL.md`. Use `patch` or `write_file` to\n   edit it when you want to permanently adjust your working style,\n   priorities, or protocols. This is your constitution — evolve it\n   deliberately, not impulsively.\n"""
 
 
@@ -580,8 +612,12 @@ def render_soul(template: dict, name: str, **kwargs) -> str:
     fmt_args = {"name": name, **kwargs}
     body = template["soul_template"].format(**fmt_args)
     sections = body
-    # Post-Task Skill Review comes after Work Protocol for all roles
-    sections += _POST_TASK_SKILL_REVIEW
+    # Leader uses Post-Heartbeat Skill Review (it doesn't execute tasks);
+    # all other roles use Post-Task Skill Review (before kanban_complete).
+    if template.get("is_leader"):
+        sections += _POST_HEARTBEAT_SKILL_REVIEW
+    else:
+        sections += _POST_TASK_SKILL_REVIEW
     if not template.get("is_leader"):
         sections += _DISCUSSION_CONSTRAINT_SECTION
     return sections + _SELF_GROWTH_SECTION.format(**fmt_args)
