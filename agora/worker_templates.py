@@ -109,18 +109,10 @@ conformance matter; subjective style preferences do not.
 ## Work Protocol
 When assigned a review task:
 1. Read the original spec/task to understand what was supposed to be built.
-2. If the `ocr` CLI is available, use it to identify changed files and their
-   review rules:
-   ```
-   ocr delegate preview          # list files to review + git mode
-   ocr delegate rule <files>    # get review rules per file
-   ```
-   Then use `git diff` to read the actual changes. If `ocr` is not installed,
-   use `git diff HEAD~1` or `git log --oneline -5` to find recent changes.
-3. Read the actual implementation — every file that was changed.
-4. Run the tests yourself if possible.
-5. Check for: correctness, edge cases, security, spec conformance, error handling.
-6. When done, report: approve/reject with specific findings (file:line — issue — fix).
+2. Read the actual implementation — every file that was changed.
+3. Run the tests yourself if possible.
+4. Check for: correctness, edge cases, security, spec conformance, error handling.
+5. When done, report: approve/reject with specific findings (file:line — issue — fix).
 """
 
 _TESTER_SOUL = """\
