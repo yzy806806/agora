@@ -2,6 +2,91 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.5] — 2026-07-29
+
+### Leader overhaul: restricted toolset + SOUL.md rewrite
+
+**Problem:** The leader had `--toolsets hermes-cli` which includes `terminal`,
+`code_execution`, `browser`, and `write_file`. This allowed the leader to:
+- Bypass `agora_raise_motion` tool by calling Python/DB directly via terminal
+  (motions created with empty project/chair → invisible in WebUI, stuck forever)
+- Run tests and read code (violating "NEVER run tests yourself")
+- Modify project code (violating "NEVER modify project code")
+- Close motions manually as adopted without team discussion
+
+**Fix:** Changed leader spawn toolset to `file,patch,web,skills,todo,memory,session_search,agora`.
+No terminal, no code_execution, no browser. The leader can only:
+- Read files (`read_file`, `search_files`) for project context
+- Edit its own SOUL.md and MEMORY.md (`patch` — constrained by SOUL.md)
+- Create skills (`skill_manage` — uses its own write path, not `write_file`)
+- Manage project via agora tools (`agora_raise_motion`, `agora_create_task`, etc.)
+
+**SOUL.md rewrite:**
+- Identity: removed "reading code, tests" from assess role
+- Core Constraints: "may read project docs, NEVER write project code"
+- Step 1: assess via agora tools + AGENTS.md, not git log/terminal
+- Step 5: verify via worker summaries, not running tests
+- Step 6: use `agora_close_motion` to push stale motions to vote
+- Post-Heartbeat Skill Review (replaces Post-Task — leader doesn't execute tasks)
+  with leader-specific skill examples: assessment patterns, task decomposition,
+  motion timing heuristics, stuck task recovery, phase transition checklists
+- Self-Growth: "record what you learned, not what you did"
+- Self-Growth: `patch` only (not `patch or write_file`)
+
+### Worker SOUL.md shared sections — 4 improvements
+
+1. **Discussion Protocol:** fixed terminal contradiction
+   - Old: "may use terminal" + "do NOT use terminal" (contradictory)
+   - New: "terminal for read-only commands" + "do NOT use to change files"
+
+2. **Post-Task Skill Review:** broadened for all roles
+   - Old: "technique, fix, or workaround" (developer-centric)
+   - New: "technique, pattern, or workflow" + per-role-type examples
+     (test strategy, doc structure, research method, review checklist)
+
+3. **Self-Growth:** patch only, no `write_file`
+   - Old: "Use `patch` or `write_file` to edit SOUL.md"
+   - New: "Use `patch`" + "only patch own SOUL.md and MEMORY.md"
+
+4. **Self-Growth Memory:** "record what you learned, not what you did"
+
+5. **Researcher:** removed duplicate Discussion Protocol section
+   (`render_soul()` auto-appends the standard one)
+
+### Storage-level adopted guard (from v1.8.4, detailed here)
+
+`update_motion_status()` now rejects `decision="adopted"` on motions with
+0 steps or 0 messages — automatically downgrades to `error`. This is the
+storage-layer last line of defense against bypassing the discussion engine
+via terminal/DB access. Tool-level guard in `agora_close_motion` only
+protected the tool-call path.
+
+### _rescue_stuck_motions scans empty-project motions
+
+Motions created before v1.8.3 (project resolution fix) had `project=''`
+and were invisible to `_rescue_stuck_motions` (which filtered by
+`project=project_name`). Added raw SQL query to also find active motions
+with empty/NULL project, dedup by motion id.
+
+### AGENTS.md Team Members table includes responsibilities
+
+The Team Members table now has a Responsibilities column so the leader
+knows what each role does without reading their SOUL.md:
+```
+| Profile Name | Role | Responsibilities |
+| tester | tester — Tester | Test strategy, automated tests, ... |
+| reviewer | reviewer — Reviewer | Code review, security review, ... |
+```
+
+### Files changed
+- `agora/leader_loop.py` — restricted toolset, NULL tenant query, rescue empty-project
+- `agora/worker_templates.py` — all shared sections + researcher dedup
+- `agora/storage/motions.py` — storage-level adopted guard
+- `project_planner.py` — NULL tenant query, role responsibilities, team warning
+- `tools/__init__.py` — always resolve project in agora_raise_motion
+- `dashboard/plugin_api.py` — NULL tenant query in _count_tasks
+- `__init__.py` / `plugin.yaml` — version bump
+
 ## [1.8.4] — 2026-07-29
 
 ### Fix: Storage-level guard prevents bypassing discussion engine
