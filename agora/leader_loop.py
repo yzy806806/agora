@@ -172,9 +172,33 @@ def _rescue_stuck_motions(project: dict) -> None:
         # only once per 10 minutes to avoid running on every heartbeat (M2 fix).
         _maybe_cleanup_stale_discussion_states(db, project_name)
 
-        # Find discussing motions for this project — filter at the SQL level
-        # (M3 fix: previously fetched all active motions and filtered in Python).
+        # Find discussing motions for this project — filter at the SQL level.
+        # Also include motions with empty project — they may have been created
+        # by the leader before project resolution was fixed (v1.8.3). Without
+        # the empty-project query, these motions are invisible to rescue and
+        # stuck forever.
         motions = db.list_motions(status_filter="active", limit=50, project=project_name)
+        # Also query motions with empty/NULL project that belong to no
+        # specific project (legacy motions). Only rescue those that have
+        # no messages and no discussion_state — these are truly stuck.
+        try:
+            _conn = db._connect()
+            try:
+                _rows = _conn.execute(
+                    "SELECT * FROM motions WHERE status NOT IN ('closed') "
+                    "AND (project = '' OR project IS NULL) LIMIT 50"
+                ).fetchall()
+                _extra = [db._row_to_motion(dict(r)) for r in _rows]
+            finally:
+                _conn.close()
+            # Dedup by motion id
+            seen_ids = {m["id"] for m in motions}
+            for m in _extra:
+                if m["id"] not in seen_ids:
+                    motions.append(m)
+                    seen_ids.add(m["id"])
+        except Exception as exc:
+            logger.debug("rescue: empty-project motion query failed: %s", exc)
         for m in motions:
             if m.get("status") != "discussing":
                 continue
