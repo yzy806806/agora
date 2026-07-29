@@ -377,16 +377,19 @@ def _spawn_leader_agent(project: dict) -> dict:
 
     # Build command — must include --yolo and --accept-hooks for unattended
     # operation. -Q gives quiet mode.
-    # Toolsets: only read-only tools. No terminal, no code_execution, no
-    # browser — the leader must NOT run commands, write code, or modify files.
-    # It assesses state through agora tools and delegates all work to workers.
-    # File toolset (read_file, search_files) is included so the leader can
-    # read AGENTS.md and project context — but it cannot write/patch.
+    # Toolsets: read-only tools + patch (for self-evolution only).
+    # No terminal, no code_execution, no browser — the leader must NOT run
+    # commands, write code, or modify project files.
+    # file: read_file, search_files (read-only context gathering)
+    # patch: ONLY for editing own SOUL.md and MEMORY.md (constrained by SOUL.md)
+    # web: web_search, web_extract
+    # skills: skill_view, skills_list, skill_manage (creates skills via its own write path)
+    # agora: agora_raise_motion, agora_create_task, etc.
     cmd = [
         hermes_bin,
         "-p", member_name,
         "--yolo",
-        "--toolsets", "file,web,skills,todo,memory,session_search,agora",
+        "--toolsets", "file,patch,web,skills,todo,memory,session_search,agora",
         "--accept-hooks",
         "--cli",
         "chat", "-Q", "-q", prompt,
