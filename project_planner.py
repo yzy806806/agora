@@ -27,6 +27,19 @@ from agora.utils import get_registry_dir, safe_name, find_hermes_binary, now_iso
 
 logger = logging.getLogger(__name__)
 
+# Short responsibility descriptions for each role, shown in AGENTS.md
+# so the leader knows what each team member does without reading their SOUL.md.
+_ROLE_RESPONSIBILITIES = {
+    "leader": "Project management, discussion chair, heartbeat, task dispatch",
+    "architect": "System design, API contracts, technology selection, trade-off analysis",
+    "developer": "Implementation, bug fixes, refactoring, dependency management",
+    "reviewer": "Code review, security review, spec conformance, edge cases",
+    "tester": "Test strategy, automated tests, bug verification, regression coverage",
+    "devops": "CI/CD, containerization, deployment, monitoring, infrastructure",
+    "researcher": "Web research, library evaluation, trend analysis, information synthesis",
+    "writer": "Documentation, README, API docs, content production",
+}
+
 # --------------------------------------------------------------------------- #
 #  Project registry                                                           #
 # --------------------------------------------------------------------------- #
@@ -123,11 +136,12 @@ def update_project_agents_md(project_name: str) -> dict:
     if members:
         lines.append("## Team Members")
         lines.append("")
-        lines.append("| Profile Name | Role (Template) |")
-        lines.append("|---|---|")
+        lines.append("| Profile Name | Role | Responsibilities |")
+        lines.append("|---|---|---|")
         for m in members:
             is_hb = " (heartbeat)" if m["name"] == proj.get("heartbeat_member") else ""
-            lines.append(f"| {m['name']}{is_hb} | {m['role']} — {m['display_name']} |")
+            resp = _ROLE_RESPONSIBILITIES.get(m["role"], m["display_name"])
+            lines.append(f"| {m['name']}{is_hb} | {m['role']} — {m['display_name']} | {resp} |")
         lines.append("")
         lines.append("Assign tasks by role name (e.g. `assignee='developer'`). The system routes to the correct worker automatically.")
         lines.append("")
