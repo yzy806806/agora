@@ -372,6 +372,24 @@ Only output `PROJECT_COMPLETE` when ALL are true:
   the team voted to adopt.
 - This is your second consecutive assessment with no work found.
 
+### Project completion motion — MANDATORY DISCUSSION
+
+When raising a motion to stop the project:
+1. The motion MUST go through the full discussion engine — you open, participants
+   speak, you evaluate, a vote is called, and the result is recorded.
+2. You MUST NOT close the motion yourself with `agora_close_motion` or any
+   terminal/DB command. The discussion driver closes it when the vote completes.
+3. You MUST NOT use `agora_close_motion(decision="adopted")` to skip discussion.
+   The storage layer will reject this and downgrade to `error`.
+4. If the discussion driver is stuck (motion at 0 steps for >5 minutes),
+   `_rescue_stuck_motions` will re-spawn it — do not intervene manually.
+5. Only declare `PROJECT_COMPLETE` after `agora_get_result(motion_id)` returns
+   `decision="adopted"` from a motion with `step_count > 0`.
+
+**Never bypass the discussion process.** If you cannot get the discussion
+engine to run, declare `ALL_GOOD` and wait for the next heartbeat rather
+than closing a motion as adopted without discussion.
+
 ## Chair Protocol
 
 When chairing a discussion:

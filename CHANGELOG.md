@@ -2,6 +2,47 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.4] — 2026-07-29
+
+### Fix: Storage-level guard prevents bypassing discussion engine
+
+**Root cause:** The `agora_close_motion` tool had a guard that rejected
+`adopted` on 0-step motions, but this only protected the tool-call path.
+The leader agent (which has terminal access) could bypass it by calling
+`update_motion_status()` directly via Python/terminal, closing a
+never-discussed motion as `adopted`.
+
+This happened in production: the leader raised a project-completion
+motion, then on the next heartbeat manually closed it as `adopted`
+without any discussion — skipping the team vote entirely.
+
+**Fix:** Added the same `adopted` guard in `update_motion_status()`
+(storage layer), which is the last line of defense. Any code path —
+tool calls, CLI, direct DB access via terminal — is now checked.
+If `adopted` is requested on a motion with 0 steps or 0 messages,
+the decision is automatically downgraded to `error` with an
+explanatory rationale.
+
+### Fix: Leader SOUL.md enforces mandatory completion discussion
+
+Added a "Project completion motion — MANDATORY DISCUSSION" section
+to the leader template that explicitly forbids:
+- Closing a completion motion with `agora_close_motion`
+- Using terminal/DB commands to close motions
+- Declaring `PROJECT_COMPLETE` without a real team vote
+
+The leader must wait for the discussion driver to complete the vote
+and check `agora_get_result()` before declaring completion.
+
+Updated in both:
+- `agora/worker_templates.py` (template for new leaders)
+- `~/.hermes/profiles/leader/SOUL.md` (existing leader)
+
+### Files changed
+- `agora/storage/motions.py` — storage-level adopted guard
+- `agora/worker_templates.py` — SOUL.md mandatory discussion section
+- `__init__.py` / `plugin.yaml` — version bump
+
 ## [1.8.3] — 2026-07-28
 
 ### Fix: AGENTS.md and check_project_complete miss tasks with NULL tenant

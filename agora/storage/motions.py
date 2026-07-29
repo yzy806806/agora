@@ -251,7 +251,65 @@ def update_motion_status(
     rationale: str = "",
     action_items: list[str] | None = None,
 ) -> None:
-    """Update a motion's status and closing fields."""
+    """Update a motion's status and closing fields.
+
+    When closing with decision='adopted', enforces that the motion
+    actually had a discussion (step_count > 0 and has messages).
+    This prevents any code path — tool calls, CLI, direct DB access
+    via terminal — from bypassing the discussion engine and marking
+    a never-discussed motion as adopted. Use decision='error' or
+    'superseded' to close without discussion.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Storage-level guard: 'adopted' requires actual discussion.
+    # This is the last line of defense — the tool-level guard in
+    # agora_close_motion can be bypassed by agents with terminal access.
+    if status == "closed" and decision == "adopted":
+        conn_check = _connect()
+        try:
+            row = conn_check.execute(
+                "SELECT step_count, title FROM motions WHERE id = ?",
+                (motion_id,),
+            ).fetchone()
+            if row:
+                step_count = row[0] or 0
+                title = row[1] or ""
+                if step_count == 0:
+                    logger.warning(
+                        "update_motion_status: rejected 'adopted' for motion %s "
+                        "(0 steps, title='%s') — use 'error' or 'superseded'",
+                        motion_id, title[:60],
+                    )
+                    # Override to 'error' — the motion was never discussed
+                    decision = "error"
+                    if not rationale:
+                        rationale = (
+                            "Motion was closed as 'adopted' but never had a discussion "
+                            "(0 steps). Automatically downgraded to 'error' by storage guard."
+                        )
+                else:
+                    # Check for messages too
+                    msg_count = conn_check.execute(
+                        "SELECT COUNT(*) FROM messages WHERE motion_id = ?",
+                        (motion_id,),
+                    ).fetchone()[0]
+                    if msg_count == 0:
+                        logger.warning(
+                            "update_motion_status: rejected 'adopted' for motion %s "
+                            "(0 messages despite %d steps)",
+                            motion_id, step_count,
+                        )
+                        decision = "error"
+                        if not rationale:
+                            rationale = (
+                                "Motion was closed as 'adopted' but has no discussion "
+                                "messages. Automatically downgraded to 'error' by storage guard."
+                            )
+        finally:
+            conn_check.close()
+
     conn = _connect()
     try:
         fields = ["status = ?"]
