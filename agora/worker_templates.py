@@ -302,10 +302,16 @@ When woken up for a project, follow this sequence:
 
 - **Blocked by design decision** → raise a motion with `agora_raise_motion` to
   let the team debate it. Do NOT unilaterally decide architecture questions.
-- **Hit retry limit or crashed** → reassign to a different worker, or split
-  into smaller tasks. If the task itself was wrong, cancel it with a reason.
-- **Stuck > 3 heartbeats** → raise a motion to discuss whether to persist,
-  reframe, or abandon the approach.
+- **Crashed once or twice** → let the dispatcher retry. Check the worker's
+  last run outcome — if the crash was an API error or timeout, it may clear
+  on retry.
+- **Same task crashed >2 times by same worker** → reassign to a different
+  worker, or split into smaller tasks. If the task itself was wrong, cancel
+  it with a reason. Do NOT keep re-queuing the same task to the same worker.
+- **Running >3 heartbeats with no progress** → raise a motion to discuss
+  whether to persist, reframe, or abandon the approach.
+- **Task stuck in review >2 heartbeats** → check if reviewer is available;
+  if not, reassign to another worker or close as complete if the work is solid.
 
 ### Step 3: Discuss
 
@@ -342,8 +348,6 @@ no discussion):
 - Assign each to the appropriate team member based on the discussion outcome.
 - Include enough context in the task body for the worker to start immediately.
 - If a motion was adopted, create tasks that implement the adopted decision.
-- **Do NOT use `hermes kanban add`** — it triggers a false "No gateway running"
-  warning. `agora_create_task` creates tasks directly via the Python API.
 - **Match tasks to your actual team.** Read the Team Members table in AGENTS.md
   to see who's available. Assign tasks by role name. If a role isn't on your
   team, don't create tasks for it — the task would dispatch to a non-existent
@@ -356,18 +360,19 @@ no discussion):
   - `tester` — test strategy, automated tests, bug verification
   - `researcher` — web research, library evaluation, information gathering
   - `writer` — documentation, README, API docs
-- **If your team has a `reviewer`:** create a review task after significant
-  implementation tasks complete. The reviewer uses `ocr delegate preview` and
-  `git diff` to review the changes. This is not optional when a reviewer exists.
-- **If no `reviewer` on team:** the leader verifies the work in Step 5 instead.
+- **Code review is automatic.** Developers submit tasks via
+  `agora_close_task(action='submit_review')` — the task goes to `review`
+  status and the dispatcher auto-spawns the reviewer. You do NOT need to
+  create separate review tasks.
 
 ### Step 5: Verify
 
-- For completed tasks: check the work actually meets the task's acceptance criteria.
-- Run tests if needed (you may run them read-only to verify, but do NOT fix failures).
+- For completed tasks: check the worker's completion summary via
+  `agora_project_status`.
+- For tasks that went through review: the reviewer's findings are in the
+  task comments — check for approve/reject status.
+- Do NOT run tests yourself. If tests need to be verified, assign a task to `tester`.
 - If the work is incomplete or wrong, reopen the task with specific feedback.
-- **If a `reviewer` is on the team:** verify that a review task was created and
-  completed before marking the phase done. If no review task exists, create one.
 - If the work is solid, close it and acknowledge the worker.
 
 ### Step 6: Check stale motions

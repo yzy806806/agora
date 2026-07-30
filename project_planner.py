@@ -189,12 +189,13 @@ def update_project_agents_md(project_name: str) -> dict:
             _running = _list_project_tasks(_conn, "running")
             _ready = _list_project_tasks(_conn, "ready")
             _blocked = _list_project_tasks(_conn, "blocked")
+            _review = _list_project_tasks(_conn, "review")
             _done = _list_project_tasks(_conn, "done")
         finally:
             _conn.close()
         lines.append("## Kanban Summary")
         lines.append("")
-        lines.append(f"- Running: {len(_running)} | Ready: {len(_ready)} | Blocked: {len(_blocked)} | Done: {len(_done)}")
+        lines.append(f"- Running: {len(_running)} | Ready: {len(_ready)} | Review: {len(_review)} | Blocked: {len(_blocked)} | Done: {len(_done)}")
         if _running:
             lines.append("")
             lines.append("**Running tasks:**")
@@ -202,6 +203,18 @@ def update_project_agents_md(project_name: str) -> dict:
                 lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
             if len(_running) > 5:
                 lines.append(f"- ... +{len(_running)-5} more")
+        if _review:
+            lines.append("")
+            lines.append("**In review:**")
+            for t in _review[:5]:
+                lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
+        if _ready:
+            lines.append("")
+            lines.append("**Ready (queued):**")
+            for t in _ready[:5]:
+                lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
+            if len(_ready) > 5:
+                lines.append(f"- ... +{len(_ready)-5} more")
         if _blocked:
             lines.append("")
             lines.append("**Blocked tasks:**")
