@@ -219,11 +219,16 @@ def update_project_agents_md(project_name: str) -> dict:
         lines.append(f"**Last heartbeat:** {last_hb}")
         lines.append("")
 
-    # Recent motion results — tells leader what was recently decided
+    # Recent motion results — tells leader what was recently decided.
+    # Only show motions that actually had a discussion (step_count > 0) —
+    # 0-step "adopted" motions were bypassed and should not appear as ✅.
     try:
         from agora.storage import motions as db
-        recent = db.list_motions(status_filter="closed", limit=5)
-        adopted = [m for m in recent if m.get("decision") == "adopted"]
+        recent = db.list_motions(status_filter="closed", limit=10)
+        adopted = [
+            m for m in recent
+            if m.get("decision") == "adopted" and (m.get("step_count") or 0) > 0
+        ]
         if adopted:
             lines.append("## Recent Decisions")
             lines.append("")
@@ -238,11 +243,17 @@ def update_project_agents_md(project_name: str) -> dict:
     # Project-specific instructions
     lines.append("## Workflow")
     lines.append("")
-    lines.append("1. Check `hermes kanban list` for your assigned tasks.")
-    lines.append("2. Use `kanban_show()` to read task details.")
-    lines.append("3. After completing a task, use `kanban_complete(summary=..., metadata=...)`.")
-    lines.append("4. If blocked, use `kanban_block(reason=...)` with a clear explanation.")
-    lines.append("5. For design decisions that need team input, use `agora_raise_motion`.")
+    lines.append("1. Check your assigned tasks with `agora_project_status` or `hermes kanban list`.")
+    lines.append("2. Use `kanban show <task_id>` to read task details.")
+    lines.append("3. **Developer:** after completing a task, if your team has a `reviewer`,")
+    lines.append("   use `agora_close_task(task_id, action='submit_review')` to submit for code")
+    lines.append("   review. The reviewer will be auto-spawned. If no `reviewer` on team, use")
+    lines.append("   `kanban complete <task_id>` as usual.")
+    lines.append("4. **All other roles:** use `kanban complete <task_id>` when done.")
+    lines.append("5. If blocked, use `kanban block <task_id>` with a clear explanation.")
+    lines.append("6. For design decisions that need team input, use `agora_raise_motion`.")
+    lines.append("7. **Never** use Python, terminal, or direct DB calls to manage tasks/motions.")
+    lines.append("   Always use agora tools (`agora_raise_motion`, `agora_create_task`, etc.).")
     lines.append("")
 
     agents_path = workdir_path / "AGENTS.md"
