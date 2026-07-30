@@ -2,6 +2,68 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.6] — 2026-07-30
+
+### Worker toolsets now written to config.yaml from template
+
+Previously the template's `toolsets` field was dead code — `config.yaml` was
+copied from global root (`hermes-cli` = all tools). Now
+`_patch_config_toolsets()` writes the template's toolsets into
+`platform_toolsets.cli` during worker creation.
+
+**Worker toolsets** (all 7 roles): `terminal, file, web, skills, todo, session_search`
+
+Removed tools workers don't need: `browser`, `tts`, `vision`, `code_execution`,
+`computer_use`, `cronjob`, `delegation`, `clarify`, `memory`.
+
+**Leader template toolsets**: `file, web, skills, todo, session_search`
+(overridden in `leader_loop.py` spawn to add `agora` — no `terminal`).
+
+### Worker memory removed — keep only Skills + SOUL.md
+
+Workers no longer use the `memory` tool. Cross-project memory is not useful
+(different projects, different stacks), skills already capture reusable
+knowledge with better structure, and memory entries were low quality
+(task logs, not lessons). Self-Growth section: 3 channels → 2.
+
+### AGENTS.md Kanban Summary includes review status
+
+- Now shows `Review` count alongside Running/Ready/Blocked/Done
+- Shows "In review" task list (tasks in `review` status from `submit_review`)
+- Shows "Ready (queued)" task list (not just running/blocked)
+
+### Leader SOUL.md Step 2: granular crash escalation
+
+Replaced vague "crashed → reassign" with 5-level escalation:
+1. Crashed 1-2 times → let dispatcher retry
+2. Same task crashed >2 times by same worker → reassign or split
+3. Running >3 heartbeats no progress → raise motion
+4. Task stuck in review >2 heartbeats → check reviewer availability
+
+### Leader SOUL.md Step 4/5: submit_review auto-routing
+
+- Step 4: "Code review is automatic — developers submit via
+  `agora_close_task(action='submit_review')`, dispatcher auto-spawns reviewer.
+  You do NOT need to create separate review tasks."
+- Step 5: simplified — check worker summary + review findings, no manual
+  review task verification needed
+
+### AGENTS.md Workflow section updated
+
+- Developer: `agora_close_task(action='submit_review')` when team has reviewer
+- Other roles: `kanban complete` as usual
+- "Never use Python, terminal, or direct DB calls" warning added
+- Recent Decisions now filters 0-step bypassed motions (only shows
+  `step_count > 0` adopted motions as ✅)
+
+### Files changed
+- `agora/worker_manager.py` — `_patch_config_toolsets()` function
+- `agora/worker_templates.py` — refined toolsets, memory removed, Step 2/4/5
+- `agora/leader_loop.py` — leader toolset (removed `memory`, `patch`)
+- `project_planner.py` — AGENTS.md review status, ready list, workflow
+- `tools/__init__.py` — `submit_review` action in `agora_close_task`
+- `__init__.py` / `plugin.yaml` — version bump
+
 ## [1.8.5] — 2026-07-29
 
 ### Leader overhaul: restricted toolset + SOUL.md rewrite
