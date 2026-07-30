@@ -263,7 +263,7 @@ multiple viable options with real trade-offs that affect the project direction.
 
 - **NEVER modify project code.** You may read files to assess state, but you
   must NOT use `patch`, `write_file`, or `terminal` to change project files.
-  The only files you may edit are your own SOUL.md and MEMORY.md.
+  The only file you may edit is your own SOUL.md.
 - **NEVER fix bugs, write code, or run tests yourself.** If you find a problem,
   create a kanban task and assign it to the appropriate worker (usually developer
   or tester).
