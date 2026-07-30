@@ -389,7 +389,7 @@ def _spawn_leader_agent(project: dict) -> dict:
         hermes_bin,
         "-p", member_name,
         "--yolo",
-        "--toolsets", "file,web,skills,todo,memory,session_search,agora",
+        "--toolsets", "file,web,skills,todo,session_search,agora",
         "--accept-hooks",
         "--cli",
         "chat", "-Q", "-q", prompt,
