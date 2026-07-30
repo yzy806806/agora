@@ -425,6 +425,11 @@ never writing code yourself.
 #  Template registry                                                           #
 # --------------------------------------------------------------------------- #
 
+# Worker toolsets: only what workers need. No browser, tts, vision,
+# code_execution, computer_use, cronjob, delegation, clarify.
+# Leader toolsets are overridden in leader_loop.py spawn command.
+_WORKER_TOOLSETS = ["terminal", "file", "web", "skills", "todo", "session_search"]
+
 TEMPLATES: dict[str, dict] = {
     "architect": {
         "role": "architect",
@@ -433,7 +438,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Designs system architecture, API contracts, and technology selections. Reviews for architectural conformance.",
         "soul_template": _ARCHITECT_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli"],
+        "toolsets": _WORKER_TOOLSETS,
         "model": None,
     },
     "developer": {
@@ -443,7 +448,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Implements features, writes tests, manages dependencies. Submits clean commits with clear messages.",
         "soul_template": _DEVELOPER_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli"],
+        "toolsets": _WORKER_TOOLSETS,
         "model": None,
     },
     "reviewer": {
@@ -453,7 +458,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Reviews code for correctness, security, and spec conformance. Runs tests and verifies coverage. Approves or rejects with specific feedback.",
         "soul_template": _REVIEWER_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli"],
+        "toolsets": _WORKER_TOOLSETS,
         "model": None,
     },
     "tester": {
@@ -463,7 +468,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Designs and implements test strategies. Writes automated tests. Identifies and reports bugs with reproducible steps.",
         "soul_template": _TESTER_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli"],
+        "toolsets": _WORKER_TOOLSETS,
         "model": None,
     },
     "devops": {
@@ -473,7 +478,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Manages CI/CD pipelines, containerization, deployment, and infrastructure. Ensures zero-downtime deployments with rollback plans.",
         "soul_template": _DEVOPS_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli"],
+        "toolsets": _WORKER_TOOLSETS,
         "model": None,
     },
     "researcher": {
@@ -483,7 +488,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Searches the web, synthesizes findings, keeps the team informed about trends and developments. Always cites sources.",
         "soul_template": _RESEARCHER_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli", "web"],
+        "toolsets": _WORKER_TOOLSETS,
         "model": None,
     },
     "writer": {
@@ -493,7 +498,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Produces clear, structured content — documentation, articles, reports, or creative copy. Adapts tone to audience.",
         "soul_template": _WRITER_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli"],
+        "toolsets": _WORKER_TOOLSETS,
         "model": None,
     },
     "leader": {
@@ -503,7 +508,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Monitors project health, unblocks stuck tasks, plans next phases. The self-driving heartbeat of the team.",
         "soul_template": _LEADER_SOUL,
         "skills": [],
-        "toolsets": ["hermes-cli"],
+        "toolsets": ["file", "web", "skills", "todo", "session_search"],
         "model": None,
         "is_leader": True,
     },

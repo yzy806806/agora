@@ -228,6 +228,14 @@ def create_worker(
     if effective_model:
         patch_config_model(profile_dir / "config.yaml", effective_model)
 
+    # Step 6b: Write toolsets from template into config.yaml
+    # The template defines which toolsets each role needs. Without this,
+    # workers inherit the global config's toolsets (usually hermes-cli = everything),
+    # including browser, tts, vision, computer_use etc. that they don't need.
+    template_toolsets = template.get("toolsets") if template else None
+    if template_toolsets:
+        _patch_config_toolsets(profile_dir / "config.yaml", template_toolsets)
+
     # Step 7: Register in the worker registry
     is_leader = template.get("is_leader", False) if template else False
     worker_data = {
@@ -426,6 +434,28 @@ def _seed_agora_skill(skills_dir: Path) -> None:
     if not dest.exists():
         shutil.copy2(source, dest)
         logger.info("Seeded agora-awareness skill to %s", dest)
+
+
+def _patch_config_toolsets(config_path: Path, toolsets: list[str]) -> None:
+    """Write toolsets into the profile's config.yaml platform_toolsets.cli.
+
+    This overrides the global config's toolsets (usually 'hermes-cli' which
+    includes everything) with only the toolsets the role needs.
+    """
+    try:
+        import yaml
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        if cfg is None:
+            cfg = {}
+        if "platform_toolsets" not in cfg:
+            cfg["platform_toolsets"] = {}
+        cfg["platform_toolsets"]["cli"] = toolsets
+        with open(config_path, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+        logger.info("Wrote toolsets %s to %s", toolsets, config_path)
+    except Exception as exc:
+        logger.warning("Failed to patch toolsets in %s: %s", config_path, exc)
 
 
 def _inject_external_skills(config_path: Path, hermes_root: Path) -> None:
