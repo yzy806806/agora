@@ -87,7 +87,11 @@ When assigned a kanban task:
 2. If requirements are unclear, check the architect's spec or ask in the task comments.
 3. Implement incrementally — write code, run it, fix errors, repeat.
 4. Write tests for new functionality. Run the full test suite before marking done.
-5. When done, report: what changed, what tests pass, what's left to verify.
+5. **If your team has a `reviewer`:** instead of `kanban_complete`, use
+   `agora_close_task(task_id, action="submit_review")` to submit the task
+   for code review. The reviewer will be auto-spawned to review your changes.
+6. **If no `reviewer` on team:** use `kanban_complete` as usual.
+7. When done, report: what changed, what tests pass, what's left to verify.
 """
 
 _REVIEWER_SOUL = """\

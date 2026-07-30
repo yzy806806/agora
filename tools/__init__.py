@@ -1171,19 +1171,24 @@ def _register_worker_tools(ctx: Any) -> None:
         "type": "object",
         "properties": {
             "task_id": {"type": "string", "description": "The kanban task ID to close (e.g. 't_abc123')"},
-            "action": {"type": "string", "enum": ["complete", "cancel"],
-                       "description": "complete = mark as done; cancel = archive the task"},
+            "action": {"type": "string", "enum": ["complete", "cancel", "submit_review"],
+                       "description": "complete = mark as done; cancel = archive the task; submit_review = transition to 'review' status and assign to reviewer for code review"},
             "summary": {"type": "string", "description": "Optional summary of why this task is being closed"},
         },
         "required": ["task_id", "action"],
     }
 
     def _close_task_handler(args: dict, **kwargs) -> dict:
-        """Close a stale or completed kanban task directly.
+        """Close a stale or completed kanban task, or submit for review.
 
         This lets the leader clean up stale blocked/running tasks without
         needing the kanban CLI or HERMES_KANBAN_TASK env var. Uses the
         kanban_db Python API directly.
+
+        The ``submit_review`` action transitions a task to ``review`` status
+        with ``assignee=reviewer``. The kanban dispatcher will then auto-spawn
+        the reviewer worker (via ``claim_review_task``) to review the code
+        changes. After the reviewer completes, the task goes to ``done``.
         """
         task_id = args.get("task_id", "")
         action = args.get("action", "complete")
@@ -1208,6 +1213,58 @@ def _register_worker_tools(ctx: Any) -> None:
                     _kdb.archive_task(conn, task_id)
                     conn.commit()
                     return {"status": "archived", "task_id": task_id, "title": task.title}
+                elif action == "submit_review":
+                    # Transition task to 'review' status and assign to reviewer.
+                    # The kanban dispatcher auto-spawns review-status tasks via
+                    # claim_review_task (review → running), then the reviewer
+                    # calls kanban_complete to finish (running → done).
+                    import json as _json
+                    now = int(__import__("time").time())
+
+                    # Resolve reviewer from team config
+                    reviewer_assignee = "reviewer"
+                    try:
+                        from project_planner import get_project
+                        from agora.team_manager import get_team_for_project, get_assignee_for_role
+                        # Try to find the project this task belongs to
+                        tenant = getattr(task, "tenant", None) or ""
+                        project_name = tenant.replace("agora-", "") if tenant else ""
+                        if project_name:
+                            team_name = get_team_for_project(project_name)
+                            if not team_name:
+                                proj = get_project(project_name)
+                                if proj and proj.get("team"):
+                                    team_name = proj["team"]
+                            if team_name:
+                                picked = get_assignee_for_role(team_name, "reviewer")
+                                if picked:
+                                    reviewer_assignee = picked
+                    except Exception:
+                        pass  # Fall back to "reviewer"
+
+                    conn.execute(
+                        "UPDATE tasks SET status = 'review', assignee = ?, "
+                        "claim_lock = NULL, claim_expires = NULL, "
+                        "block_kind = NULL, block_recurrences = 0 "
+                        "WHERE id = ?",
+                        (reviewer_assignee, task_id),
+                    )
+                    _kdb._append_event(
+                        conn, task_id, "submitted_for_review",
+                        {"assignee": reviewer_assignee, "summary": summary or ""},
+                    )
+                    conn.commit()
+                    logger.info(
+                        "Task %s submitted for review (assignee=%s)",
+                        task_id, reviewer_assignee,
+                    )
+                    return {
+                        "status": "review",
+                        "task_id": task_id,
+                        "title": task.title,
+                        "assignee": reviewer_assignee,
+                        "message": f"Task submitted for review. The dispatcher will spawn the reviewer ({reviewer_assignee}) automatically.",
+                    }
                 else:
                     return {"error": f"Unknown action: {action}"}
             finally:
@@ -1221,7 +1278,7 @@ def _register_worker_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_CLOSE_TASK_SCHEMA,
         handler=_wrap_handler(_close_task_handler),
-        description="Close a stale or completed kanban task. Use action='complete' if the work was done, or action='cancel' to archive a stale task.",
+        description="Close or transition a kanban task. action='complete' marks done; action='cancel' archives; action='submit_review' transitions to review status and assigns to reviewer for code review. The dispatcher auto-spawns the reviewer.",
         emoji="✅",
     )
 
