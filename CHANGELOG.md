@@ -2,6 +2,33 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.7] — 2026-08-04
+
+### Delete all kanban tasks on project completion
+
+**Problem:** When a project completed, `on_project_complete` only stopped the
+heartbeat and set `status=completed`. All 290+ tasks remained in the kanban DB.
+When the project was reactivated with a new goal, the leader saw the old tasks
+and tried `PROJECT_COMPLETE` immediately — it didn't realize the project had
+been restarted with new goals.
+
+**Fix:** `on_project_complete` now calls `delete_archived_task()` for every
+task in the project, removing all rows from `tasks`, `task_events`,
+`task_comments`, `task_runs`, and `task_links`. On restart, the kanban is
+empty and the leader correctly sees that new work needs to be created.
+
+### Worker toolsets: memory removed, patch is part of file toolset
+
+- Worker Self-Growth: 3 channels → 2 (Skills + SOUL.md, no Memory)
+- Leader toolset: removed `memory` (not needed — skills + SOUL.md suffice)
+- Fixed `patch` toolset warning — `patch` is part of `file`, not standalone
+
+### Files changed
+- `project_planner.py` — `on_project_complete` deletes all project tasks
+- `agora/worker_templates.py` — Self-Growth 2 channels, no memory
+- `agora/leader_loop.py` — leader toolset without memory
+- `__init__.py` / `plugin.yaml` — version bump
+
 ## [1.8.6] — 2026-07-30
 
 ### Worker toolsets now written to config.yaml from template
