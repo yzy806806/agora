@@ -899,7 +899,7 @@ def set_leader_session(project_name: str, session_id: str | None) -> None:
 
 
 def on_project_complete(project_name: str) -> None:
-    """Handle project completion — stop heartbeat and update status."""
+    """Handle project completion — stop heartbeat, update status, archive tasks."""
     try:
         # Pause cron job
         proj = get_project(project_name)
@@ -912,6 +912,36 @@ def on_project_complete(project_name: str) -> None:
             proj["status"] = "completed"
             proj["completed_at"] = now_iso()
             _project_file(project_name).write_text(json.dumps(proj, indent=2))
+
+        # Archive all tasks belonging to this project so that when the
+        # project is reactivated with a new goal, the kanban starts clean.
+        # Without this, the leader sees hundreds of old done/archived tasks
+        # and doesn't realize the project was restarted — it tries
+        # PROJECT_COMPLETE immediately because "all tasks are done".
+        try:
+            from hermes_cli import kanban_db as _kdb
+            board = f"agora-{safe_name(project_name)}"
+            conn = _kdb.connect()
+            try:
+                # Archive all non-archived tasks for this project
+                row = conn.execute(
+                    "UPDATE tasks SET status = 'archived' "
+                    "WHERE (tenant = ? OR tenant IS NULL) "
+                    "AND status NOT IN ('archived')",
+                    (board,),
+                )
+                archived_count = row.rowcount
+                conn.commit()
+                logger.info(
+                    "Project '%s' complete: archived %d kanban tasks",
+                    project_name, archived_count,
+                )
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.warning(
+                "Failed to archive tasks on project completion: %s", exc
+            )
 
         logger.info("Project '%s' marked complete, heartbeat stopped", project_name)
     except Exception as exc:
