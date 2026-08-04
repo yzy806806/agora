@@ -913,7 +913,7 @@ def on_project_complete(project_name: str) -> None:
             proj["completed_at"] = now_iso()
             _project_file(project_name).write_text(json.dumps(proj, indent=2))
 
-        # Archive all tasks belonging to this project so that when the
+        # Delete all tasks belonging to this project so that when the
         # project is reactivated with a new goal, the kanban starts clean.
         # Without this, the leader sees hundreds of old done/archived tasks
         # and doesn't realize the project was restarted — it tries
@@ -923,24 +923,27 @@ def on_project_complete(project_name: str) -> None:
             board = f"agora-{safe_name(project_name)}"
             conn = _kdb.connect()
             try:
-                # Archive all non-archived tasks for this project
-                row = conn.execute(
-                    "UPDATE tasks SET status = 'archived' "
-                    "WHERE (tenant = ? OR tenant IS NULL) "
-                    "AND status NOT IN ('archived')",
+                # Get all task IDs for this project
+                rows = conn.execute(
+                    "SELECT id FROM tasks "
+                    "WHERE (tenant = ? OR tenant IS NULL)",
                     (board,),
-                )
-                archived_count = row.rowcount
+                ).fetchall()
+                task_ids = [r[0] for r in rows]
+                deleted = 0
+                for tid in task_ids:
+                    _kdb.delete_archived_task(conn, tid)
+                    deleted += 1
                 conn.commit()
                 logger.info(
-                    "Project '%s' complete: archived %d kanban tasks",
-                    project_name, archived_count,
+                    "Project '%s' complete: deleted %d kanban tasks",
+                    project_name, deleted,
                 )
             finally:
                 conn.close()
         except Exception as exc:
             logger.warning(
-                "Failed to archive tasks on project completion: %s", exc
+                "Failed to delete tasks on project completion: %s", exc
             )
 
         logger.info("Project '%s' marked complete, heartbeat stopped", project_name)
