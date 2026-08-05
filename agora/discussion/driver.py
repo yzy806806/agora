@@ -423,7 +423,7 @@ class DiscussionDriver:
 
         Retries up to 3 times on API 429 / rate-limit errors before giving up.
         """
-        max_retries = 3
+        max_retries = 10
         for attempt in range(max_retries):
             history = self._build_history()
             prompt = build_speaker_prompt(
