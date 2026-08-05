@@ -250,7 +250,7 @@ def register_all_tools(ctx: Any) -> None:
         schema=_RAISE_MOTION_SCHEMA,
         handler=_wrap_handler_async(_raise_motion_handler),
         is_async=True,
-        description="Raise a motion for team discussion. REQUIRED parameter: title (string). Example: agora_raise_motion({\"title\": \"Should we use SQLite or PostgreSQL?\", \"description\": \"We need to choose a database for production.\"}). Creates the motion and spawns the discussion driver immediately. The discussion runs in the background — check results with agora_get_result.",
+        description="Start a team discussion (motion) on a topic. Use when the team needs to deliberate a decision, choose between options, or analyze a problem before acting. Key params: title (str, REQUIRED) — short discussion topic; description (str) — context and options; priority (str: low|normal|high); blocking (bool) — block the calling kanban task until discussion ends; participants (list[str]) — worker names (auto-detected from team if empty); chair (str) — leader worker; max_steps (int, default 30); rounds (int, default 3); template (str: tech_choice|bug_analysis|architecture_review|security_audit). Returns {motion_id, title, status, chair, participants, max_steps, message}. Example: agora_raise_motion({\"title\": \"SQLite or PostgreSQL?\", \"description\": \"Choosing a production DB.\", \"priority\": \"high\"}).",
         emoji="🏛️",
     )
 
@@ -289,7 +289,7 @@ def register_all_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_GET_MESSAGES_SCHEMA,
         handler=_wrap_handler(_get_messages_handler),
-        description="Read discussion messages for a motion.",
+        description="Read discussion messages for a motion. Use to monitor an ongoing discussion's progress or inspect what participants said in each round. Key params: motion_id (str, REQUIRED) — the motion ID returned by agora_raise_motion; round (int, optional) — filter to a specific round number. Returns {motion_id, title, status, current_round, max_rounds, messages: [{id, role, round, stance, content, timestamp}], total}. Returns {error, code: 404} if motion not found. Example: agora_get_messages({\"motion_id\": \"motion-abc123\"}).",
         emoji="💬",
     )
 
@@ -324,7 +324,7 @@ def register_all_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_GET_RESULT_SCHEMA,
         handler=_wrap_handler(_get_result_handler),
-        description="Get the result of a closed discussion (decision, action items).",
+        description="Get the result of a closed discussion — decision, rationale, and action items. Use after a motion finishes to learn what the team decided. Key params: motion_id (str, REQUIRED). Returns {motion_id, title, status: \"closed\", decision (str: adopted|rejected|superseded|error), rationale (str), action_items (list[str]), source, source_task_id, closed_at}. If the discussion is still running, returns {motion_id, status, message: \"still in progress\"}. Returns {error, code: 404} if not found. Example: agora_get_result({\"motion_id\": \"motion-abc123\"}).",
         emoji="✅",
     )
 
@@ -356,7 +356,7 @@ def register_all_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_LIST_MOTIONS_SCHEMA,
         handler=_wrap_handler(_list_motions_handler),
-        description="List active or closed discussions.",
+        description="List active or closed discussions (motions). Use to see what discussions exist and their current state. Key params: status (str: active|closed|all, default \"active\"); limit (int, default 20). Returns {motions: [{motion_id, title, status, current_round, max_rounds, decision, source, source_task_id, created_at}], total}. Example: agora_list_motions({\"status\": \"all\", \"limit\": 10}).",
         emoji="📋",
     )
 
@@ -424,7 +424,7 @@ def register_all_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_CLOSE_MOTION_SCHEMA,
         handler=_wrap_handler(_close_motion_handler),
-        description="Close a motion directly. Use this to clean up stale or resolved discussions without going through the full discussion cycle. Example: agora_close_motion({\"motion_id\": \"motion-abc123\", \"decision\": \"superseded\", \"rationale\": \"Work already done in motion-xyz789\"}).",
+        description="Manually close a motion and record the outcome. Use to clean up stale, abandoned, or already-resolved discussions without waiting for the full discussion cycle. Key params: motion_id (str, REQUIRED); decision (str: adopted|rejected|superseded|error, default \"superseded\"); rationale (str). Note: decision=\"adopted\" is rejected if the motion has 0 discussion steps/messages — use \"error\" or \"superseded\" instead in that case. Returns {motion_id, status: \"closed\", decision, message} or {status: \"already_closed\"} if already closed. Example: agora_close_motion({\"motion_id\": \"motion-abc123\", \"decision\": \"superseded\", \"rationale\": \"Done in motion-xyz789\"}).",
         emoji="🔒",
     )
 
@@ -437,7 +437,7 @@ def register_all_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_CREATE_TASK_SCHEMA,
         handler=_wrap_handler(_create_task_handler),
-        description="Create a kanban task and assign it to a worker. Uses the Python API directly (no CLI subprocess), so no 'No gateway running' false warning. The dispatcher in the default-profile gateway will pick up ready tasks automatically.",
+        description="Create a kanban task and assign it to a worker. Uses the Python API directly (no CLI subprocess), so no 'No gateway running' false warning. The dispatcher picks up ready tasks automatically. Key params: title (str, REQUIRED) — concise actionable title; assignee (str) — worker name or role (e.g. 'developer'); body (str) — context, acceptance criteria, links; project (str) — project name for the kanban board (auto-detected if omitted); status (str: ready|todo|triage, default \"ready\"). Returns {task_id, title, assignee, status, project, message}. Example: agora_create_task({\"title\": \"Add login endpoint\", \"assignee\": \"developer\", \"project\": \"myapp\", \"status\": \"ready\"}).",
         emoji="📌",
     )
 
@@ -950,7 +950,7 @@ def _register_project_tools(ctx: Any) -> None:
         schema=_START_PROJECT_SCHEMA,
         handler=_wrap_handler_async(_start_project_handler),
         is_async=True,
-        description="Start a self-driving development project. Agora autonomously plans, discusses, and dispatches tasks until the goal is met.",
+        description="Start a self-driving development project that autonomously plans, discusses, and dispatches tasks until the goal is met. Use to kick off a new project or resume an existing one. Key params: name (str, REQUIRED) — short project name; workdir (str) — absolute path to the repo (required for new projects); goal (str) — high-level goal; description (str) — detailed description; stop_condition (str) — natural-language completion criteria; initial_topic (str) — first discussion topic; max_rounds (int, default 10); team (str) — team name for assignee routing; heartbeat_member (str) — worker to wake on heartbeat; heartbeat_minutes (int, default 15). Returns project state dict with status, rounds, and plan. Example: agora_start_project({\"name\": \"myapp\", \"workdir\": \"/home/me/myapp\", \"goal\": \"Ship v1.0\"}).",
         emoji="🚀",
     )
 
@@ -967,7 +967,7 @@ def _register_project_tools(ctx: Any) -> None:
         schema=_STOP_PROJECT_SCHEMA,
         handler=_wrap_handler_async(_stop_project_handler),
         is_async=True,
-        description="Stop a self-driving project.",
+        description="Stop a self-driving project, halting its heartbeat and task dispatch. Use when a project is done, off-track, or needs to be paused. Key params: name (str, REQUIRED) — the project name to stop. Returns the updated project state dict with status set to stopped. Example: agora_stop_project({\"name\": \"myapp\"}).",
         emoji="🛑",
     )
 
@@ -986,7 +986,7 @@ def _register_project_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_PROJECT_STATUS_SCHEMA,
         handler=_wrap_handler(_project_status_handler),
-        description="Check status of self-driving projects.",
+        description="Check the status of self-driving projects — current round, plan, tasks, and heartbeat state. Use to monitor progress or verify a project is running. Key params: name (str, default \"\") — project name; if omitted, lists all projects. Returns a single project dict (with goal, status, rounds, plan, team, workdir) when name is given, or {projects: [...]} when name is empty. Returns {error} if the named project is not found. Example: agora_project_status({\"name\": \"myapp\"}).",
         emoji="📊",
     )
 
@@ -1022,7 +1022,7 @@ def _register_project_tools(ctx: Any) -> None:
         schema=_UPDATE_PROJECT_SCHEMA,
         handler=_wrap_handler_async(_update_project_handler),
         is_async=True,
-        description="Update a project's goal, description, or stop condition mid-flight. Automatically refreshes AGENTS.md so workers see the new direction. Use reactivate=true to restart a completed project with a new goal.",
+        description="Update a project's goal, description, or stop condition mid-flight; automatically refreshes AGENTS.md so workers see the new direction. Use reactivate=true to restart a completed/stopped project with a new goal. Key params: name (str, REQUIRED) — project name; goal (str) — new high-level goal (omit to keep current); description (str) — new description (omit to keep); stop_condition (str) — new stop condition (empty string clears it); reactivate (bool, default false). Returns the updated project state dict. Example: agora_update_project({\"name\": \"myapp\", \"goal\": \"Ship v2.0 with auth\", \"reactivate\": true}).",
         emoji="🔄",
     )
 
@@ -1092,7 +1092,7 @@ def _register_worker_tools(ctx: Any) -> None:
     ctx.register_tool(
         name="agora_create_worker", toolset="agora", schema=_CREATE_WORKER_SCHEMA,
         handler=_wrap_handler_async(_create_worker_handler), is_async=True,
-        description="Create a worker profile from a role template. Generates config, SOUL.md (identity), memory, and skills directory. The same worker can participate in multiple projects.",
+        description="Create a worker profile from a role template — generates config, SOUL.md (identity), memory, and skills directory. Use to add a new team member (architect, developer, reviewer, tester, or devops) to the Agora registry. A worker can participate in multiple projects. Key params: name (str, REQUIRED) — profile name (lowercase alphanumeric, e.g. 'alice'); role (str, REQUIRED: architect|developer|reviewer|tester|devops); clone_from (str, optional) — source profile to clone config from; model (str, optional) — override model for this worker. Returns the created worker's profile info. Example: agora_create_worker({\"name\": \"alice\", \"role\": \"developer\"}).",
         emoji="\U0001f464",
     )
 
@@ -1103,7 +1103,7 @@ def _register_worker_tools(ctx: Any) -> None:
     ctx.register_tool(
         name="agora_list_workers", toolset="agora", schema=_LIST_WORKERS_SCHEMA,
         handler=_wrap_handler(_list_workers_handler),
-        description="List all registered Agora worker profiles.",
+        description="List all registered Agora worker profiles. Use to see which workers exist, their roles, and which teams they belong to. Takes no parameters. Returns {workers: [{name, role, ...}]}. Example: agora_list_workers({}).",
         emoji="\U0001f465",
     )
 
@@ -1114,7 +1114,7 @@ def _register_worker_tools(ctx: Any) -> None:
     ctx.register_tool(
         name="agora_remove_worker", toolset="agora", schema=_REMOVE_WORKER_SCHEMA,
         handler=_wrap_handler_async(_remove_worker_handler), is_async=True,
-        description="Remove a worker from the Agora registry and optionally delete the profile.",
+        description="Remove a worker from the Agora registry and optionally delete its Hermes profile directory. Use to retire or clean up a worker that is no longer needed. Key params: name (str, REQUIRED) — worker profile name to remove; delete_profile (bool, default true) — also delete the Hermes profile directory on disk. Returns a confirmation dict with the removed worker name. Example: agora_remove_worker({\"name\": \"alice\", \"delete_profile\": false}).",
         emoji="\U0001f5d1\ufe0f",
     )
 
@@ -1125,7 +1125,7 @@ def _register_worker_tools(ctx: Any) -> None:
     ctx.register_tool(
         name="agora_list_templates", toolset="agora", schema=_LIST_TEMPLATES_SCHEMA,
         handler=_wrap_handler(_list_templates_handler),
-        description="List available role templates for creating workers.",
+        description="List available role templates for creating workers (e.g. architect, developer, reviewer, tester, devops). Use to discover which roles are available before calling agora_create_worker. Takes no parameters. Returns {templates: [{name, role, description, ...}]}. Example: agora_list_templates({}).",
         emoji="\U0001f4cb",
     )
 
@@ -1140,7 +1140,7 @@ def _register_worker_tools(ctx: Any) -> None:
     ctx.register_tool(
         name="agora_create_team", toolset="agora", schema=_CREATE_TEAM_SCHEMA,
         handler=_wrap_handler_async(_create_team_handler), is_async=True,
-        description="Create a team by selecting existing workers. A team is the assignee pool for a project. The same worker can be on multiple teams.",
+        description="Create a team by selecting existing workers — a team is the assignee pool for a project. Use after creating workers, to group them so a project can route tasks to the right roles. The same worker can be on multiple teams. Key params: team_name (str, REQUIRED) — unique team name; workers (list[str], REQUIRED) — worker profile names to include; project (str, optional) — project to bind this team to. Returns the created team dict with name and worker list. Example: agora_create_team({\"team_name\": \"team-alpha\", \"workers\": [\"alice\", \"bob\"], \"project\": \"myapp\"}).",
         emoji="\U0001f91d",
     )
 
@@ -1151,7 +1151,7 @@ def _register_worker_tools(ctx: Any) -> None:
     ctx.register_tool(
         name="agora_list_teams", toolset="agora", schema=_LIST_TEAMS_SCHEMA,
         handler=_wrap_handler(_list_teams_handler),
-        description="List all registered teams.",
+        description="List all registered teams and their member workers. Use to inspect which teams exist and who is on each. Takes no parameters. Returns {teams: [{name, workers: [...], project, ...}]}. Example: agora_list_teams({}).",
         emoji="\U0001f3c6",
     )
 
@@ -1162,7 +1162,7 @@ def _register_worker_tools(ctx: Any) -> None:
     ctx.register_tool(
         name="agora_remove_team", toolset="agora", schema=_REMOVE_TEAM_SCHEMA,
         handler=_wrap_handler_async(_remove_team_handler), is_async=True,
-        description="Remove a team from the registry.",
+        description="Remove a team from the Agora registry. Use to disband a team that is no longer needed; workers themselves are not deleted, only the team grouping. Key params: team_name (str, REQUIRED) — the team name to remove. Returns a confirmation dict with the removed team name. Example: agora_remove_team({\"team_name\": \"team-alpha\"}).",
         emoji="\U0001f4a5",
     )
 
@@ -1278,7 +1278,7 @@ def _register_worker_tools(ctx: Any) -> None:
         toolset="agora",
         schema=_CLOSE_TASK_SCHEMA,
         handler=_wrap_handler(_close_task_handler),
-        description="Close or transition a kanban task. action='complete' marks done; action='cancel' archives; action='submit_review' transitions to review status and assigns to reviewer for code review. The dispatcher auto-spawns the reviewer.",
+        description="Close or transition a kanban task. Use to mark a task done, cancel/archive a stale task, or submit work for code review. Key params: task_id (str, REQUIRED) — kanban task ID (e.g. 't_abc123'); action (str, REQUIRED: complete|cancel|submit_review) — 'complete' marks done, 'cancel' archives, 'submit_review' transitions to review status and assigns to the reviewer (dispatcher auto-spawns the reviewer worker); summary (str, optional) — reason for closing. Returns {status, task_id, title, [assignee, message]}. Example: agora_close_task({\"task_id\": \"t_abc123\", \"action\": \"submit_review\", \"summary\": \"Feature complete\"}).",
         emoji="✅",
     )
 

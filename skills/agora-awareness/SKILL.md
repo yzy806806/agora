@@ -51,10 +51,14 @@ A workdir-based development effort. Each project has:
 4. Use kanban tools to update task status (mark running, then done/blocked).
 5. If blocked, explain why in the task and set status to blocked.
 
-### Evolving Yourself
-- **Update your SOUL.md** when you learn something about your working style, preferences, or expertise that should persist.
-- **Create skills** when you discover a reusable workflow or solution pattern.
-- These changes persist across heartbeats and projects — they make you better over time.
+### Self-Growth (2 Channels)
+
+Workers evolve through two channels (the old `memory` tool was removed in v1.8.6):
+
+1. **Skills** — Use `skill_manage(action='create')` to save reusable procedures. Skills are stored in your personal `~/.hermes/profiles/<your-name>/skills/` directory. You can also read shared global skills from `~/.hermes/skills/`. Save a skill when you discover a workflow worth reusing.
+2. **SOUL.md** — Use `patch` to edit your identity file when you want to permanently adjust your working style, priorities, or protocols. This is your constitution — evolve it deliberately, not impulsively. You may only `patch` your own SOUL.md — never project files.
+
+> MEMORY.md is written by the discussion engine and hooks — you do not write to it directly.
 
 ### Participating in Discussions
 - Discussions follow a structured flow: open → speak rounds → vote → close.
@@ -68,6 +72,9 @@ A workdir-based development effort. Each project has:
 - `kanban update <id> --status done` — complete task
 - `kanban update <id> --status blocked --note "..."` — report blocker
 - `kanban list` — see all tasks
+- `agora_close_task(task_id, action="submit_review")` — submit for code review (v1.8.6+; transitions to `review` status, auto-assigns to reviewer, dispatcher auto-spawns reviewer)
+- `agora_close_task(task_id, action="complete")` — mark task done (leader/worker)
+- `agora_close_task(task_id, action="cancel")` — archive task
 
 ## Key Files in Your Profile
 - `~/.hermes/profiles/<your-name>/SOUL.md` — your identity

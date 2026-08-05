@@ -1,8 +1,10 @@
 # Agora 🏛️
 
-> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.8.0**
+> [Hermes Agent](https://hermes-agent.nousresearch.com) 的多角色自驱开发插件 — **v1.8.8**
 
-Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、MEMORY.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果写入每个参与者的 MEMORY.md。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
+Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个都是**真正的 Hermes agent 子进程**，拥有自己的 SOUL.md、工具和会话上下文——讨论方案、搜索信息、撰写内容、自动分配任务。**Leader**（只是用 "leader" 模板创建的 worker）在事件驱动的讨论中担任**主持人**，动态选择发言者、评估进展、发起投票、总结结论。讨论结果存储在 motions 数据库中，通过 agora 工具查看。Worker 通过 Skills + SOUL.md 两通道自进化（无 memory）。Leader 自动规划进度，达成目标后自动停止。全部在 Dashboard 上操作，不需要命令行。
+
+> **Self-Growth（v1.8.6+）：** Worker 通过 **2 个通道**进化：**Skills**（`skill_manage`）和 **SOUL.md**（`patch`）。旧的 `memory` 工具已移除——MEMORY.md 仅由讨论引擎（leader）和钩子写入，worker 不再直接写入。
 
 ## 核心能力
 
@@ -10,16 +12,18 @@ Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个�
 |------|------|
 | **统一 worker 模型** | 没有独立的 leader 概念——leader 只是用 "leader" 模板创建的 worker（`is_leader=true`）。一切通过 `worker_manager` 管理 |
 | **事件驱动讨论引擎** | Leader 担任主持人：开场点题、动态选择发言者、每轮后评估进展、发起投票、总结——不再固定轮询 |
-| **真正的 agent 子进程** | 每个发言者都是真实的 `hermes -p <profile> chat -q` 子进程，拥有 SOUL.md、MEMORY.md、工具和会话上下文——非无状态 LLM 调用 |
-| **项目级会话隔离** | Leader 使用 `--resume` 配合项目专属 `session_id`——不同项目间上下文不串扰 |
-| **共享经验** | 同一个 leader profile 可管理多个项目——MEMORY.md、SOUL.md、skills 跨项目共享 |
+| **真正的 agent 子进程** | 每个发言者都是真实的 `hermes -p <profile> chat -q` 子进程，拥有 SOUL.md、工具和会话上下文——非无状态 LLM 调用 |
+| **项目级会话隔离** | Leader 每次心跳使用全新 session——不同项目间上下文不串扰 |
+| **Self-Growth（2 通道）** | Worker 通过 **Skills**（`skill_manage`）和 **SOUL.md**（`patch`）进化。无 `memory` 工具——MEMORY.md 由讨论引擎和钩子管理。 |
 | **心跳配置在项目上** | `heartbeat_member`、`heartbeat_minutes`、`heartbeat_cron_id` 存储在项目上——一个 leader 可以不同间隔跑不同项目 |
 | **团队感知** | `AGENTS.md` 自动生成在项目工作目录——worker 和 leader 能看到团队成员、角色和项目上下文。心跳和 `kanban_task_claimed` 时刷新 |
-| **记忆持久化** | 讨论决策和行动项写入每个参与者的 MEMORY.md，团队知识持续积累 |
+| **记忆持久化** | 讨论决策写入 leader 的 MEMORY.md（非 worker）；worker 通过 Skills + SOUL.md 进化 |
 | **8 种角色模板** | Architect/Developer/Reviewer/Tester/DevOps/Researcher/Writer/Leader |
 | **项目自驱** | 心跳定时唤醒 Leader，检查看板、解阻塞、推进下一阶段 |
-| **项目停止** | Leader 判断目标达成后输出 PROJECT_COMPLETE，自动停心跳 |
+| **项目停止** | Leader 判断目标达成后输出 PROJECT_COMPLETE → **双重确认** → 自动停心跳 + **删除所有看板任务**（重启时干净状态） |
 | **3 个看板钩子** | `kanban_task_completed`（记忆+评论回写）、`kanban_task_claimed`（日志+AGENTS.md 刷新）、`kanban_task_blocked`（设计决策自动触发讨论） |
+| **代码审查流程** | `agora_close_task(action='submit_review')` 将任务转为 `review` 状态并自动分配给 reviewer——调度器自动启动 reviewer worker |
+| **Speaker 429 重试** | `_speaker_speak` 检测 API 429/限流错误后重试最多 **10 次**，递增退避（10s, 20s, …, 100s），每次重试清除 session |
 | **人类参与讨论** | 讨论进行中可随时插入消息，引导讨论方向 |
 | **Dashboard** | Projects tab（默认）、Team tab（Members + Teams 子页签）、Profiles tab |
 
@@ -41,7 +45,7 @@ Agora 把 Hermes 变成一个自驱动的团队：多个 AI 角色——每个�
 | **长上下文中失去焦点** | 每个发言者看到的是紧凑的结构化历史（`[角色 (步骤类型)]: 内容`），不是原始对话。典型输入约 2000 字符。 |
 | **急于下结论** | 步骤化流程强制：开场 → 发言 → 主持人评估 → 下一位发言者。不能跳步。 |
 | **盲区 / 单一视角** | 主持人明确检查"谁还没发言？"并指派发言。所有视角必须被听到才能结束。 |
-| **遗忘先前决策** | 讨论结果写入每个参与者的 MEMORY.md。下次讨论从积累的团队知识开始。 |
+| **遗忘先前决策** | 讨论结果写入 leader 的 MEMORY.md。下次讨论从积累的团队知识开始。 |
 | **无法自我判断是否卡住** | 主持人的元决策循环：`continue | dispatch | vote | close`——框架在正确的时机提出正确的问题。 |
 | **无证据地幻觉** | dispatch 模式派 worker 用真实工具（`web_search`、`read_file`、`terminal`）调查后再表态。 |
 
@@ -98,7 +102,7 @@ hermes dashboard restart  # 如果 dashboard 在运行——插件侧边栏 tab 
 | Writer | ✍️ | 内容撰写、结构组织、文风把控 |
 | Team Leader | 👨‍💼 | 项目监控、规划下一阶段、判断完成 |
 
-每个 worker 是一个 Hermes profile，包含：`config.yaml`（从父 profile 克隆）、`SOUL.md`（从模板渲染）、`memories/MEMORY.md`、`memories/USER.md`、`skills/`。Worker 跨项目持久化——记忆、技能和身份随身携带，就像真实员工。
+每个 worker 是一个 Hermes profile，包含：`config.yaml`（从父 profile 克隆，含模板工具集）、`SOUL.md`（从模板渲染）、`memories/MEMORY.md`（由讨论引擎/钩子写入）、`skills/`。Worker 跨项目持久化——技能和身份随身携带，就像真实员工。
 
 ### 2. 启动项目
 
@@ -142,7 +146,7 @@ Leader 每次心跳：
 ```
 1. 主持人 (Leader) 开场  → 陈述议题，指定首位发言者 + 引导问题
 2. 发言者发言            → 真正的 Hermes agent 子进程 (hermes -p <profile> chat -q)
-                           携带 SOUL.md、MEMORY.md、工具和 --resume 会话上下文
+                           携带 SOUL.md、工具和 --resume 会话上下文
 3. 主持人评估            → 继续？投票？结束？（基于 JSON 的元决策）
 4. 重复 2-3             → 直到结束或达到 max_steps（默认 30）
 5.（可选）投票           → 每位参与者投票 → 主持人决定结果
@@ -156,7 +160,7 @@ Leader 每次心跳：
 | **发言者启动** | `hermes -p <profile> --yolo chat -q` — 完整的 agent，带工具、记忆和身份 |
 | **会话连续性** | Worker 使用 `--resume <session_id>` 在看板任务和讨论间保持对话上下文 |
 | **项目级隔离** | Leader 每个项目有独立 `session_id`——上下文不串扰，但 MEMORY.md/skills 共享 |
-| **主持人 (Leader)** | 无状态元调用者 — 评估讨论状态、选择下一位发言者、发起投票。不需要 `--resume` |
+| **主持人 (Leader)** | 无状态元调用者 — 评估讨论状态、选择下一位发言者、发起投票。每次心跳使用全新 session（v1.6.2+） |
 | **主持人自动解析** | 若未指定 `chair_profile`，从 `project.heartbeat_member` 自动解析 |
 | **角色身份** | 来自每个 worker 的 SOUL.md（含 **Discussion Protocol** 段落） |
 | **Leader SOUL.md** | 包含 **Heartbeat Protocol** + **Chair Protocol** 段落 |
@@ -237,24 +241,24 @@ plugins:
 ```
 agora/
 ├── plugin.yaml                  # 插件清单（工具 + 钩子）
-├── __init__.py                  # register(ctx) — 16 工具 + dashboard API + CLI + 3 钩子
-├── tools/__init__.py            # 16 工具定义（发起/关闭/列出 motion、任务、worker、团队、项目）
+├── __init__.py                  # register(ctx) — 18 工具 + dashboard API + CLI + 3 钩子
+├── tools/__init__.py            # 18 工具定义（发起/关闭/列出 motion、任务管理含 submit_review、worker、团队、项目）
 ├── cli.py                       # hermes agora CLI
 ├── hooks/__init__.py            # 3 看板钩子：completed、claimed、blocked
-├── project_planner.py           # 项目生命周期 + 心跳配置 + AGENTS.md 生成
+├── project_planner.py           # 项目生命周期 + 心跳配置 + AGENTS.md 生成 + on_project_complete 删除任务
 ├── agora/
 │   ├── utils.py                 # 共享工具函数
-│   ├── discussion/              # 事件驱动讨论引擎
+│   ├── discussion/              # 事件驱动讨论引擎（_speaker_speak 429 重试 10 次）
 │   │   ├── driver.py            #   DiscussionDriver: 主持人 → 发言者 → 评估 → 结束
 │   │   ├── agent_spawn.py       #   启动真正的 Hermes agent 子进程 (hermes -p chat -q)
 │   │   ├── chair.py             #   主持人 (Leader) 提示词: 开场、评估、投票、总结
 │   │   └── roles.py             #   共识检查 + 讨论模板
 │   ├── storage/                 # SQLite 存储（motion、消息、投票、讨论状态）
 │   ├── session_manager.py       # 项目级会话跟踪 + 轮转
-│   ├── worker_templates.py      # 8 角色模板（SOUL.md 渲染）
+│   ├── worker_templates.py      # 8 角色模板（SOUL.md 渲染，2 通道 Self-Growth）
 │   ├── worker_manager.py        # Worker 生命周期 — 统一管理（leader = leader 模板的 worker）
 │   ├── team_manager.py          # 团队组建 + 分配路由
-│   └── leader_loop.py           # 心跳启动 + PROJECT_COMPLETE 检测 + 卡住 motion 恢复
+│   └── leader_loop.py           # 心跳启动 + PROJECT_COMPLETE 检测 + 卡住 motion 恢复（leader 无 terminal）
 ├── dashboard/                   # Web UI + REST API
 └── skills/
     ├── agora-awareness/         # 框架认知 — 每个 worker 都会获得
@@ -266,6 +270,34 @@ agora/
 MIT
 
 ## 更新日志
+
+### v1.8.8 — Speaker 429 重试（10次）+ 项目完成时删除任务
+
+- **`_speaker_speak` 429 重试** — Worker 在讨论中遇到 API 429（限流）时，错误信息直接被存储为 worker 的发言——讨论继续但内容为空。现在检测 429/限流/授权失败错误后重试最多 **10 次**，递增退避（10s, 20s, …, 100s），每次重试清除 session 重新开始。
+- **`on_project_complete` 删除所有看板任务** — 之前项目完成时只停心跳和设状态为 completed，所有任务留在看板 DB。重启时 leader 看到旧任务直接 PROJECT_COMPLETE。现在删除所有项目任务（tasks, task_events, task_comments, task_runs, task_links）。重启时干净状态。
+
+### v1.8.7 — 完成时删除任务 + 移除 memory + 工具集修复
+
+- **项目完成时删除所有看板任务** — `on_project_complete` 对每个任务调用 `delete_archived_task()`。重启时看板为空。
+- **Worker Self-Growth：3 通道 → 2** — 移除 `memory` 工具。Self-Growth 现在只有 **Skills**（`skill_manage`）+ **SOUL.md**（`patch`）。跨项目记忆无用（不同项目不同技术栈），skills 已能更好地捕获可复用知识。
+- **Leader 工具集：移除 `memory`** — leader 不需要；skills + SOUL.md 足够。
+- **修复 `patch` 工具集警告** — `patch` 是 `file` 的一部分，不是独立工具集。
+
+### v1.8.6 — Worker 工具集 + submit_review + AGENTS.md 改进
+
+- **Worker 工具集写入 config.yaml** — 之前模板的 `toolsets` 字段是死代码；`config.yaml` 从全局根复制（`hermes-cli` = 所有工具）。现在 `_patch_config_toolsets()` 在创建 worker 时将模板工具集写入 `platform_toolsets.cli`。
+  - **Worker 工具集**（全部 7 个角色）：`terminal, file, web, skills, todo, session_search`。移除：`browser`, `tts`, `vision`, `code_execution`, `computer_use`, `cronjob`, `delegation`, `clarify`, `memory`。
+  - **Leader 模板工具集**：`file, web, skills, todo, session_search`（在 `leader_loop.py` 启动时覆盖添加 `agora`——无 `terminal`）。
+- **`submit_review` 动作添加到 `agora_close_task`** — 开发者通过 `agora_close_task(action='submit_review')` 提交。任务转为 `review` 状态，自动分配给 reviewer。调度器自动启动 reviewer。审查完成后任务变为 `done`。Leader 不需要创建单独的审查任务。
+- **AGENTS.md 看板摘要包含 review 状态** — 显示 `Review` 计数 + "审查中"任务列表 + "就绪（排队中）"任务列表。
+- **Leader SOUL.md Step 2：分级崩溃处理** — 5 级处理：崩溃 1-2 次 → 重试；同 worker >2 次 → 重新分配/拆分；运行 >3 次心跳 → 发起讨论；审查卡住 >2 次心跳 → 检查 reviewer。
+- **AGENTS.md 工作流部分更新** — 开发者：有 reviewer 时用 `submit_review`。其他角色：`kanban complete`。新增"禁止使用 Python、terminal 或直接 DB 调用"警告。最近决策过滤 0 步绕过的 motion。
+
+### v1.8.5 — Leader 受限工具集 + SOUL.md 重写
+
+- **Leader 工具集受限——无 `terminal`** — Leader 启动工具集从 `hermes-cli`（所有工具）改为 `file, web, skills, todo, session_search, agora`。Leader 不能再通过 terminal 直接调 Python/DB 绕过 `agora_raise_motion`、跑测试或修改项目代码。只能读文件、编辑自己的 SOUL.md/MEMORY.md（`patch`）、创建 skills（`skill_manage`）、通过 agora 工具管理项目。
+- **SOUL.md 重写** — 身份：移除评估角色中的"读代码、测试"。核心约束："可以读项目文档，绝不写项目代码"。心跳后技能审查（替代任务后审查——leader 不执行任务）。Self-Growth："记录你学到的，不是你做的"；仅用 `patch`。
+- **Worker SOUL.md 共享部分——4 项改进** — 讨论协议：修复 terminal 矛盾。任务后技能审查：扩展到所有角色。Self-Growth：仅 `patch`，无 `write_file`。Researcher：移除重复的讨论协议部分。
 
 ### v1.8.0 — 全量代码审查：motion 守卫、讨论质量、截断修复、20 个 bug 修复
 
@@ -306,12 +338,12 @@ MIT
 
 ### v1.7.0 — 讨论参与者工具权限 + chair 重试 + 任务管理
 
-- **讨论参与者现在有完整工具权限** — `agent_spawn.py` 中 `--toolsets agora` 改为 `--toolsets hermes-cli`。之前讨论参与者（architect、developer、researcher、tester、reviewer、writer）只有 17 个 Agora 工具——没有 `terminal`、`read_file`、`search_files`、`web_search`、`web_extract`。导致两个项目中 112+ 条消息反映无法读代码、跑测试、调研参考项目。现在参与者拥有全部内置工具 + Agora 工具。
+- **讨论参与者现在有完整工具权限** — `agent_spawn.py` 中 `--toolsets agora` 改为 `--toolsets hermes-cli`。之前讨论参与者（architect、developer、researcher、tester、reviewer、writer）只有 17 个 Agora 工具——没有 `terminal`、`read_file`、`search_files`、`web_search`、`web_extract`。导致两个项目中 112+ 条消息反映无法读代码、跑测试、调研参考项目。现在参与者拥有全部内置工具 + Agora 工具。*（注：v1.8.6 中进一步细化——参与者现在使用 worker 模板工具集：`terminal, file, web, skills, todo, session_search`，不是完整的 `hermes-cli`。）*
 - **Chair 开场/评估非 JSON 时重试** — chair（leader）返回非 JSON 时，讨论 driver 会用更强的"只用 JSON 回复"提示重试一次再 abort。避免偶尔的 LLM 格式错误导致 `decision=error, steps=0`。
 - **`spawn_discussion_driver` 使用全局 `~/.hermes/agora/`** — runner 脚本和日志文件始终写到全局 agora 目录，不再跟随 profile 级 `HERMES_HOME`。
 - **卡住的 motion 自动清理** — `steps=0` 超过 5 分钟的 motion 现在会被 `_rescue_stuck_motions` 自动关闭为 `error`。
 - **Kanban 计数按 tenant 过滤** — `_count_tasks()` 现在接受 `tenant` 参数。Dashboard 项目列表和详情页显示按项目过滤的 task 计数，不再是全局总数。
-- **新增 `agora_close_task` 工具** — leader 可以直接关闭 stale blocked/running task（action=`complete` 或 `cancel`），不需要 kanban CLI 或 `HERMES_KANBAN_TASK` 环境变量。SOUL.md 已更新 stale task 清理指引。
+- **新增 `agora_close_task` 工具** — leader 可以直接关闭 stale blocked/running task（action=`complete` 或 `cancel`），不需要 kanban CLI 或 `HERMES_KANBAN_TASK` 环境变量。SOUL.md 已更新 stale task 清理指引。*（v1.8.6 中添加了 `submit_review` 动作用于代码审查流程。）*
 - **新项目初始化 `complete_count`** — 新项目创建时设 `complete_count: 0` 和 `completion_check_pos: 0`。
 - **Researcher SOUL.md 强化** — researcher 必须使用 `web_search`、`web_extract`、`terminal`、`read_file` 调研主题，不能只凭记忆。涉及参考项目时必须阅读其源码或文档。
 

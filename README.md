@@ -1,10 +1,12 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.8.0**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v1.8.8**
 
 [中文文档](./README_CN.md)
 
-Agora turns Hermes into a self-driving team: multiple AI roles — each a **real Hermes agent subprocess** with its own SOUL.md, MEMORY.md, tools, and session context — discuss approaches, search the web, write content, and auto-dispatch tasks. A **leader** (just a worker created from the "leader" template) acts as **chair** in event-driven discussions, dynamically picking speakers, evaluating progress, calling votes, and summarizing outcomes. Discussion results are written to the leader's MEMORY.md. The leader plans the next phase, decides when the goal is achieved, and stops itself. Everything is managed from the Dashboard — no CLI needed.
+Agora turns Hermes into a self-driving team: multiple AI roles — each a **real Hermes agent subprocess** with its own SOUL.md, tools, and session context — discuss approaches, search the web, write content, and auto-dispatch tasks. A **leader** (just a worker created from the "leader" template) acts as **chair** in event-driven discussions, dynamically picking speakers, evaluating progress, calling votes, and summarizing outcomes. Discussion results are stored in the motions database and surfaced via agora tools. The leader plans the next phase, decides when the goal is achieved, and stops itself. Everything is managed from the Dashboard — no CLI needed.
+
+> **Self-Growth (v1.8.6+):** Workers evolve through **2 channels**: **Skills** (`skill_manage`) and **SOUL.md** (`patch`). The old `memory` tool has been removed — MEMORY.md is written only by the discussion engine (leader) and hooks, not by workers directly.
 
 ## Key Features
 
@@ -12,16 +14,18 @@ Agora turns Hermes into a self-driving team: multiple AI roles — each a **real
 |---------|-------------|
 | **Unified worker model** | No separate leader concept — a leader is just a worker created from the "leader" template (`is_leader=true`). Everything goes through `worker_manager` |
 | **Event-driven discussion engine** | Leader chairs discussions: opens topic, picks speakers dynamically, evaluates after each turn, calls votes, summarizes — no fixed round-robin |
-| **Real agent subprocesses** | Each speaker is a real `hermes -p <profile> chat -q` spawn with SOUL.md, MEMORY.md, tools, and session context — not a stateless LLM call |
-| **Per-project session isolation** | Leader uses `--resume` with project-specific `session_id` — context doesn't bleed between projects |
-| **Shared experience** | Same leader profile manages multiple projects — MEMORY.md, SOUL.md, and skills are shared across projects |
+| **Real agent subprocesses** | Each speaker is a real `hermes -p <profile> chat -q` spawn with SOUL.md, tools, and session context — not a stateless LLM call |
+| **Per-project session isolation** | Leader uses a fresh session each heartbeat — context doesn't bleed between projects |
+| **Self-Growth (2 channels)** | Workers evolve via **Skills** (`skill_manage`) and **SOUL.md** (`patch`). No `memory` tool — MEMORY.md is managed by the discussion engine and hooks. |
 | **Heartbeat on project, not profile** | `heartbeat_member`, `heartbeat_minutes`, `heartbeat_cron_id` live on the project — one leader can run different projects at different intervals |
 | **AGENTS.md as single source of truth** | Project goal, stop condition, team roster (name → role template), and active discussions are written to AGENTS.md. Hermes auto-injects it into every agent's system prompt via TERMINAL_CWD. No prompt-level duplication. |
 | **Mid-flight project updates** | `agora_update_project` tool lets the leader change goal, description, or stop_condition without stopping the project. AGENTS.md is refreshed automatically. `reactivate=true` restarts a completed project with a new direction. |
 | **8 role templates** | Architect, Developer, Reviewer, Tester, DevOps, Researcher, Writer, Leader |
 | **Self-driving** | Heartbeat cron wakes leader to check kanban, unblock, plan, dispatch |
-| **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when stop condition is met → **double confirmation required** → cron auto-paused |
-| **3 kanban hooks** | `kanban_task_completed` (memory + comment + skill nudge), `kanban_task_claimed` (log + motion comment), `kanban_task_blocked` (auto-trigger discussion if design decision) |
+| **Auto-stop** | Leader outputs `PROJECT_COMPLETE` when stop condition is met → **double confirmation required** → cron auto-paused + **all kanban tasks deleted** (clean slate on restart) |
+| **3 kanban hooks** | `kanban_task_completed` (comment + skill nudge), `kanban_task_claimed` (log + motion comment), `kanban_task_blocked` (auto-trigger discussion if design decision) |
+| **Code review workflow** | `agora_close_task(action='submit_review')` transitions a task to `review` status and auto-assigns to reviewer — dispatcher auto-spawns the reviewer worker |
+| **Speaker 429 retry** | `_speaker_speak` detects API 429/rate-limit errors and retries up to **10 times** with incremental backoff (10s, 20s, …, 100s), clearing session on each retry |
 | **3 bundled skills** | `agora-setup` (operator onboarding), `agora-awareness` (worker framework knowledge), `agora-deliberation` (discussion methodology) — auto-deployed to `~/.hermes/skills/collaboration/` on register |
 | **Human participation** | Jump into discussions anytime via Dashboard input box |
 | **Dashboard** | Projects tab (default) + Team tab (Members + Teams + Profiles sub-tabs), real-time polling, toast notifications, heartbeat control panel |
@@ -45,7 +49,7 @@ None of these outputs required any single model to hold the full decision tree i
 | **Loses focus in long context** | Each speaker sees a compact, structured history (`[role (step_type)]: content`), not raw conversation. Typical input: ~2000 chars. |
 | **Jumps to conclusions** | Step-based flow forces: opening → speak → chair evaluates → next speaker. No skipping ahead. |
 | **Blind spots / single perspective** | Chair explicitly checks "who hasn't spoken?" and dispatches them. All perspectives must be heard before closure. |
-| **Forgets prior decisions** | Discussion outcomes are written to the leader's MEMORY.md. Next discussion starts with accumulated team knowledge. |
+| **Forgets prior decisions** | Discussion outcomes are stored in the motions database. Workers evolve via Skills + SOUL.md (2-channel self-growth, no memory). |
 | **Can't self-assess when stuck** | Chair's meta-decision loop: `continue | dispatch | vote | close` — the framework asks the right question at the right time. |
 | **Hallucinates without evidence** | Dispatch mode sends a worker to investigate with real tools (`web_search`, `read_file`, `terminal`) before committing to an opinion. |
 
@@ -148,7 +152,7 @@ AGENTS.md is auto-generated in the project workdir. Hermes auto-loads it into ev
 
 **Heartbeat prompt** is minimal — just a wake-up call. All context comes from AGENTS.md, not prompt injection.
 
-## Tools (17)
+## Tools (18)
 
 | Tool | Description |
 |------|-------------|
@@ -158,6 +162,7 @@ AGENTS.md is auto-generated in the project workdir. Hermes auto-loads it into ev
 | `agora_list_motions` | List active/closed discussions |
 | `agora_close_motion` | Close a stale/resolved motion |
 | `agora_create_task` | Create a kanban task |
+| `agora_close_task` | Close/transition a kanban task (`complete`, `cancel`, or `submit_review`) |
 | `agora_start_project` | Start a self-driving project |
 | `agora_stop_project` | Stop a project |
 | `agora_project_status` | Check project status |
@@ -170,13 +175,18 @@ AGENTS.md is auto-generated in the project workdir. Hermes auto-loads it into ev
 | `agora_list_teams` | List teams |
 | `agora_remove_team` | Remove a team |
 
+> **`agora_close_task` actions (v1.8.6+):**
+> - `complete` — mark task as done
+> - `cancel` — archive the task
+> - `submit_review` — transition to `review` status, auto-assign to reviewer. The kanban dispatcher auto-spawns the reviewer worker. After the reviewer completes, the task goes to `done`.
+
 > **Note:** All tool handlers return JSON strings (auto-serialized via `_wrap_handler` / `_wrap_handler_async`). Hermes tool registry requires `str`, not `dict`.
 
 ## Kanban Hooks
 
 | Hook | When | Action |
 |------|------|--------|
-| `kanban_task_completed` | Worker finishes a task | Write motion result to leader's memory (not workers); if complex task (>1 run or >30min), write skill-creation nudge comment |
+| `kanban_task_completed` | Worker finishes a task | Write motion result to motions DB (not workers — memory removed in v1.8.7); if complex task (>1 run or >30min), write skill-creation nudge comment |
 | `kanban_task_claimed` | Dispatcher assigns a task | Log claim; inject motion decision as task comment |
 | `kanban_task_blocked` | Worker blocks a task | If reason mentions "design decision" or "motion" → auto-create discussion |
 
@@ -199,25 +209,25 @@ Hermes HTTP client auto-retries on timeout. Agora subprocess timeout is the hard
 
 ```
 agora/
-├── plugin.yaml                  # Plugin manifest (17 tools + hooks)
+├── plugin.yaml                  # Plugin manifest (18 tools + hooks)
 ├── __init__.py                  # register(ctx)
-├── tools/__init__.py            # 17 tool definitions + _wrap_handler
+├── tools/__init__.py            # 18 tool definitions + _wrap_handler
 ├── cli.py                       # hermes agora CLI
 ├── hooks/__init__.py            # 3 kanban hooks
-├── project_planner.py           # Project lifecycle + heartbeat + AGENTS.md (atomic)
+├── project_planner.py           # Project lifecycle + heartbeat + AGENTS.md (atomic) + on_project_complete deletes tasks
 ├── agora/
 │   ├── utils.py                 # Shared utilities
 │   ├── discussion/
-│   │   ├── driver.py            # DiscussionDriver (speak/chair/vote/dispatch)
+│   │   ├── driver.py            # DiscussionDriver (speak/chair/vote/dispatch) + _speaker_speak 429 retry (10x)
 │   │   ├── agent_spawn.py       # Spawn Hermes agent subprocesses (3600s timeout)
 │   │   ├── chair.py             # Chair prompts + speaker prompt builder
 │   │   └── roles.py             # Discussion templates
 │   ├── storage/motions.py       # SQLite storage (WAL + busy_timeout=5000)
 │   ├── session_manager.py       # Session size tracking + rotation (profile-specific state.db)
-│   ├── worker_templates.py      # 8 role templates (SOUL.md rendering)
-│   ├── worker_manager.py        # Worker lifecycle (fcntl-locked sessions)
+│   ├── worker_templates.py      # 8 role templates (SOUL.md rendering, 2-channel Self-Growth)
+│   ├── worker_manager.py        # Worker lifecycle (fcntl-locked sessions, _patch_config_toolsets)
 │   ├── team_manager.py          # Team + dispatch routing
-│   └── leader_loop.py           # Heartbeat + stuck motion rescue + stale state cleanup
+│   └── leader_loop.py           # Heartbeat + stuck motion rescue + stale state cleanup (leader: no terminal)
 ├── dashboard/                   # Web UI + REST API
 │   ├── plugin_api.py            # FastAPI routes
 │   └── dist/                    # Compiled React frontend
@@ -232,6 +242,34 @@ agora/
 MIT
 
 ## Changelog
+
+### v1.8.8 — Speaker 429 retry (10x) + delete tasks on project completion
+
+- **`_speaker_speak` 429 retry** — When a worker hits API 429 (rate limit) during discussion, the error message was stored directly as the worker's speech — the discussion continued with empty contributions. Now detects 429/rate-limit/authorization-failed errors and retries up to **10 times** with incremental backoff (10s, 20s, …, 100s). Session is cleared on each retry for a fresh start.
+- **`on_project_complete` deletes all kanban tasks** — Previously, when a project completed, only the heartbeat was stopped and status set to `completed`. All tasks remained in the kanban DB. On restart with a new goal, the leader saw old tasks and tried `PROJECT_COMPLETE` immediately. Now deletes all project tasks from all tables (tasks, task_events, task_comments, task_runs, task_links). Clean slate on restart.
+
+### v1.8.7 — Delete tasks on completion + memory removal + toolset fixes
+
+- **Delete all kanban tasks on project completion** — `on_project_complete` now calls `delete_archived_task()` for every task in the project. On restart, the kanban is empty.
+- **Worker Self-Growth: 3 channels → 2** — Removed `memory` tool from workers. Self-Growth is now **Skills** (`skill_manage`) + **SOUL.md** (`patch`) only. Cross-project memory was not useful (different projects, different stacks); skills already capture reusable knowledge with better structure.
+- **Leader toolset: removed `memory`** — Leader doesn't need it; skills + SOUL.md suffice.
+- **Fixed `patch` toolset warning** — `patch` is part of `file`, not a standalone toolset.
+
+### v1.8.6 — Worker toolsets + submit_review + AGENTS.md improvements
+
+- **Worker toolsets written to config.yaml from template** — Previously the template's `toolsets` field was dead code; `config.yaml` was copied from global root (`hermes-cli` = all tools). Now `_patch_config_toolsets()` writes the template's toolsets into `platform_toolsets.cli` during worker creation.
+  - **Worker toolsets** (all 7 roles): `terminal, file, web, skills, todo, session_search`. Removed: `browser`, `tts`, `vision`, `code_execution`, `computer_use`, `cronjob`, `delegation`, `clarify`, `memory`.
+  - **Leader template toolsets**: `file, web, skills, todo, session_search` (overridden in `leader_loop.py` spawn to add `agora` — no `terminal`).
+- **`submit_review` action added to `agora_close_task`** — Developers submit via `agora_close_task(action='submit_review')`. Transitions task to `review` status, auto-assigns to reviewer. Dispatcher auto-spawns the reviewer. After review, task goes to `done`. Leader does NOT need to create separate review tasks.
+- **AGENTS.md Kanban Summary includes review status** — Shows `Review` count + "In review" task list + "Ready (queued)" task list.
+- **Leader SOUL.md Step 2: granular crash escalation** — 5-level escalation: crashed 1-2x → retry; >2x same worker → reassign/split; running >3 heartbeats → raise motion; review stuck >2 heartbeats → check reviewer.
+- **AGENTS.md Workflow section updated** — Developer: `submit_review` when team has reviewer. Other roles: `kanban complete`. "Never use Python, terminal, or direct DB calls" warning. Recent Decisions filters 0-step bypassed motions.
+
+### v1.8.5 — Leader restricted toolset + SOUL.md rewrite
+
+- **Leader toolset restricted — no `terminal`** — Changed leader spawn toolset from `hermes-cli` (all tools) to `file, web, skills, todo, session_search, agora`. The leader can no longer bypass `agora_raise_motion` by calling Python/DB directly via terminal, run tests, or modify project code. Only read files, edit own SOUL.md/MEMORY.md (`patch`), create skills (`skill_manage`), and manage project via agora tools.
+- **SOUL.md rewrite** — Identity: removed "reading code, tests" from assess role. Core Constraints: "may read project docs, NEVER write project code". Post-Heartbeat Skill Review (replaces Post-Task — leader doesn't execute tasks). Self-Growth: "record what you learned, not what you did"; `patch` only.
+- **Worker SOUL.md shared sections — 4 improvements** — Discussion Protocol: fixed terminal contradiction. Post-Task Skill Review: broadened for all roles. Self-Growth: `patch` only, no `write_file`. Researcher: removed duplicate Discussion Protocol section.
 
 ### v1.8.0 — Full code audit: motion guards, discussion quality, truncation fix, 20 bug fixes
 
@@ -273,12 +311,12 @@ Comprehensive code review (OCR standard mode + subagent audit) identified and fi
 
 ### v1.7.0 — Discussion speaker tool access + chair retry + task management
 
-- **Discussion speakers now have full tool access** — changed `--toolsets agora` to `--toolsets hermes-cli` in `agent_spawn.py`. Previously, discussion participants (architect, developer, researcher, tester, reviewer, writer) only had the 17 Agora tools — no `terminal`, `read_file`, `search_files`, `web_search`, `web_extract`. This caused 112+ messages across two projects where workers reported they couldn't read code, run tests, or research reference projects. Now speakers have all built-in tools + Agora tools.
+- **Discussion speakers now have full tool access** — changed `--toolsets agora` to `--toolsets hermes-cli` in `agent_spawn.py`. Previously, discussion participants (architect, developer, researcher, tester, reviewer, writer) only had the 17 Agora tools — no `terminal`, `read_file`, `search_files`, `web_search`, `web_extract`. This caused 112+ messages across two projects where workers reported they couldn't read code, run tests, or research reference projects. Now speakers have all built-in tools + Agora tools. *(Note: In v1.8.6, this was further refined — speakers now use the worker template toolsets: `terminal, file, web, skills, todo, session_search`, not the full `hermes-cli`.)*
 - **Chair open/evaluate retry on non-JSON** — when the chair (leader) returns a non-JSON response, the discussion driver retries once with a stronger "respond with JSON ONLY" prompt before aborting. Prevents `decision=error, steps=0` motions caused by occasional LLM formatting failures.
 - **`spawn_discussion_driver` uses global `~/.hermes/agora/`** — runner scripts and log files now always go to the global agora directory, not the profile-scoped `HERMES_HOME`. Fixes the issue where leader heartbeat created runner scripts in `~/.hermes/profiles/leader/agora/` but they couldn't be found by other processes.
 - **Stuck motion auto-cleanup** — motions stuck at `steps=0` for more than 5 minutes are now automatically closed as `error` by `_rescue_stuck_motions`. Previously these stayed in `discussing` forever, blocking leader from closing them.
 - **Kanban task counts filtered by tenant** — `_count_tasks()` now accepts a `tenant` parameter. Dashboard project list and detail views show per-project task counts instead of global totals. Fixes "kanban count not resetting" for new projects.
-- **New `agora_close_task` tool** — leader can now close stale blocked/running tasks directly (action=`complete` or `cancel`) without needing kanban CLI or `HERMES_KANBAN_TASK` env var. SOUL.md updated with stale task cleanup instructions.
+- **New `agora_close_task` tool** — leader can now close stale blocked/running tasks directly (action=`complete` or `cancel`) without needing kanban CLI or `HERMES_KANBAN_TASK` env var. SOUL.md updated with stale task cleanup instructions. *(In v1.8.6, a `submit_review` action was added for code review workflow.)*
 - **`complete_count` initialized on new project** — new projects now start with `complete_count: 0` and `completion_check_pos: 0` instead of `None`.
 - **Researcher SOUL.md strengthened** — researcher must use `web_search`, `web_extract`, `terminal`, and `read_file` to investigate topics. Cannot rely on memory alone. Must read reference project source code before giving recommendations.
 
@@ -374,5 +412,5 @@ Comprehensive code review (OCR standard mode + subagent audit) identified and fi
 
 ### v1.3.0 — Discussion engine critical fixes
 
-- Leader and participants now get `--toolsets agora`
+- Leader and participants now get `--toolsets agora` *(later changed to `hermes-cli` in v1.7.0, then refined to specific toolsets in v1.8.6)*
 - Stuck motion recovery via `_rescue_stuck_motions()`

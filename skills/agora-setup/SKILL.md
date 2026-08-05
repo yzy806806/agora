@@ -21,7 +21,11 @@ workers, forming a team, and starting a self-driving project.
 ### Step 1: Create Workers
 
 Create workers from role templates. Each worker is a Hermes profile with its
-own SOUL.md (identity), MEMORY.md, and skills directory.
+own SOUL.md (identity), MEMORY.md (written by discussion engine/hooks), and skills directory.
+
+**Worker toolsets (v1.8.6+):** `terminal, file, web, skills, todo, session_search`.
+No `browser`, `tts`, `vision`, `code_execution`, `memory`, or `cronjob`.
+Leader toolset: `file, web, skills, todo, session_search` (no `terminal`) + `agora` (overridden at spawn).
 
 ```
 # List available templates
@@ -183,10 +187,24 @@ agora_raise_motion(
 
 - **Workers not picking up tasks?** Check that the gateway is running and
   the kanban dispatcher is active: `hermes gateway status`
-- **Discussions not starting?** Check that the leader has `--toolsets agora`
+- **Discussions not starting?** Check that the leader has `agora` toolset
   (it should be automatic). Check `agora_list_motions(status="active")`.
 - **Heartbeat not firing?** Check cron: `hermes cron list`. Look for
   `heartbeat-<project_name>`.
-- **Worker memory full?** Workers have a 2200-char memory limit. Use
-  `agora_remove_worker` + `agora_create_worker` to reset, or edit
-  `~/.hermes/profiles/<name>/memories/MEMORY.md` manually.
+- **Worker memory full?** Workers no longer use the `memory` tool (v1.8.6+).
+  MEMORY.md is written by the discussion engine and hooks only. If you need
+  to reset a worker, use `agora_remove_worker` + `agora_create_worker`, or
+  edit `~/.hermes/profiles/<name>/memories/MEMORY.md` manually.
+
+## Code Review Workflow (v1.8.6+)
+
+When a team includes a reviewer role, developers can submit tasks for code
+review instead of marking them done directly:
+
+```
+agora_close_task(task_id="t_xxx", action="submit_review")
+```
+
+This transitions the task to `review` status and auto-assigns to the reviewer
+worker. The dispatcher auto-spawns the reviewer. After review, the task goes
+to `done`. The leader does NOT need to create separate review tasks.

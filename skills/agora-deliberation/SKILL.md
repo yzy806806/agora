@@ -55,10 +55,15 @@ Action items become kanban tasks automatically. Check your task list for new ass
 ## Discussion Flow
 
 ```
-1. Motion raised → LLM drives multi-role discussion (architect/developer/reviewer)
-2. Each round: all participants speak in order
-3. Consensus check after each round (may stop early)
-4. Summary generated: decision + action items + confidence
-5. Action items → kanban tasks (auto-dispatched to workers)
-6. If blocking: source task unblocked with discussion result in comments
+1. Motion raised → leader chairs event-driven discussion (no fixed round-robin)
+2. Chair opens → states topic, picks first speaker + guidance question
+3. Speaker speaks → real Hermes agent subprocess (SOUL.md, tools, session context)
+4. Chair evaluates → continue? dispatch? vote? close? (JSON-based meta-decision)
+5. Repeat 3-4 → until close or max_steps (default 30)
+6. (Optional) Vote → each participant votes → chair decides outcome
+7. Summary → chair generates action items + writes to MEMORY.md
+8. Action items → kanban tasks (auto-dispatched to workers)
+9. If blocking: source task unblocked with discussion result in comments
 ```
+
+> **Speaker 429 retry (v1.8.8+):** If a worker hits API 429/rate-limit during discussion, `_speaker_speak` retries up to 10 times with incremental backoff (10s, 20s, …, 100s), clearing session on each retry. This prevents empty contributions from being stored as the worker's speech.
