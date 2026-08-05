@@ -2,6 +2,34 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.8] — 2026-08-04
+
+### Speaker 429 retry: 10 attempts with backoff
+
+**Problem:** When a worker hit API 429 (rate limit) during a discussion, the
+error message "API call failed after 3 retries: HTTP 429: authorization
+failed" was stored directly as the worker's speech — it looked like the worker
+spoke, but actually said nothing. The discussion continued with empty
+contributions, and the chair couldn't tell the difference.
+
+**Fix:** `_speaker_speak` now detects 429/rate-limit/authorization-failed errors
+and retries up to 10 times with 10s/20s/.../100s incremental backoff. Session
+is cleared on each retry for a fresh start.
+
+Previously the dispatch/investigator path had `MAX_CONSECUTIVE_FAILURES=3`
+tracking, but the normal speaker path had zero error detection.
+
+### Delete kanban tasks on project completion
+
+`on_project_complete` now deletes all project tasks (from all tables: tasks,
+task_events, task_comments, task_runs, task_links) instead of leaving 290+ done
+tasks in the DB. On project restart with a new goal, the kanban is empty.
+
+### Files changed
+- `agora/discussion/driver.py` — `_speaker_speak` 429 detection + 10 retries
+- `project_planner.py` — `on_project_complete` deletes all tasks
+- `__init__.py` / `plugin.yaml` — version bump
+
 ## [1.8.7] — 2026-08-04
 
 ### Delete all kanban tasks on project completion
