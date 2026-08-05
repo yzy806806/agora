@@ -419,43 +419,70 @@ class DiscussionDriver:
         self, speaker: str, title: str, description: str,
         guidance: str, task_context: str,
     ) -> str:
-        """Spawn a worker agent to speak in the discussion."""
-        history = self._build_history()
-        prompt = build_speaker_prompt(
-            role=speaker,
-            title=title,
-            description=description,
-            discussion_history=history,
-            guidance=guidance,
-            task_context=task_context,
-        )
+        """Spawn a worker agent to speak in the discussion.
 
-        # Get the worker's session_id for --resume
-        session_id = self._get_worker_session(speaker)
+        Retries up to 3 times on API 429 / rate-limit errors before giving up.
+        """
+        max_retries = 3
+        for attempt in range(max_retries):
+            history = self._build_history()
+            prompt = build_speaker_prompt(
+                role=speaker,
+                title=title,
+                description=description,
+                discussion_history=history,
+                guidance=guidance,
+                task_context=task_context,
+            )
 
-        result = spawn_agent_speak(
-            profile_name=speaker,
-            prompt=prompt,
-            session_id=session_id,
-            workdir=self.workdir,
-            timeout=self.speak_timeout,
-        )
+            # Get the worker's session_id for --resume
+            session_id = self._get_worker_session(speaker)
 
-        # Save the new session_id for future --resume
-        if result.get("session_id"):
-            self._update_worker_session(speaker, result["session_id"])
+            result = spawn_agent_speak(
+                profile_name=speaker,
+                prompt=prompt,
+                session_id=session_id,
+                workdir=self.workdir,
+                timeout=self.speak_timeout,
+            )
 
-        # If the speaker returned an error placeholder, keep the session
-        # so the next attempt can resume with context. Clearing the session
-        # forces a cold start every time, which loses prior work and makes
-        # timeouts more likely on retry. The dispatch/investigate path
-        # already uses a fresh session when it needs one.
-        reply = result.get("reply", "")
-        # Note: we no longer clear the session on timeout/error. The
-        # session may still have useful context (partial tool calls, etc.)
-        # that can help the next attempt succeed.
+            # Save the new session_id for future --resume
+            if result.get("session_id"):
+                self._update_worker_session(speaker, result["session_id"])
 
-        return reply
+            reply = result.get("reply", "")
+
+            # Check for API errors (429, rate limit, authorization failed)
+            reply_lower = reply.lower().strip()
+            is_api_error = (
+                result.get("error")
+                or "api call failed" in reply_lower
+                or "429" in reply_lower
+                or "rate limit" in reply_lower
+                or "authorization failed" in reply_lower
+            )
+
+            if is_api_error and attempt < max_retries - 1:
+                # API error — wait briefly and retry
+                wait_sec = 10 * (attempt + 1)  # 10s, 20s, 30s
+                logger.warning(
+                    "Speaker %s hit API error (attempt %d/%d), "
+                    "waiting %ds before retry: %s",
+                    speaker, attempt + 1, max_retries, wait_sec,
+                    reply[:100],
+                )
+                import time as _time
+                _time.sleep(wait_sec)
+                # Clear session on error — fresh start may help
+                self._clear_worker_session(speaker)
+                continue
+
+            # Success or final attempt exhausted
+            # If the speaker returned an error placeholder, keep the session
+            # so the next attempt can resume with context.
+            return reply
+
+        return reply  # last attempt's result
 
     def _investigator_speak(
         self, investigator: str, title: str, dispatch_task: str,
