@@ -611,7 +611,7 @@ def start_project(
 
 
 def stop_project(project_name: str) -> dict:
-    """Stop a project and pause its heartbeat."""
+    """Stop a project, pause its heartbeat, and delete all kanban tasks."""
     pf = _project_file(project_name)
     if not pf.exists():
         return {"error": f"Project '{project_name}' not found"}
@@ -625,6 +625,35 @@ def stop_project(project_name: str) -> dict:
     data["status"] = "stopped"
     pf.write_text(json.dumps(data, indent=2))
     logger.info("Project %s stopped", project_name)
+
+    # Delete all kanban tasks — same as on_project_complete.
+    # Without this, old tasks remain and confuse the leader on restart.
+    try:
+        from hermes_cli import kanban_db as _kdb
+        board = f"agora-{safe_name(project_name)}"
+        conn = _kdb.connect()
+        try:
+            rows = conn.execute(
+                "SELECT id FROM tasks WHERE (tenant = ? OR tenant IS NULL)",
+                (board,),
+            ).fetchall()
+            task_ids = [r[0] for r in rows]
+            deleted = 0
+            for tid in task_ids:
+                _kdb.delete_archived_task(conn, tid)
+                deleted += 1
+            conn.commit()
+            logger.info(
+                "Project '%s' stopped: deleted %d kanban tasks",
+                project_name, deleted,
+            )
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning(
+            "Failed to delete tasks on project stop: %s", exc
+        )
+
     return {"status": "stopped", "project": data}
 
 
