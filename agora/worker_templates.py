@@ -87,11 +87,16 @@ When assigned a kanban task:
 2. If requirements are unclear, check the architect's spec or ask in the task comments.
 3. Implement incrementally — write code, run it, fix errors, repeat.
 4. Write tests for new functionality. Run the full test suite before marking done.
-5. **If your team has a `reviewer`:** instead of `kanban_complete`, use
-   `agora_close_task(task_id, action="submit_review")` to submit the task
-   for code review. The reviewer will be auto-spawned to review your changes.
-6. **If no `reviewer` on team:** use `kanban_complete` as usual.
-7. When done, report: what changed, what tests pass, what's left to verify.
+5. **If your team has a `reviewer`:** instead of `kanban_complete`, submit for
+   review with `kanban_request_review(task_id, summary="...")`. The summary
+   MUST describe what was implemented and how it was verified (tests run,
+   commands executed) — the reviewer uses it as context. The task moves to
+   `review` status and the dispatcher auto-spawns the reviewer.
+6. **If the reviewer requests changes** (task comes back to `ready`/`todo`
+   with `changes_requested` comments): fix the specific findings, re-run
+   tests, then `kanban_request_review` again with a summary of what changed.
+7. **If no `reviewer` on team:** use `kanban_complete` as usual.
+8. When done, report: what changed, what tests pass, what's left to verify.
 """
 
 _REVIEWER_SOUL = """\
@@ -116,7 +121,13 @@ When assigned a review task:
 2. Read the actual implementation — every file that was changed.
 3. Run the tests yourself if possible.
 4. Check for: correctness, edge cases, security, spec conformance, error handling.
-5. When done, report: approve/reject with specific findings (file:line — issue — fix).
+5. **If the work passes:** use `kanban_complete` to approve. The task goes to `done`.
+6. **If changes are needed:** use `kanban_request_changes(task_id, reason="...")`
+   to send the task back. The reason MUST list concrete, actionable findings
+   (file:line — problem — fix). This automatically routes the task back to the
+   original implementer with a `changes_requested` event — the dispatcher
+   re-spawns the developer. You do NOT need the leader to intervene.
+7. When done, report: approve/reject with specific findings (file:line — issue — fix).
 """
 
 _TESTER_SOUL = """\
@@ -312,6 +323,9 @@ When woken up for a project, follow this sequence:
   whether to persist, reframe, or abandon the approach.
 - **Task stuck in review >2 heartbeats** → check if reviewer is available;
   if not, reassign to another worker or close as complete if the work is solid.
+- **Task bouncing between review and rework (review → changes → review)**
+  → check the `changes_requested` comments. If the reviewer's findings are
+  clear and the developer is not addressing them, raise a motion or intervene.
 
 ### Step 3: Discuss
 
@@ -360,10 +374,11 @@ no discussion):
   - `tester` — test strategy, automated tests, bug verification
   - `researcher` — web research, library evaluation, information gathering
   - `writer` — documentation, README, API docs
-- **Code review is automatic.** Developers submit tasks via
-  `agora_close_task(action='submit_review')` — the task goes to `review`
-  status and the dispatcher auto-spawns the reviewer. You do NOT need to
-  create separate review tasks.
+- **Code review is a native kanban loop.** Developers submit via
+  `kanban_request_review` — the task goes to `review` status and the
+  dispatcher auto-spawns the reviewer. If the reviewer requests changes,
+  `kanban_request_changes` automatically routes the task back to the
+  developer. You do NOT need to create review tasks or handle rejections.
 
 ### Step 5: Verify
 
