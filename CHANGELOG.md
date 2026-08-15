@@ -2,6 +2,50 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.8.9] — 2026-08-13
+
+### Native kanban review loop (request_review + request_changes)
+
+Hermes v0.20.1 has first-class kanban review: `request_review`,
+`request_changes`, `reopen_review_task` with worker-ownership checks and
+reviewer provenance. Our hand-rolled `agora_close_task(action='submit_review')`
+was a simplified version without the full loop.
+
+**New review flow:**
+```
+developer → kanban_request_review(task_id, summary=...)
+  → task moves to review, dispatcher auto-spawns reviewer
+    → reviewer approves → kanban_complete → done
+    → reviewer requests changes → kanban_request_changes(reason=...)
+      → task auto-routes back to original implementer
+      → developer fixes, re-submits via kanban_request_review
+```
+
+**Key benefits:**
+- Worker ownership checks — can't submit someone else's task
+- Reviewer provenance — implementer/reviewer recorded, auto-routing on rework
+- Full closed loop — no leader intervention needed
+- Removed our `submit_review` action (67 lines less code)
+
+**Changes:**
+- developer SOUL.md: `kanban_request_review` + re-submit after changes
+- reviewer SOUL.md: approve with `kanban_complete`, reject with `kanban_request_changes`
+- leader SOUL.md: review↔rework bounce detection in Step 2
+- AGENTS.md Workflow: developer + reviewer sections updated
+- `agora_close_task`: removed `submit_review` action
+
+### stop_project deletes kanban tasks
+
+`agora_stop_project` now deletes all project tasks (same as `on_project_complete`).
+Previously the two completion paths were inconsistent — PROJECT_COMPLETE cleaned
+up but stop_project didn't, leaving old tasks that confused the leader on restart.
+
+### Files changed
+- `agora/worker_templates.py` — review loop in developer/reviewer/leader SOUL
+- `tools/__init__.py` — removed submit_review, docs updated
+- `project_planner.py` — stop_project task deletion + AGENTS.md workflow
+- `__init__.py` / `plugin.yaml` — version bump
+
 ## [1.8.8] — 2026-08-04
 
 ### Speaker 429 retry: 10 attempts with backoff
