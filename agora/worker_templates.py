@@ -11,13 +11,13 @@ Each template defines:
   - model:          recommended model (optional, falls back to parent)
 
 A "worker" is a Hermes profile created from one of these templates.
-The same worker can participate in multiple projects — their memory,
-skills, and identity persist across projects, just like a real employee.
+The same worker can participate in multiple projects — their skills
+and identity persist across projects, just like a real employee.
 
 SOUL.md templates follow the "self-evolving agent" philosophy: each is a
 minimal identity seed (30-50 lines). The agent grows its own procedures,
-planning protocols, and working styles through experience — saving skills,
-recording memory, and editing its own SOUL.md as it learns.
+planning protocols, and working styles through experience — saving skills
+and editing its own SOUL.md as it learns.
 
 Common protocol (shared by all roles, not repeated in each SOUL):
 
@@ -29,10 +29,10 @@ Common protocol (shared by all roles, not repeated in each SOUL):
     5. Keep it concise (2-4 paragraphs)
     6. Reference other speakers by name
 
-  Self-Growth:
-    - When you discover a useful pattern, save it as a skill.
-    - When you learn a fact, record it with the memory tool.
-    - When you want to permanently change your working style, edit your SOUL.md.
+## Self-Growth
+
+1. **Skills** — When you discover a useful pattern, save it as a skill.
+2. **SOUL.md** — When you want to permanently change your working style, edit your SOUL.md.
 """
 from __future__ import annotations
 
@@ -626,7 +626,7 @@ def render_soul(template: dict, name: str, **kwargs) -> str:
 
     Extra kwargs (e.g. project=) are substituted into the template.
     The Self-Growth section is appended to every role's SOUL so workers
-    know the exact paths for their personal memory, skills, and SOUL.md.
+    know the exact paths for their personal skills and SOUL.md.
     The Discussion Protocol section is appended to all non-leader roles.
     """
     fmt_args = {"name": name, **kwargs}

@@ -2,6 +2,43 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.9.0] — 2026-08-14
+
+### Remove all residual memory writes (code review cleanup)
+
+Full OCR audit found that despite v1.8.7 removing the *memory tool* and
+*Self-Growth channel*, the code still **wrote** to MEMORY.md:
+
+- `driver.py:_write_participant_memories` wrote discussion results to every
+  participant + chair's MEMORY.md after each motion finalized — **deleted entirely** (3052 chars)
+- `hooks/__init__.py:_write_to_memory` imported `MemoryStore` and wrote motion
+  decisions to leader's MEMORY.md — **deleted entirely** + the hook call site
+  that triggered it
+- `driver.py` docstrings still said "Memory persistence: results written to
+  each participant's MEMORY.md" — **fixed**
+- `worker_templates.py` module docstring still said "recording memory" and
+  "their memory persist across projects" — **fixed**
+
+### Voting now has 429 retry protection
+
+`_run_voting` and `_run_forced_vote` spawned agents directly via
+`spawn_agent_speak` without 429 detection — API rate limits during voting
+caused silent `abstain` fallbacks. Both now use the new `_spawn_with_retry`
+method with 10 retries + incremental backoff (same as `_speaker_speak`).
+
+### Stale docstrings fixed
+
+- `driver.py` module docstring: removed `--resume` reference (disabled),
+  changed "Memory persistence" to "Results stored in motions DB"
+- `_speaker_speak` docstring: "3 times" → "10 times" (match actual max_retries)
+
+### Files changed
+- `agora/discussion/driver.py` — deleted `_write_participant_memories`,
+  added `_spawn_with_retry`, fixed docstrings, voting uses retry
+- `hooks/__init__.py` — deleted `_write_to_memory`, removed MemoryStore import
+- `agora/worker_templates.py` — fixed module/docstring memory references
+- `__init__.py` / `plugin.yaml` — version bump to 1.9.0
+
 ## [1.8.9] — 2026-08-13
 
 ### Native kanban review loop (request_review + request_changes)

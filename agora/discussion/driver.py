@@ -4,8 +4,8 @@ Replaces the old round-robin ctx.llm.complete approach with:
   - Real agent subprocess spawns (hermes -p <profile> chat -q)
   - Leader as chair: opens, evaluates, redirects, calls votes, summarizes
   - Event-driven flow: Leader picks next speaker dynamically
-  --resume preserves conversation context across kanban tasks and discussions
-  - Memory persistence: results written to each participant's MEMORY.md
+  - Session isolation: fresh session per heartbeat for attention quality
+  - Results stored in motions DB and surfaced via agora tools
 
 Flow:
   1. Chair (Leader) opens → names first speaker + guidance
@@ -13,7 +13,7 @@ Flow:
   3. Chair evaluates → continue? vote? close?
   4. Repeat 2-3 until close or max_steps
   5. (Optional) Vote: each participant votes → chair decides
-  6. Summary: chair generates action items + writes memory
+  6. Summary: chair generates action items + closes motion
 """
 from __future__ import annotations
 
@@ -298,7 +298,7 @@ class DiscussionDriver:
                     last_action="continue",
                 )
 
-        # --- Finalize: summary + memory ---
+        # --- Finalize: summary + task creation ---
         # If we exited the loop due to max_steps (not because the chair called
         # close or vote), force a formal vote before finalizing.
         if step >= self.max_steps and step > 0:
@@ -421,7 +421,7 @@ class DiscussionDriver:
     ) -> str:
         """Spawn a worker agent to speak in the discussion.
 
-        Retries up to 3 times on API 429 / rate-limit errors before giving up.
+        Retries up to 10 times on API 429 / rate-limit errors before giving up.
         """
         max_retries = 10
         for attempt in range(max_retries):
@@ -527,6 +527,41 @@ class DiscussionDriver:
 
         return result.get("reply", "")
 
+    def _spawn_with_retry(
+        self, profile: str, prompt: str,
+    ) -> dict:
+        """Spawn an agent with 429 retry protection. Used for voting."""
+        max_retries = 10
+        result = {}
+        for attempt in range(max_retries):
+            session_id = self._get_worker_session(profile)
+            result = spawn_agent_speak(
+                profile_name=profile,
+                prompt=prompt,
+                session_id=session_id,
+                workdir=self.workdir,
+                timeout=self.speak_timeout,
+            )
+            if result.get("session_id"):
+                self._update_worker_session(profile, result["session_id"])
+
+            reply = result.get("reply", "")
+            reply_lower = reply.lower().strip()
+            is_api_error = (
+                result.get("error")
+                or "api call failed" in reply_lower
+                or "429" in reply_lower
+                or "rate limit" in reply_lower
+                or "authorization failed" in reply_lower
+            )
+            if is_api_error and attempt < max_retries - 1:
+                import time as _time
+                _time.sleep(10 * (attempt + 1))
+                self._clear_worker_session(profile)
+                continue
+            return result
+        return result
+
     # ------------------------------------------------------------------ #
     #  Voting                                                            #
     # ------------------------------------------------------------------ #
@@ -561,18 +596,9 @@ class DiscussionDriver:
         votes = []
         for participant in self.participants:
             vote_prompt = build_vote_prompt(participant, title, history)
-            session_id = self._get_worker_session(participant)
 
-            result = spawn_agent_speak(
-                profile_name=participant,
-                prompt=vote_prompt,
-                session_id=session_id,
-                workdir=self.workdir,
-                timeout=self.speak_timeout,
-            )
-
-            if result.get("session_id"):
-                self._update_worker_session(participant, result["session_id"])
+            # Spawn with 429 retry protection
+            result = self._spawn_with_retry(participant, vote_prompt)
 
             vote_data = parse_json_response(result.get("reply", ""))
             if vote_data is None:
@@ -660,18 +686,7 @@ class DiscussionDriver:
                 f"Cast your vote. Respond with JSON ONLY:\n"
                 f'{{"vote": "adopt" | "reject" | "abstain", "reason": "<1-2 sentences>"}}\n'
             )
-            session_id = self._get_worker_session(participant)
-
-            result = spawn_agent_speak(
-                profile_name=participant,
-                prompt=vote_prompt,
-                session_id=session_id,
-                workdir=self.workdir,
-                timeout=self.speak_timeout,
-            )
-
-            if result.get("session_id"):
-                self._update_worker_session(participant, result["session_id"])
+            result = self._spawn_with_retry(participant, vote_prompt)
 
             vote_data = parse_json_response(result.get("reply", ""))
             if vote_data is None:
@@ -705,7 +720,7 @@ class DiscussionDriver:
     # ------------------------------------------------------------------ #
 
     def _finalize(self, title: str, motion: dict) -> DiscussionResult:
-        """Generate summary, create tasks, write memory, close motion."""
+        """Generate summary, create tasks, close motion."""
         db.update_motion_state(self.motion_id, "summarizing")
 
         history = self._build_history()
@@ -767,9 +782,6 @@ class DiscussionDriver:
                 action_items=action_items,
                 source_task_id=motion.get("source_task_id"),
             )
-
-        # Write memory to each participant
-        self._write_participant_memories(title, summary_data, votes)
 
         logger.info(
             "Discussion finalized: motion=%s decision=%s tasks=%d",
@@ -900,74 +912,6 @@ class DiscussionDriver:
         # This is a hook for future expansion (e.g. notifications).
         messages = db.get_messages(self.motion_id)
         return [m for m in messages if m.get("step_type") == "human_input"]
-
-    def _write_participant_memories(
-        self, title: str, summary_data: dict, votes: list[dict],
-    ) -> None:
-        """Write discussion results to each participant's MEMORY.md."""
-        global_root = get_global_root()
-
-        for participant in self.participants:
-            try:
-                # Find the participant's profile directory
-                profile_dir = global_root / "profiles" / participant
-                if not profile_dir.exists():
-                    continue
-
-                memory_path = profile_dir / "memories" / "MEMORY.md"
-                memory_path.parent.mkdir(parents=True, exist_ok=True)
-                # Find this participant's stance
-                their_vote = next(
-                    (v for v in votes if v["role"] == participant), None
-                )
-                stance_desc = ""
-                if their_vote:
-                    stance_desc = f"My vote: {their_vote['vote']} — {their_vote.get('reason', '')}"
-
-                decision = summary_data.get("decision", "unknown")
-                summary_text = summary_data.get("summary", "")
-
-                entry = (
-                    f"\nAgora discussion ({self.motion_id}): \"{title}\"\n"
-                    f"  {stance_desc}\n"
-                    f"  Decision: {decision} — {summary_text[:150]}\n"
-                )
-                if len(entry) > 300:
-                    entry = entry[:297] + "...\n"
-
-                # Append to MEMORY.md
-                if memory_path.exists():
-                    current = memory_path.read_text()
-                    memory_path.write_text(current + entry)
-                else:
-                    memory_path.write_text(f"# {participant} Memory\n{entry}")
-
-                logger.info("Wrote memory for %s", participant)
-            except Exception as exc:
-                logger.warning("Failed to write memory for %s: %s", participant, exc)
-
-        # Write to chair's memory too
-        try:
-            profile_dir = global_root / "profiles" / self.chair_profile
-            if profile_dir.exists():
-                memory_path = profile_dir / "memories" / "MEMORY.md"
-                memory_path.parent.mkdir(parents=True, exist_ok=True)
-                vote_summary = ", ".join(
-                    f"{v['role']}={v['vote']}" for v in votes
-                ) if votes else "no vote"
-                entry = (
-                    f"\nAgora motion {self.motion_id} resolved: \"{title}\" → "
-                    f"{summary_data.get('decision', 'unknown')}\n"
-                    f"  Votes: {vote_summary}\n"
-                    f"  {len(summary_data.get('action_items', []))} action items created.\n"
-                )
-                if memory_path.exists():
-                    current = memory_path.read_text()
-                    memory_path.write_text(current + entry)
-                else:
-                    memory_path.write_text(f"# {self.chair_profile} Memory\n{entry}")
-        except Exception as exc:
-            logger.warning("Failed to write chair memory: %s", exc)
 
     def _create_kanban_tasks(
         self, motion_id: str, title: str,

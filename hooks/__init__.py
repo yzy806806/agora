@@ -86,26 +86,10 @@ def _on_task_completed(
             )
 
             if decision == "adopted":
-                # Only write motion decisions to the LEADER's memory.
-                # Workers don't need to remember every team decision —
-                # they should record their own technical experience instead.
-                # Motion records are session-level info that goes stale;
-                # Hermes guidance says "if it'll be stale in a week, don't
-                # put it in memory."
-                if profile_name and profile_name != "default":
-                    # Check if this profile is a leader
-                    try:
-                        from agora.worker_manager import get_worker
-                        worker = get_worker(profile_name)
-                        if worker and worker.get("is_leader"):
-                            _write_to_memory(
-                                motion_id=motion_id,
-                                title=title,
-                                rationale=rationale,
-                                action_items=action_items,
-                            )
-                    except Exception:
-                        pass
+                # Motion decisions are stored in the motions DB, not worker
+                # memory — memory was removed in v1.8.7. Workers evolve via
+                # Skills + SOUL.md (2-channel self-growth).
+                pass
 
             logger.info(
                 "Agora hook: task %s completed (motion %s, decision=%s)",
@@ -240,47 +224,6 @@ def _write_kanban_comment(
             conn.close()
     except Exception as exc:
         logger.debug("Failed to write kanban comment for task %s: %s", task_id, exc)
-
-
-def _write_to_memory(
-    motion_id: str,
-    title: str,
-    rationale: str,
-    action_items: list[str],
-) -> None:
-    """Write a concise motion decision to the LEADER's MEMORY.md only.
-
-    Workers don't receive motion records — they should record their own
-    technical experience via the memory tool, not have team decisions
-    dumped into their memory by hooks.
-    """
-    try:
-        try:
-            from tools.memory_tool import MemoryStore
-        except ImportError:
-            from hermes_cli.memory_tool import MemoryStore
-    except ImportError:
-        return
-
-    try:
-        store = MemoryStore()
-        store.load_from_disk()
-
-        # One concise line — the leader just needs to know what was decided.
-        entry = f"Motion {motion_id}: {title[:80]} → {rationale[:100]}"
-        if len(entry) > 200:
-            entry = entry[:197] + "..."
-
-        result = store.add("memory", entry)
-        if result.get("success"):
-            logger.info("Agora memory entry written for motion %s", motion_id)
-        else:
-            logger.debug(
-                "Memory write skipped for motion %s: %s",
-                motion_id, result.get("error", ""),
-            )
-    except Exception as exc:
-        logger.debug("Failed to write memory for motion %s: %s", motion_id, exc)
 
 
 # --------------------------------------------------------------------------- #
