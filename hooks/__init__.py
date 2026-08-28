@@ -85,12 +85,6 @@ def _on_task_completed(
                 action_items=action_items,
             )
 
-            if decision == "adopted":
-                # Motion decisions are stored in the motions DB, not worker
-                # memory — memory was removed in v1.8.7. Workers evolve via
-                # Skills + SOUL.md (2-channel self-growth).
-                pass
-
             logger.info(
                 "Agora hook: task %s completed (motion %s, decision=%s)",
                 task_id, motion_id, decision,

@@ -452,14 +452,18 @@ class DiscussionDriver:
 
             reply = result.get("reply", "")
 
-            # Check for API errors (429, rate limit, authorization failed)
+            # Check for API errors (rate limit, authorization failed)
+            # Note: we match full error phrases, not bare "429" — a reply
+            # mentioning "line 429" or "port 429" should NOT trigger retry.
             reply_lower = reply.lower().strip()
             is_api_error = (
                 result.get("error")
                 or "api call failed" in reply_lower
-                or "429" in reply_lower
                 or "rate limit" in reply_lower
+                or "rate_limit" in reply_lower
                 or "authorization failed" in reply_lower
+                or "http 429" in reply_lower
+                or "http 503" in reply_lower
             )
 
             if is_api_error and attempt < max_retries - 1:
@@ -550,9 +554,11 @@ class DiscussionDriver:
             is_api_error = (
                 result.get("error")
                 or "api call failed" in reply_lower
-                or "429" in reply_lower
                 or "rate limit" in reply_lower
+                or "rate_limit" in reply_lower
                 or "authorization failed" in reply_lower
+                or "http 429" in reply_lower
+                or "http 503" in reply_lower
             )
             if is_api_error and attempt < max_retries - 1:
                 import time as _time

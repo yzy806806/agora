@@ -325,7 +325,7 @@ def _spawn_leader_agent(project: dict) -> dict:
     accumulated session history causes the leader to lose focus, repeat
     already-completed motions, or ignore SOUL.md constraints.
     """
-    from project_planner import update_heartbeat_status, set_leader_session, get_leader_session
+    from project_planner import update_heartbeat_status
     from agora.worker_manager import get_worker, get_worker_session, update_worker_session
 
     project_name = project["name"]
@@ -342,8 +342,7 @@ def _spawn_leader_agent(project: dict) -> dict:
     goal = project.get("goal", "")
 
     # Fresh session every heartbeat — no --resume.
-    # Clear any stored session_id so stale IDs don't linger.
-    set_leader_session(project_name, None)
+    # No session_id is stored for the leader (dead code removed).
 
     # Refresh AGENTS.md so the leader sees current project state
     try:

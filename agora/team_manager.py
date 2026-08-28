@@ -23,7 +23,6 @@ import json
 import logging
 
 from .utils import get_registry_dir, safe_name, now_iso
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any

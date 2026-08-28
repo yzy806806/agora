@@ -20,9 +20,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Rotation thresholds
-_MAX_MESSAGES = 500
-_MAX_SIZE_KB = 2000.0
+# Rotation thresholds — raised for lean-tail compression (Hermes v0.20.6+)
+# which handles context management more intelligently. These are safety-net
+# limits; in practice lean-tail compression keeps sessions manageable long
+# before these thresholds are hit.
+_MAX_MESSAGES = 2000
+_MAX_SIZE_KB = 8000.0
 _HEURISTIC_THRESHOLD = 100  # motions messages or completed tasks
 
 

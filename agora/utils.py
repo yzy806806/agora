@@ -85,40 +85,38 @@ def patch_config_model(config_path: Path, model: str) -> None:
 
     If the old flat format is found, it is upgraded to the new dict format
     so Hermes can resolve the provider and base_url from custom_providers.
+
+    Uses structured yaml.safe_load/safe_dump — not regex — so comments,
+    anchors, and non-model fields are preserved.
     """
-    import re
     import logging
     logger = logging.getLogger(__name__)
     try:
-        content = config_path.read_text()
-
-        # Try new format first: model:\n  default: <name>
-        new_content = re.sub(
-            r'(\nmodel:\n  default: )([^\n]+)',
-            f'\\g<1>{re.escape(model)}',
-            content, count=1,
-        )
-        if new_content != content:
-            config_path.write_text(new_content)
-            logger.info("patch_config_model: set model.default=%s (dict format)", model)
+        import yaml
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        if cfg is None:
+            cfg = {}
+        if not isinstance(cfg, dict):
+            logger.warning("patch_config_model: config at %s is not a dict, skipping", config_path)
             return
 
-        # Fall back to old flat format: model: <name>
-        # Upgrade it to the new dict format so provider/base_url resolution works.
-        new_content = re.sub(
-            r'\nmodel: [^\n]+',
-            f'\nmodel:\n  default: {model}',
-            content, count=1,
-        )
-        if new_content != content:
-            config_path.write_text(new_content)
-            logger.info("patch_config_model: upgraded model from flat to dict format, default=%s", model)
+        model_cfg = cfg.get("model")
+        if isinstance(model_cfg, dict):
+            # New dict format — just update the default
+            if model_cfg.get("default") != model:
+                model_cfg["default"] = model
+                cfg["model"] = model_cfg
+                with open(config_path, "w") as f:
+                    yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True)
+                logger.info("patch_config_model: set model.default=%s (dict format)", model)
             return
 
-        # No model field at all — insert one at the top
-        new_content = f'model:\n  default: {model}\n' + content
-        config_path.write_text(new_content)
-        logger.info("patch_config_model: inserted model.default=%s (was missing)", model)
+        # Old flat format or missing — upgrade to dict format
+        cfg["model"] = {"default": model}
+        with open(config_path, "w") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True)
+        logger.info("patch_config_model: upgraded model from flat to dict format, default=%s", model)
     except Exception as exc:
         logger.warning("patch_config_model failed for %s: %s", config_path, exc)
 

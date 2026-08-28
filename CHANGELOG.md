@@ -2,6 +2,55 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.9.1] — 2026-08-14
+
+### Second OCR audit: robustness + dead code cleanup
+
+**C1. 429 error detection false positives fixed**
+`_speaker_speak` and `_spawn_with_retry` matched bare `"429"` in replies —
+any discussion message mentioning "line 429" or "port 429" triggered a
+spurious retry. Now matches only deterministic error phrases:
+`api call failed`, `rate limit`, `rate_limit`, `authorization failed`,
+`http 429`, `http 503`.
+
+**H1. patch_config_model rewritten with yaml.safe_load**
+Previously used regex string substitution on config.yaml — fragile against
+indentation, comments, and anchors. Now uses structured
+`yaml.safe_load`/`yaml.safe_dump`, consistent with
+`ensure_in_place_compression`.
+
+**H2. Session rotation thresholds raised for lean-tail compression**
+v0.20.6 defaults to lean-tail compression which handles context management
+intelligently. Old thresholds (`500` messages / `2000` KB) caused premature
+rotation that lost context. Raised to `2000` messages / `8000` KB.
+
+**H3. Leader session dead code removed**
+Leader uses fresh session every heartbeat (no `--resume`), but
+`get_leader_session`/`set_leader_session` functions, the
+`leader_session_id` JSON field (3 write sites), and the
+`set_leader_session` call in leader_loop.py were all still present.
+All removed.
+
+**H4. Dashboard task list now filters by tenant**
+`/projects/{name}/tasks` returned tasks from ALL projects. Now filters
+with `tenant = ? OR tenant IS NULL` (same pattern as AGENTS.md generation).
+
+**M2 + L2. Minor cleanups**
+- `team_manager.py`: removed unused `import os` (dead import)
+- `hooks/__init__.py`: removed empty `if adopted: pass` block left from
+  v1.9.0 memory cleanup
+
+### Files changed
+- `agora/discussion/driver.py` — 429 detection fixed in both retry paths
+- `agora/utils.py` — patch_config_model rewritten with yaml
+- `agora/session_manager.py` — rotation thresholds raised
+- `project_planner.py` — leader session dead code removed
+- `agora/leader_loop.py` — set_leader_session call removed
+- `dashboard/plugin_api.py` — tenant filter added
+- `agora/team_manager.py` — unused import removed
+- `hooks/__init__.py` — empty pass block removed
+- `__init__.py` / `plugin.yaml` — version bump
+
 ## [1.9.0] — 2026-08-14
 
 ### Remove all residual memory writes (code review cleanup)

@@ -496,7 +496,6 @@ def start_project(
             existing["status"] = "active"
             existing["current_round"] = existing.get("current_round", 0)
             existing["complete_count"] = 0
-            existing["leader_session_id"] = None
             existing["completion_check_pos"] = 0
             # Preserve workdir if not provided
             if workdir:
@@ -570,7 +569,6 @@ def start_project(
         "heartbeat_member": heartbeat_member,
         "heartbeat_minutes": heartbeat_minutes,
         "heartbeat_cron_id": None,
-        "leader_session_id": None,  # per-project session for the heartbeat member
         "last_heartbeat_at": None,
         "last_heartbeat_pid": None,
         "complete_count": 0,
@@ -706,7 +704,6 @@ def update_project(
         data["status"] = "active"
         data["current_round"] = data.get("current_round", 0) + 1
         data["complete_count"] = 0
-        data["leader_session_id"] = None
         data["completion_check_pos"] = 0
         # Re-create heartbeat cron if it was removed or is stale
         if data.get("heartbeat_member"):
@@ -911,24 +908,6 @@ def get_heartbeat_member(project_name: str) -> str | None:
     if proj is None:
         return None
     return proj.get("heartbeat_member")
-
-
-def get_leader_session(project_name: str) -> str | None:
-    """Get the per-project leader session ID."""
-    proj = get_project(project_name)
-    if proj is None:
-        return None
-    return proj.get("leader_session_id")
-
-
-def set_leader_session(project_name: str, session_id: str | None) -> None:
-    """Set the per-project leader session ID."""
-    pf = _project_file(project_name)
-    if not pf.exists():
-        return
-    data = json.loads(pf.read_text())
-    data["leader_session_id"] = session_id
-    pf.write_text(json.dumps(data, indent=2))
 
 
 def on_project_complete(project_name: str) -> None:

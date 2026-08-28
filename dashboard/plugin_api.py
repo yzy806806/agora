@@ -924,11 +924,13 @@ def get_project_tasks_api(name: str):
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         try:
-            # List all non-archived tasks (tasks on this instance are
-            # shared on the default board; Agora uses tenant/board for
-            # isolation but legacy tasks may not have it set).
+            # List non-archived tasks for this project's board (or NULL tenant
+            # for tasks created via kanban CLI before board isolation).
             rows = conn.execute(
-                "SELECT * FROM tasks WHERE status != 'archived' ORDER BY priority DESC, created_at ASC"
+                "SELECT * FROM tasks WHERE status != 'archived' "
+                "AND (tenant = ? OR tenant IS NULL) "
+                "ORDER BY priority DESC, created_at ASC",
+                (board,),
             ).fetchall()
             tasks = []
             counts = {"todo": 0, "running": 0, "blocked": 0, "done": 0}
