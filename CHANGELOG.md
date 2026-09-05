@@ -2,6 +2,34 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [1.9.2] — 2026-09-05
+
+### Hermes September-2026 decomposition compatibility (PR #102117)
+
+`hermes_cli.kanban_db` was split into focused submodules
+(`kanban_db_connect`, `kanban_db_dispatch`, ...). Hermes ships a temporary
+compat layer re-exporting the moved names, **removed on 2026-09-14** — after
+that date Agora v1.9.1 fails to load with `AttributeError: connect`.
+
+**Fix:** new `agora.kanban_compat` module resolves `kanban_db` symbols
+against the new submodule locations first, falling back to the legacy module
+for older Hermes versions. All 20 `from hermes_cli import kanban_db` import
+sites across 7 files (hooks, tools, leader_loop, session_manager, driver,
+project_planner, dashboard/plugin_api) now go through the bridge.
+
+Verified against Hermes v0.20.x post-decomposition: `connect` resolves from
+`hermes_cli.kanban_db_connect` with **zero** compat warnings; all other
+symbols used by Agora (`complete_task`, `delete_archived_task`, review
+lifecycle APIs, `VALID_STATUSES`, `_append_event`) remain defined in
+`kanban_db` proper and are untouched.
+
+Other contracts re-verified post-decomposition: hook names
+(`kanban_task_completed/claimed/blocked`), cron CLI flags
+(`--name --no-agent --script --deliver`), dashboard plugin API mounting
+(`kind: backend`, `api: plugin_api.py` router contract), `profiles`
+module surface, and `PluginContext.register_tool/register_hook/
+register_cli_command` — all unchanged.
+
 ## [1.9.1] — 2026-08-14
 
 ### Second OCR audit: robustness + dead code cleanup

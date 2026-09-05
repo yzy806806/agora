@@ -502,7 +502,7 @@ def check_project_complete(project_name: str) -> bool:
         _ready: list = []
         _blocked: list = []
         try:
-            from hermes_cli import kanban_db as _kdb
+            from agora.kanban_compat import kanban_db as _kdb
             _conn = _kdb.connect()
             try:
                 # Query by board tenant OR NULL tenant — tasks created via

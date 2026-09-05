@@ -170,7 +170,7 @@ def update_project_agents_md(project_name: str) -> dict:
     # doesn't set tenant. Without the NULL query, those tasks are
     # invisible in AGENTS.md and the leader thinks kanban is empty.
     try:
-        from hermes_cli import kanban_db as _kdb
+        from agora.kanban_compat import kanban_db as _kdb
         board = proj.get("board") or f"agora-{safe_name(project_name)}"
         _conn = _kdb.connect()
         try:
@@ -631,7 +631,7 @@ def stop_project(project_name: str) -> dict:
     # Delete all kanban tasks — same as on_project_complete.
     # Without this, old tasks remain and confuse the leader on restart.
     try:
-        from hermes_cli import kanban_db as _kdb
+        from agora.kanban_compat import kanban_db as _kdb
         board = f"agora-{safe_name(project_name)}"
         conn = _kdb.connect()
         try:
@@ -931,7 +931,7 @@ def on_project_complete(project_name: str) -> None:
         # and doesn't realize the project was restarted — it tries
         # PROJECT_COMPLETE immediately because "all tasks are done".
         try:
-            from hermes_cli import kanban_db as _kdb
+            from agora.kanban_compat import kanban_db as _kdb
             board = f"agora-{safe_name(project_name)}"
             conn = _kdb.connect()
             try:
@@ -1047,7 +1047,7 @@ def _add_project_to_worker(worker_name: str, project_name: str) -> None:
 def _find_project_for_task(task_id: str) -> str | None:
     """Find the project name for a completed task."""
     try:
-        from hermes_cli import kanban_db
+        from agora.kanban_compat import kanban_db
         conn = kanban_db.connect()
         try:
             task = kanban_db.get_task(conn, task_id)
@@ -1081,7 +1081,7 @@ def _has_pending_tasks(project_name: str | None = None) -> bool:
                       (tenant = "agora-<project_name>"). If None, counts all.
     """
     try:
-        from hermes_cli import kanban_db
+        from agora.kanban_compat import kanban_db
         conn = kanban_db.connect()
         try:
             if project_name:

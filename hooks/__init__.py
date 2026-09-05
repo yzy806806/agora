@@ -116,7 +116,7 @@ def _maybe_nudge_skill_creation(task_id: str, profile_name: str) -> None:
     task view and in the dashboard, but doesn't pollute memory.
     """
     try:
-        from hermes_cli import kanban_db
+        from agora.kanban_compat import kanban_db
         conn = kanban_db.connect()
         try:
             task = kanban_db.get_task(conn, task_id)
@@ -194,7 +194,7 @@ def _write_kanban_comment(
 ) -> None:
     """Append the Agora discussion result as a comment on the kanban task."""
     try:
-        from hermes_cli import kanban_db
+        from agora.kanban_compat import kanban_db
     except ImportError:
         return
 
@@ -246,7 +246,7 @@ def _on_task_claimed(
         # Look up the task to check tenant and source motion
         tenant = None
         try:
-            from hermes_cli import kanban_db
+            from agora.kanban_compat import kanban_db
             conn = kanban_db.connect()
             try:
                 task = kanban_db.get_task(conn, task_id)
@@ -289,7 +289,7 @@ def _on_task_claimed(
                         f"Rationale: {rationale}\n"
                     )
                     try:
-                        from hermes_cli import kanban_db
+                        from agora.kanban_compat import kanban_db
                         conn = kanban_db.connect()
                         try:
                             kanban_db.add_comment(conn, task_id, "agora", comment)
@@ -333,7 +333,7 @@ def _on_task_blocked(
         # Check if the task belongs to an Agora project
         tenant = None
         try:
-            from hermes_cli import kanban_db
+            from agora.kanban_compat import kanban_db
             conn = kanban_db.connect()
             try:
                 task = kanban_db.get_task(conn, task_id)

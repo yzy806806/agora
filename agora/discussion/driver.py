@@ -851,7 +851,7 @@ class DiscussionDriver:
         if not source_task_id:
             return ""
         try:
-            from hermes_cli import kanban_db
+            from agora.kanban_compat import kanban_db
             conn = kanban_db.connect()
             try:
                 task = kanban_db.get_task(conn, source_task_id)
@@ -925,7 +925,7 @@ class DiscussionDriver:
     ) -> list[str]:
         """Create kanban tasks from discussion action items."""
         try:
-            from hermes_cli import kanban_db
+            from agora.kanban_compat import kanban_db
         except ImportError:
             logger.warning("kanban_db not available — skipping task creation")
             return []

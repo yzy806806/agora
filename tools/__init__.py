@@ -515,7 +515,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     try:
         from project_planner import get_heartbeat_member, get_project
         from agora.team_manager import get_team_for_project, get_team
-        from hermes_cli import kanban_db
+        from agora.kanban_compat import kanban_db
 
         # 1. Resolve project name from source task
         conn = kanban_db.connect()
@@ -582,7 +582,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
     # If blocking, block the current kanban task
     if blocking and source_task_id:
         try:
-            from hermes_cli import kanban_db
+            from agora.kanban_compat import kanban_db
             conn = kanban_db.connect()
             try:
                 kanban_db.block_task(
@@ -610,7 +610,7 @@ async def _handle_raise_motion(ctx: Any, args: dict) -> dict:
             try:
                 from agora.utils import get_registry_dir, safe_name
                 if source_task_id:
-                    from hermes_cli import kanban_db
+                    from agora.kanban_compat import kanban_db
                     conn = kanban_db.connect()
                     try:
                         task = kanban_db.get_task(conn, source_task_id)
@@ -733,7 +733,7 @@ def _handle_create_task(ctx: Any, args: dict) -> dict:
             pass
 
     try:
-        from hermes_cli import kanban_db
+        from agora.kanban_compat import kanban_db
         conn = kanban_db.connect()
         try:
             task_id = kanban_db.create_task(
@@ -1197,7 +1197,7 @@ def _register_worker_tools(ctx: Any) -> None:
             return {"error": "task_id is required"}
 
         try:
-            from hermes_cli import kanban_db as _kdb
+            from agora.kanban_compat import kanban_db as _kdb
             conn = _kdb.connect()
             try:
                 task = _kdb.get_task(conn, task_id)

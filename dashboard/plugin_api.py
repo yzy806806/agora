@@ -914,7 +914,7 @@ def get_project_tasks_api(name: str):
         try:
             import sys
             sys.path.insert(0, "/usr/local/lib/hermes-agent")
-            from hermes_cli import kanban_db
+            from agora.kanban_compat import kanban_db
             boards = kanban_db.list_boards()
             board_slugs = [b["slug"] for b in boards]
         except Exception:
