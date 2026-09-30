@@ -695,23 +695,47 @@ class UpdateHeartbeatRequest(BaseModel):
     minutes: int = Field(..., description="New heartbeat interval in minutes")
 
 
+def _kanban_db_path() -> str:
+    """Resolve the kanban DB path the way core's own readers do.
+
+    ``HERMES_KANBAN_DB`` wins (it is injected into workers). Otherwise defer to
+    ``kanban_db_path()``, which resolves through ``kanban_home()`` —
+    ``HERMES_KANBAN_HOME``, else the *default* root, deliberately NOT the active
+    profile's ``HERMES_HOME``: the board is shared across profiles so the
+    dispatcher/worker handoff keeps working (see ``hermes_cli.kanban_db.kanban_home``).
+
+    The previous hardcoded ``<home>/kanban.db`` fallback read ``Path.home()``
+    instead, which is wrong on any install whose Hermes home is not ``~/.hermes``.
+    """
+    override = os.environ.get("HERMES_KANBAN_DB", "")
+    if override:
+        return override
+    try:
+        from hermes_cli.kanban_db import kanban_db_path
+
+        return str(kanban_db_path())
+    except Exception:
+        from ..agora.utils import get_global_root
+
+        return str(get_global_root() / "kanban.db")
+
+
 def _count_tasks(tenant: str = "") -> dict:
     """Count tasks by status, optionally filtered by tenant (board name).
 
-    Includes tasks with NULL tenant — they may have been created via
-    kanban CLI which doesn't set tenant. Both tenant=? AND tenant IS NULL
-    are counted when tenant is given.
+    Scoped to the given board only: a task without a tenant belongs to some
+    other producer, so counting it here would inflate another project's numbers.
     """
     import sqlite3
     counts = {"todo": 0, "running": 0, "blocked": 0, "done": 0}
     try:
-        db_path = os.environ.get("HERMES_KANBAN_DB", str(Path.home() / ".hermes" / "kanban.db"))
+        db_path = _kanban_db_path()
         conn = sqlite3.connect(db_path)
         try:
             if tenant:
                 rows = conn.execute(
                     "SELECT status, COUNT(*) AS n FROM tasks "
-                    "WHERE status != 'archived' AND (tenant = ? OR tenant IS NULL) "
+                    "WHERE status != 'archived' AND tenant = ? "
                     "GROUP BY status",
                     (tenant,),
                 )
@@ -924,15 +948,13 @@ def get_project_tasks_api(name: str):
         except Exception:
             board_slugs = ["default"]
 
-        db_path = os.environ.get("HERMES_KANBAN_DB", str(Path.home() / ".hermes" / "kanban.db"))
+        db_path = _kanban_db_path()
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         try:
-            # List non-archived tasks for this project's board (or NULL tenant
-            # for tasks created via kanban CLI before board isolation).
+            # Board-scoped: Agora always sets the tenant on tasks it creates.
             rows = conn.execute(
-                "SELECT * FROM tasks WHERE status != 'archived' "
-                "AND (tenant = ? OR tenant IS NULL) "
+                "SELECT * FROM tasks WHERE status != 'archived' AND tenant = ? "
                 "ORDER BY priority DESC, created_at ASC",
                 (board,),
             ).fetchall()

@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v2.0.5**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v2.0.6**
 
 [中文](./README.CN.md) | **English**
 

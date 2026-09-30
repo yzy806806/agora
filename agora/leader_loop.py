@@ -500,8 +500,11 @@ def check_project_complete(project_name: str) -> bool:
                 _update_complete_count(project_name, 0)
             return False
 
-        # PROJECT_COMPLETE found in new output
-        # Verify kanban is actually clean — no running/ready/blocked tasks for this project
+        # PROJECT_COMPLETE found in new output.
+        # Verify the board is actually clean. Scoped to this project's board:
+        # Agora sets the tenant on every task it creates, so a NULL tenant means
+        # the task belongs to someone else — counting it here would let an
+        # unrelated board's work block this project's completion.
         board_name = agora_board_for(project_name)
         _pending: list = []
         _ready: list = []
@@ -510,12 +513,9 @@ def check_project_complete(project_name: str) -> bool:
             from .kanban_compat import kanban_db as _kdb
             _conn = _kdb.connect()
             try:
-                # Query by board tenant OR NULL tenant — tasks created via
-                # kanban CLI have tenant=NULL and must be counted too.
                 def _count_project_tasks(conn, status):
                     rows = conn.execute(
-                        "SELECT * FROM tasks WHERE status = ? "
-                        "AND (tenant = ? OR tenant IS NULL)",
+                        "SELECT * FROM tasks WHERE status = ? AND tenant = ?",
                         (status, board_name),
                     ).fetchall()
                     return [_kdb.Task.from_row(r) for r in rows]

@@ -345,6 +345,76 @@ def test_board_names_have_a_single_construction_site():
     )
 
 
+def test_no_kanban_query_matches_a_missing_tenant():
+    """Every board-scoped query must filter on tenant exactly.
+
+    `WHERE (tenant = ? OR tenant IS NULL)` reaches past the plugin's own board:
+    Agora always sets the tenant when it creates a task, so a NULL tenant means
+    the task belongs to someone else. Four sites shipped that way across
+    v2.0.x — the counts fed project status (a foreign task kept PROJECT_COMPLETE
+    from ever firing) and stop_project's cleanup *deleted* foreign tasks.
+    """
+    root = Path(__file__).resolve().parent.parent
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        if "__pycache__" in path.parts or "tests" in path.parts:
+            continue
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            # Same SQL predicate, whitespace aside.
+            if "tenant IS NULL" in line:
+                offenders.append(f"{path.relative_to(root)}:{lineno}")
+    assert not offenders, (
+        "match the board exactly (tenant = ?); a NULL tenant is someone else's "
+        f"task: {offenders}"
+    )
+
+
+def test_dashboard_resolves_the_kanban_db_from_the_shared_root(tmp_path, monkeypatch):
+    """The dashboard must read the board the dispatcher writes to.
+
+    ``kanban_db_path()`` resolves through ``kanban_home()``: ``HERMES_KANBAN_HOME``
+    else the *default* root — deliberately not the active profile's
+    ``HERMES_HOME``, because the board is shared across profiles and a
+    profile-scoped path would fork it and break the dispatcher/worker handoff.
+
+    The old fallback hardcoded ``<home>/kanban.db`` from ``Path.home()``, which is
+    wrong on any install whose Hermes home is not ``~/.hermes``. This pins the
+    resolution to core's own resolver, so the dashboard can never drift from it.
+    """
+    import importlib.util as ilu
+    import types as _types
+
+    root = Path(__file__).resolve().parent.parent
+    # The knob core's resolver actually honours.
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_KANBAN_DB", raising=False)
+
+    spec = ilu.spec_from_file_location(
+        "hermes_plugins.agora.dashboard.plugin_api", root / "dashboard" / "plugin_api.py",
+    )
+    assert spec is not None and spec.loader is not None
+    dash = _types.ModuleType("hermes_plugins.agora.dashboard")
+    dash.__path__ = [str(root / "dashboard")]
+    sys.modules["hermes_plugins.agora.dashboard"] = dash
+    mod = ilu.module_from_spec(spec)
+    mod.__package__ = "hermes_plugins.agora.dashboard"
+    sys.modules[spec.name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except ImportError:
+        pytest.skip("FastAPI not importable in this environment")
+
+    resolved = mod._kanban_db_path()
+
+    from hermes_cli.kanban_db import kanban_db_path
+
+    assert resolved == str(kanban_db_path()), (
+        f"the dashboard reads {resolved!r} but core resolves the board to "
+        f"{kanban_db_path()!r} — the two would count different databases"
+    )
+    assert resolved.startswith(str(tmp_path))
+
+
 def test_nothing_trips_the_agent_config_shell_scan():
     """No file may contain a shell redirect into the agent context file.
 

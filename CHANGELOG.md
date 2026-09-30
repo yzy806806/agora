@@ -2,6 +2,34 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [2.0.6] — 2026-09-30
+
+### Tenant scoping completed: two more sites, and the kanban DB path
+
+`tenant = ? OR tenant IS NULL` still appeared in two places after v2.0.4's sweep,
+and the dashboard resolved its database through a hardcoded path. All three are
+fixed, and the invariant is now enforced by a test.
+
+- **`check_project_complete` counted foreign tasks.** The pending-task check that
+  gates `PROJECT_COMPLETE` matched NULL tenants too, so an un-tenanted task on
+  another board kept the project from ever completing. The stop mechanism
+  requires a vote and then two consecutive clean heartbeats; this defeated both.
+- **Dashboard counts and task lists mixed boards.** `_count_tasks` and the
+  project task list included un-tenanted tasks, inflating other projects' numbers.
+- **The dashboard read a hardcoded DB path.** `os.environ.get("HERMES_KANBAN_DB",
+  str(Path.home() / ".hermes" / "kanban.db"))` — wrong on any install whose Hermes
+  home is not `~/.hermes`, and it bypassed core's resolver entirely. Now defers to
+  `hermes_cli.kanban_db.kanban_db_path()`, which resolves through `kanban_home()`
+  (`HERMES_KANBAN_HOME`, else the default root — deliberately not the active
+  profile's `HERMES_HOME`, since the board is shared across profiles and a
+  profile-scoped path would fork it and break the dispatcher/worker handoff).
+
+Two new tests keep this from regressing: one fails if any source line matches
+`tenant IS NULL`, one asserts the dashboard's path equals core's resolution
+(rather than merely looking plausible).
+
+**Tests:** 64 passing.
+
 ## [2.0.5] — 2026-09-28
 
 ### Documentation-driven audit: board names and two scan traps

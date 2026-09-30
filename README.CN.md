@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> 让 Hermes Agent 变成一支自驱团队的多角色插件 — **v2.0.5**
+> 让 Hermes Agent 变成一支自驱团队的多角色插件 — **v2.0.6**
 
 **中文** | [English](./README.md)
 

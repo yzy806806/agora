@@ -18,7 +18,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__version__ = "2.0.5"
+__version__ = "2.0.6"
 
 
 def deploy_bundled_skills() -> list[str]:
