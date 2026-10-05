@@ -23,10 +23,24 @@ from hermes_plugins.agora.agora.storage import motions_kanban as db  # noqa: E40
 
 @pytest.fixture()
 def kanban_env(tmp_path, monkeypatch):
-    """Isolate the kanban board via HERMES_KANBAN_BOARD and clean up after."""
+    """Isolate the kanban board and clean up after.
+
+    ``HERMES_KANBAN_DB`` is set by the conftest autouse fixture to a per-test-run
+    temp file. We do NOT set ``HERMES_KANBAN_BOARD`` here: in newer Hermes the
+    ``board`` parameter to ``connect()`` resolves to a per-board path
+    (``<root>/kanban/boards/<board>/kanban.db``) that bypasses
+    ``HERMES_KANBAN_DB`` entirely. The plugin's own ``_conn()`` calls
+    ``connect()`` with no arguments, so it follows ``HERMES_KANBAN_DB``. Using
+    ``connect(board=…)`` in the fixture would open a *different* database from
+    the one the plugin code writes to — which is exactly why parent task
+    lookups failed after the upstream change.
+
+    Instead we open the same database the plugin uses (``connect()`` with no
+    arguments) and use ``board`` purely as the ``tenant`` value for task
+    isolation.
+    """
     board = f"agora2-shim-{os.getpid()}-{tmp_path.name}"
-    monkeypatch.setenv("HERMES_KANBAN_BOARD", board)
-    conn = kb.connect(board=board)
+    conn = kb.connect()
     yield conn, board
     try:
         conn.execute("DELETE FROM tasks WHERE tenant = ?", (board,))
