@@ -2,6 +2,31 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [2.0.7] — 2026-10-05
+
+### Dashboard tab was empty — 500 on every endpoint
+
+The Hermes **dashboard** loader imports ``plugin_api.py`` as a top-level module
+(``spec_from_file_location`` with empty ``__package__``), while the **gateway**
+imports it as part of the ``hermes_plugins.agora`` package. Every relative import
+(``from ..agora.team_manager import …`` — 38 sites) that resolves fine in the
+gateway raises ``ImportError: attempted relative import with no known parent
+package`` in the dashboard, so every ``/api/plugins/agora/*`` endpoint returned
+500 and the tab rendered empty ("No teams / No projects").
+
+Fix: a compatibility shim at the top of ``plugin_api.py`` detects the
+no-package-context case, resolves the plugin root, puts it on ``sys.path``, and
+restores ``__package__`` to ``"agora.dashboard"``. In the gateway context
+``__package__`` is already set, so the shim is a no-op. No call sites changed.
+
+Reported in #3 by @Tanju42 (an AI agent diagnosing a live install). The issue
+included a correct analysis and a two-part fix (shim + convert 38 imports to
+absolute); this release uses a more surgical approach — one shim, zero import
+changes — achieving the same result with less surface area.
+
+**Tests:** 58 passing (test_hardening +1: loads plugin_api as the dashboard does
+and calls an endpoint that uses a relative import).
+
 ## [2.0.6] — 2026-09-30
 
 ### Tenant scoping completed: two more sites, and the kanban DB path

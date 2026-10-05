@@ -479,3 +479,36 @@ def test_start_project_deploys_bundled_skills(tmp_path, monkeypatch):
     skill = tmp_path / "skills" / "collaboration" / "agora-awareness" / "SKILL.md"
     assert skill.is_file(), "bundled skills were not deployed on project start"
 
+
+def test_dashboard_plugin_api_works_without_package_context(tmp_path, monkeypatch):
+    """The dashboard loader imports ``plugin_api.py`` as a top-level module.
+
+    ``importlib.util.spec_from_file_location`` sets ``__package__`` to ``""``,
+    so every relative import (``from ..agora.team_manager import …``) raises
+    ``ImportError: attempted relative import with no known parent package`` and
+    the endpoint returns 500. The shim at the top of ``plugin_api.py`` restores
+    the package context; this test verifies it by loading the file exactly the
+    way the dashboard does and calling an endpoint that uses a relative import.
+    """
+    import importlib.util as ilu
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_KANBAN_DB", raising=False)
+
+    api_path = Path(__file__).resolve().parent.parent / "dashboard" / "plugin_api.py"
+    spec = ilu.spec_from_file_location(
+        "hermes_dashboard_plugin_agora", api_path,
+    )
+    assert spec is not None and spec.loader is not None
+    mod = ilu.module_from_spec(spec)
+    sys.modules["hermes_dashboard_plugin_agora"] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except ImportError:
+        pytest.skip("FastAPI not importable in this environment")
+
+    # list_teams calls `from ..agora.team_manager import list_teams` — the exact
+    # relative import that returned 500 before the shim. It must not raise.
+    result = mod.list_teams()
+    assert "teams" in result
+

@@ -23,6 +23,37 @@ try:
 except ImportError:
     APIRouter = None  # type: ignore
 
+# --- Dashboard loader compatibility shim ---------------------------------
+# The Hermes gateway imports this file as part of the ``hermes_plugins.agora``
+# package, so relative imports (``from ..agora.team_manager import …``) resolve
+# normally. The Hermes *dashboard* loader, however, imports it as a top-level
+# module via ``importlib.util.spec_from_file_location`` with an empty
+# ``__package__`` — every relative import then raises ``ImportError: attempted
+# relative import with no known parent package`` and the endpoint returns 500.
+#
+# When that happens, restore the package context: resolve the plugin root (the
+# directory that *contains* the ``agora`` package), put it on sys.path, and
+# register ourselves under the correct dotted name so Python's import machinery
+# treats the relative imports as package-relative again. In the gateway context
+# ``__package__`` is already set, so the shim is a no-op.
+if __package__ in (None, ""):
+    import importlib as _importlib
+    import sys as _sys
+
+    _plugin_root = str(Path(__file__).resolve().parent.parent.parent)
+    if _plugin_root not in _sys.path:
+        _sys.path.insert(0, _plugin_root)
+    try:
+        _pkg = _importlib.import_module("agora")
+        # Re-register this module under the package-qualified name so that
+        # ``from ..agora.…`` resolves to ``agora.agora.…``.
+        _qualified = "agora.dashboard.plugin_api"
+        _sys.modules[_qualified] = _sys.modules[__name__]
+        __package__ = "agora.dashboard"
+    except Exception:
+        pass  # gateway context or broken install; let the errors surface naturally
+# ------------------------------------------------------------------------
+
 if APIRouter:
     router = APIRouter(tags=["agora"])
 else:
