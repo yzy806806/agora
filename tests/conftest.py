@@ -24,6 +24,96 @@ import pytest
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 PKG = "hermes_plugins.agora"
 
+
+def _patch_editable_finder():
+    """Patch the editable-install finder's MAPPING if Hermes added new top-level modules.
+
+    When Hermes updates, it sometimes adds new top-level ``.py`` files (e.g.
+    ``hermes_state_pidns.py``, ``hermes_state_coverage.py``) without regenerating
+    the editable-install ``__editable___hermes_agent_*_finder.py`` MAPPING that
+    maps module names to their source paths.  Any lazy import of those modules
+    then fails with ``ModuleNotFoundError`` — not because the code is wrong, but
+    because the finder doesn't know the module exists.
+
+    This function scans the Hermes installation root for top-level modules/packages
+    that are absent from the finder's MAPPING and patches both the on-disk file
+    and the in-memory MAPPING dict (if the finder is already imported) so the
+    fix takes effect immediately in the current process.  It is a no-op when the
+    finder is already up to date or when the finder file cannot be located.
+    """
+    import re
+
+    # Locate the Hermes installation root.
+    hermes_root = None
+    for entry in sys.path:
+        if entry == "/usr/local/lib/hermes-agent":
+            hermes_root = Path(entry)
+            break
+    if hermes_root is None:
+        try:
+            import hermes_constants
+            hermes_root = Path(hermes_constants.__file__).resolve().parent
+        except Exception:
+            return
+
+    # Find the editable finder on disk.
+    venv_site = hermes_root / "venv/lib"
+    candidates = list(venv_site.glob("**/__editable___hermes_agent_*_finder.py"))
+    if not candidates:
+        return
+    finder_path = candidates[0]
+    src = finder_path.read_text()
+
+    # Extract the MAPPING dict literal from the source.
+    m = re.search(r"MAPPING\s*(?::\s*dict\[str,\s*str\])?\s*=\s*\{([^}]*)\}", src, re.S)
+    if not m:
+        return
+    mapping_body = m.group(1)
+    registered = set(re.findall(r"'([A-Za-z_][A-Za-z0-9_]*)':", mapping_body))
+
+    # Discover all top-level modules and packages.
+    mods = {p.stem for p in hermes_root.glob("*.py") if p.name != "setup.py"}
+    pkgs = {
+        d.name for d in hermes_root.iterdir()
+        if d.is_dir() and (d / "__init__.py").exists()
+        and d.name not in {"venv", "node_modules", ".git", "__pycache__", "evals", "docs", "tests"}
+    }
+    missing = sorted((mods | pkgs) - registered)
+    if not missing:
+        return
+
+    # --- Patch 1: update the on-disk file so future processes are fixed. ---
+    new_entries = ", ".join(
+        f"'{mod}': '/usr/local/lib/hermes-agent/{mod}'" for mod in missing
+    )
+    new_body = mapping_body.rstrip()
+    if not new_body.endswith(","):
+        new_body += ","
+    new_body += " " + new_entries
+    patched_src = src[:m.start(1)] + new_body + src[m.end(1):]
+    try:
+        finder_path.write_text(patched_src)
+    except Exception:
+        pass  # read-only install; the in-memory patch below is what matters
+
+    # --- Patch 2: update the in-memory MAPPING so the current process is fixed. ---
+    # The finder module may already be imported; writing the file doesn't affect
+    # the running interpreter.  Walk sys.modules to find it and patch its MAPPING
+    # dict in place.
+    for mod_name, mod_obj in list(sys.modules.items()):
+        mapping = getattr(mod_obj, "MAPPING", None)
+        if isinstance(mapping, dict):
+            for mod in missing:
+                mapping[mod] = str(hermes_root / mod)
+            break
+
+
+try:
+    _patch_editable_finder()
+except Exception:
+    pass  # not worth failing the test session over
+
+
 if PKG not in sys.modules:
     if "hermes_plugins" not in sys.modules:
         _ns = types.ModuleType("hermes_plugins")
