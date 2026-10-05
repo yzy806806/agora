@@ -2,6 +2,27 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [2.0.8] — 2026-10-05
+
+### Dashboard shim: drop sys.path mutation, reuse package registration pattern
+
+Per upstream review (#132991): the v2.0.7 shim put the plugin root on
+``sys.path`` and imported a bare ``agora`` module — both work but are not how
+the gateway loads the plugin. Rewrote to match the ``agent_spawn.py`` runner
+pattern: register ``hermes_plugins`` (namespace) and ``hermes_plugins.agora``
+(with ``__path__``) in ``sys.modules``, set ``__package__`` to
+``"hermes_plugins.agora.dashboard"``. No ``sys.path`` change, no bare
+top-level module.
+
+### conftest: stop writing to the editable finder file
+
+Per upstream review (non-blocking, but applied): the finder auto-patch now
+patches the in-memory MAPPING dict only. It does NOT ``write_text`` the
+Hermes editable-install finder file — the stale file is an upstream issue and
+writing to it from a test suite has side effects on the host install.
+
+**Tests:** 65 passing. `hermes plugins validate`: exit 0, 13/13, security safe.
+
 ## [2.0.7] — 2026-10-05
 
 ### Dashboard tab was empty — 500 on every endpoint

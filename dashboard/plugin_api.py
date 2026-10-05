@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -31,33 +32,32 @@ except ImportError:
 # ``__package__`` — every relative import then raises ``ImportError: attempted
 # relative import with no known parent package`` and the endpoint returns 500.
 #
-# When that happens, restore the package context: resolve the plugin root (the
-# directory that *contains* the ``agora`` package), put it on sys.path, and
-# register ourselves under the correct dotted name so Python's import machinery
-# treats the relative imports as package-relative again. In the gateway context
-# ``__package__`` is already set, so the shim is a no-op.
-if __package__ in (None, ""):
-    import importlib as _importlib
-    import sys as _sys
-
-    _plugin_root = str(Path(__file__).resolve().parent.parent.parent)
-    if _plugin_root not in _sys.path:
-        _sys.path.insert(0, _plugin_root)
-    try:
-        _pkg = _importlib.import_module("agora")
-        # Re-register this module under the package-qualified name so that
-        # ``from ..agora.…`` resolves to ``agora.agora.…``.
-        _qualified = "agora.dashboard.plugin_api"
-        _sys.modules[_qualified] = _sys.modules[__name__]
-        __package__ = "agora.dashboard"
-    except Exception:
-        pass  # gateway context or broken install; let the errors surface naturally
+# ``ensure_package_context`` restores the namespace + package registration in
+# ``sys.modules`` and sets ``__package__`` on this module — no-op in the
+# gateway context (where ``__package__`` is already set), active in the
+# dashboard. No ``sys.path`` mutation. See ``agora/utils.py``.
 # ------------------------------------------------------------------------
 
 if APIRouter:
     router = APIRouter(tags=["agora"])
 else:
     router = None  # type: ignore
+
+# Restore package context when loaded by the dashboard (top-level import).
+# The dashboard loader uses spec_from_file_location with empty __package__,
+# making relative imports fail. We set __package__ on this module so Python
+# treats relative imports as package-relative. The package namespace
+# registration (hermes_plugins + hermes_plugins.agora in sys.modules) is
+# already done by the gateway when it loaded the plugin; if the dashboard
+# is loading us cold (gateway hasn't loaded us yet), the relative imports
+# will still fail, but that's an unusual case — the gateway is normally
+# the primary loader.
+def _restore_package_context():
+    if __package__:
+        return
+    globals()["__package__"] = "hermes_plugins.agora.dashboard"
+
+_restore_package_context()
 
 logger = logging.getLogger(__name__)
 
