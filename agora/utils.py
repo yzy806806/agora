@@ -239,23 +239,3 @@ def parse_json_response(text: str) -> dict | None:
         return json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return None
-
-
-def ensure_package_context() -> None:
-    """Restore the ``hermes_plugins.agora`` package context when missing.
-
-    The gateway imports the plugin as part of the ``hermes_plugins.agora``
-    package so relative imports resolve. The dashboard loader, however, imports
-    ``dashboard/plugin_api.py`` as a top-level module (via
-    ``importlib.util.spec_from_file_location``) with an empty ``__package__``,
-    which makes every relative import raise ``ImportError``. Call this from the
-    top of ``plugin_api.py`` to fix ``__package__`` — it sets the caller's
-    ``__package__`` so Python's import machinery treats subsequent relative
-    imports as package-relative.
-
-    No-op when ``__package__`` is already set (gateway context).
-    """
-    caller_globals = sys._getframe(1).f_globals
-    if caller_globals.get("__package__"):
-        return
-    caller_globals["__package__"] = "hermes_plugins.agora.dashboard"

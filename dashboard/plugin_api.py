@@ -32,10 +32,13 @@ except ImportError:
 # ``__package__`` — every relative import then raises ``ImportError: attempted
 # relative import with no known parent package`` and the endpoint returns 500.
 #
-# ``ensure_package_context`` restores the namespace + package registration in
-# ``sys.modules`` and sets ``__package__`` on this module — no-op in the
-# gateway context (where ``__package__`` is already set), active in the
-# dashboard. No ``sys.path`` mutation. See ``agora/utils.py``.
+# When that happens, restore the package context the same way ``agent_spawn.py``
+# does for its subprocess runner: compute the plugin root, ensure the
+# ``hermes_plugins`` namespace and ``hermes_plugins.agora`` package exist in
+# ``sys.modules`` (with ``__path__`` pointing at the real directories), and set
+# ``__package__`` so Python's import machinery treats subsequent relative
+# imports as package-relative again. No ``sys.path`` change, no bare
+# ``agora`` top-level module — this matches the gateway's own loading.
 # ------------------------------------------------------------------------
 
 if APIRouter:
@@ -43,18 +46,28 @@ if APIRouter:
 else:
     router = None  # type: ignore
 
-# Restore package context when loaded by the dashboard (top-level import).
-# The dashboard loader uses spec_from_file_location with empty __package__,
-# making relative imports fail. We set __package__ on this module so Python
-# treats relative imports as package-relative. The package namespace
-# registration (hermes_plugins + hermes_plugins.agora in sys.modules) is
-# already done by the gateway when it loaded the plugin; if the dashboard
-# is loading us cold (gateway hasn't loaded us yet), the relative imports
-# will still fail, but that's an unusual case — the gateway is normally
-# the primary loader.
 def _restore_package_context():
+    """Set up the ``hermes_plugins.agora`` package context when missing.
+
+    No-op in the gateway context (``__package__`` already set); active in the
+    dashboard loader (empty ``__package__``, separate process in hosted mode).
+    """
     if __package__:
         return
+    import types
+
+    _plugin_root = Path(__file__).resolve().parent.parent
+    _ns = sys.modules.get("hermes_plugins")
+    if _ns is None:
+        _ns = types.ModuleType("hermes_plugins")
+        _ns.__path__ = []
+        sys.modules["hermes_plugins"] = _ns
+    _pkg_name = "hermes_plugins.agora"
+    if _pkg_name not in sys.modules:
+        _pkg = types.ModuleType(_pkg_name)
+        _pkg.__path__ = [str(_plugin_root)]
+        _pkg.__package__ = _pkg_name
+        sys.modules[_pkg_name] = _pkg
     globals()["__package__"] = "hermes_plugins.agora.dashboard"
 
 _restore_package_context()
