@@ -32,13 +32,14 @@ except ImportError:
 # ``__package__`` — every relative import then raises ``ImportError: attempted
 # relative import with no known parent package`` and the endpoint returns 500.
 #
-# When that happens, restore the package context the same way ``agent_spawn.py``
-# does for its subprocess runner: compute the plugin root, ensure the
-# ``hermes_plugins`` namespace and ``hermes_plugins.agora`` package exist in
-# ``sys.modules`` (with ``__path__`` pointing at the real directories), and set
-# ``__package__`` so Python's import machinery treats subsequent relative
-# imports as package-relative again. No ``sys.path`` change, no bare
-# ``agora`` top-level module — this matches the gateway's own loading.
+# The dashboard's plugin host calls ``op_load`` (which registers the
+# ``hermes_plugins`` namespace and ``hermes_plugins.agora`` package in
+# ``sys.modules``) before ``op_asgi`` (which loads this file). So by the time
+# this module is imported, the package namespace already exists — we only need
+# to set ``__package__`` so Python's import machinery treats relative imports
+# as package-relative. No ``sys.path`` change, no ``sys.modules`` write.
+# Bundled plugins (kanban, hermes-achievements) avoid this entirely by using
+# absolute imports; we keep relative imports and fix the package context instead.
 # ------------------------------------------------------------------------
 
 if APIRouter:
@@ -47,27 +48,8 @@ else:
     router = None  # type: ignore
 
 def _restore_package_context():
-    """Set up the ``hermes_plugins.agora`` package context when missing.
-
-    No-op in the gateway context (``__package__`` already set); active in the
-    dashboard loader (empty ``__package__``, separate process in hosted mode).
-    """
     if __package__:
         return
-    import types
-
-    _plugin_root = Path(__file__).resolve().parent.parent
-    _ns = sys.modules.get("hermes_plugins")
-    if _ns is None:
-        _ns = types.ModuleType("hermes_plugins")
-        _ns.__path__ = []
-        sys.modules["hermes_plugins"] = _ns
-    _pkg_name = "hermes_plugins.agora"
-    if _pkg_name not in sys.modules:
-        _pkg = types.ModuleType(_pkg_name)
-        _pkg.__path__ = [str(_plugin_root)]
-        _pkg.__package__ = _pkg_name
-        sys.modules[_pkg_name] = _pkg
     globals()["__package__"] = "hermes_plugins.agora.dashboard"
 
 _restore_package_context()
