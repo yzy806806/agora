@@ -30,6 +30,41 @@ from ..project_planner import project_allows_unattended, agora_board_for
 logger = logging.getLogger(__name__)
 
 
+def _leader_in_flight(project_name: str) -> dict | None:
+    """A ``skipped_in_flight`` result when this project's leader is still running.
+
+    The heartbeat cron fires on a fixed interval while a single leader run can
+    outlast it — model contention (503/429) pushes a heartbeat past 20 minutes —
+    so without this gate every fire spawns another leader and they all hammer
+    the same endpoint (reported in #6: ten concurrent leaders for one project).
+    The running leader is the canonical one; it reads current board state
+    itself, so skipping a fire loses no work.
+
+    Fails open: if the liveness check itself errors we spawn as before. The two
+    failure modes are not symmetric — a redundant leader wastes a slot, while a
+    gate that wrongly reports "in flight" leaves the project with no leader at
+    all.
+
+    The script-level ``flock`` in ``leader_heartbeat.sh`` is not a substitute:
+    it only guards the ``subprocess.Popen`` call, which returns immediately,
+    while the leader keeps running detached.
+    """
+    try:
+        from ..project_planner import live_heartbeat_pids
+
+        live = live_heartbeat_pids(project_name)
+    except Exception as exc:
+        logger.debug("heartbeat liveness check failed for '%s': %s", project_name, exc)
+        return None
+    if not live:
+        return None
+    logger.info(
+        "Project '%s': heartbeat skipped — leader already in flight (pid=%s)",
+        project_name, ", ".join(str(p) for p in live),
+    )
+    return {"status": "skipped_in_flight", "project": project_name, "pids": live}
+
+
 def heartbeat(leader_name: str | None = None, project: str | None = None) -> dict:
     """Trigger a leader heartbeat.
 
@@ -59,6 +94,9 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
         member = proj.get("heartbeat_member")
         if not member:
             return {"error": f"Project '{project}' has no heartbeat_member configured"}
+        in_flight = _leader_in_flight(project)
+        if in_flight:
+            return in_flight
         _rescue_stuck_motions(proj)
         return _spawn_leader_agent(proj)
 
@@ -72,6 +110,10 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
         for p in projects:
             check_project_complete(p["name"])
             if p.get("status") == "active":  # may have been completed by check
+                in_flight = _leader_in_flight(p["name"])
+                if in_flight:
+                    results.append(in_flight)
+                    continue
                 _rescue_stuck_motions(p)
                 results.append(_spawn_leader_agent(p))
         return {"status": "batch", "results": results}
@@ -84,6 +126,10 @@ def heartbeat(leader_name: str | None = None, project: str | None = None) -> dic
     for p in projects:
         check_project_complete(p["name"])
         if p.get("status") == "active":  # may have been completed by check
+            in_flight = _leader_in_flight(p["name"])
+            if in_flight:
+                results.append(in_flight)
+                continue
             _rescue_stuck_motions(p)
             results.append(_spawn_leader_agent(p))
     return {"status": "batch", "results": results}

@@ -736,6 +736,26 @@ def _handle_create_task(ctx: Any, args: dict) -> dict:
                 picked = get_assignee_for_role(team["name"], assignee)
                 if picked:
                     assignee = picked
+                else:
+                    # An unknown role used to be written to the task verbatim:
+                    # the dispatcher then tried to spawn a worker profile that
+                    # does not exist, and the task crash-looped as `running`
+                    # forever (#4). Accept a concrete worker name, reject
+                    # anything else with the roles the team actually has.
+                    workers = team.get("workers") or []
+                    worker_names = {w.get("name") for w in workers if w.get("name")}
+                    if assignee not in worker_names:
+                        valid_roles = sorted(
+                            set(team.get("role_map") or {})
+                            | {w.get("role") for w in workers if w.get("role")}
+                        )
+                        return {
+                            "error": (
+                                f"Invalid assignee '{assignee}' — not a role or "
+                                f"worker on team '{team.get('name', '?')}'"
+                            ),
+                            "hint": f"Valid roles: {', '.join(valid_roles)}",
+                        }
         except Exception:
             pass
 

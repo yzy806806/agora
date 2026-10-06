@@ -732,3 +732,150 @@ def test_check_project_complete_ignores_the_parked_chat_root(completion_project)
         "never complete"
     )
 
+
+
+# --------------------------------------------------------------------------- #
+# Reported from a live install: heartbeat pileup (#6) and bad assignees (#4)   #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture()
+def active_project(tmp_path, monkeypatch):
+    """A registered, active project with a heartbeat member, no workers needed."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(tmp_path / "hermes-home" / "kanban.db"))
+
+    name = f"live-{tmp_path.name}"
+    project_planner.get_registry_dir("projects")
+    (project_planner.get_registry_dir("projects")
+     / f"{project_planner.safe_name(name)}.json").write_text(json.dumps({
+        "name": name, "status": "active", "heartbeat_member": "leader",
+        "complete_check_pos": 0, "last_heartbeat_at": None, "live_heartbeat_pids": [],
+    }))
+    return name
+
+
+def test_live_heartbeat_pids_prunes_the_dead_and_keeps_the_living(active_project):
+    """Only PIDs that are actually running count as in-flight (#6)."""
+    name = active_project
+    project_planner.update_heartbeat_status(name, pid=os.getpid())
+    assert os.getpid() in project_planner.live_heartbeat_pids(name)
+
+    # A PID that cannot be running (above the usual maximum) must be pruned,
+    # not remembered: a stale entry would block every later heartbeat.
+    project_planner.update_heartbeat_status(name, pid=999_999_999)
+    live = project_planner.live_heartbeat_pids(name)
+    assert os.getpid() in live
+    assert 999_999_999 not in live
+
+
+def test_heartbeat_skips_while_a_leader_is_in_flight(active_project):
+    """A cron fire must not stack a second leader on a running one (#6).
+
+    A heartbeat can outrun its own interval under model contention, so the gate
+    has to consult liveness rather than assume the previous fire finished. The
+    script-level flock does not help: it only covers the Popen call, which
+    returns immediately while the leader keeps running detached.
+    """
+    from hermes_plugins.agora.agora import leader_loop
+
+    name = active_project
+    project_planner.update_heartbeat_status(name, pid=os.getpid())
+
+    result = leader_loop.heartbeat(project=name)
+    assert result.get("status") == "skipped_in_flight", (
+        f"heartbeat spawned on top of a live leader: {result}"
+    )
+    assert os.getpid() in result.get("pids", [])
+
+
+def test_heartbeat_spawns_once_the_leader_exits(active_project, monkeypatch):
+    """The gate must open again — a stale PID would stall the project forever."""
+    from hermes_plugins.agora.agora import leader_loop
+
+    name = active_project
+    project_planner.update_heartbeat_status(name, pid=999_999_999)  # never alive
+
+    spawned: dict = {}
+    monkeypatch.setattr(
+        leader_loop, "_spawn_leader_agent",
+        lambda proj: spawned.update(proj) or {"status": "spawned"},
+    )
+    result = leader_loop.heartbeat(project=name)
+    assert result.get("status") == "spawned", f"gate stayed shut: {result}"
+
+
+@pytest.fixture()
+def team_project(tmp_path, monkeypatch):
+    """An active project bound to a team with one developer and one reviewer."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(tmp_path / "hermes-home" / "kanban.db"))
+
+    from hermes_plugins.agora.agora import team_manager, worker_manager
+
+    workdir = tmp_path / "work"
+    project_planner.start_project(
+        project_name="assignees", workdir=str(workdir), goal="dummy",
+    )
+    for worker, role in (("dev-alpha", "developer"), ("rev-alpha", "reviewer")):
+        worker_manager.create_worker(name=worker, role=role)
+    team_manager.create_team("accept-team", ["dev-alpha", "rev-alpha"], project="assignees")
+    return "assignees"
+
+
+def _create_task_handler():
+    from hermes_plugins.agora import tools as tools_mod
+
+    registered: dict = {}
+
+    class _Ctx:
+        def register_tool(self, **kwargs):
+            registered[kwargs["name"]] = kwargs
+
+        def register_command(self, *args, **kwargs):
+            pass
+
+    tools_mod.register_all_tools(_Ctx())
+    return registered["agora_create_task"]["handler"]
+
+
+def _call_tool(handler, args):
+    """Handlers may be sync or async; the tool contract allows both."""
+    import asyncio
+    import inspect
+
+    result = handler(args)
+    return asyncio.run(result) if inspect.isawaitable(result) else result
+
+
+def test_create_task_rejects_an_unknown_assignee(team_project):
+    """A role that isn't on the team must be refused, with the valid roles (#4).
+
+    The assignee was written to the task verbatim, so the dispatcher tried to
+    spawn a profile that does not exist: the worker crashed, re-spawned, and the
+    task stayed ``running`` forever.
+    """
+    handler = _create_task_handler()
+    result = _call_tool(handler, {"title": "t", "assignee": "mlops", "project": team_project})
+
+    payload = json.loads(result) if isinstance(result, str) else result
+    assert "error" in payload, f"an unknown role was accepted: {result}"
+    assert "mlops" in payload["error"]
+    assert "developer" in payload.get("hint", ""), "the error must list the valid roles"
+
+
+def test_create_task_accepts_a_real_role_and_a_real_worker(team_project):
+    """The gate must not reject anything legitimate."""
+    handler = _create_task_handler()
+
+    by_role = _call_tool(handler, {"title": "t", "assignee": "developer", "project": team_project})
+    by_role = json.loads(by_role) if isinstance(by_role, str) else by_role
+    assert by_role.get("assignee") == "dev-alpha", "the role should resolve to its worker"
+
+    by_name = _call_tool(handler, {"title": "t", "assignee": "rev-alpha", "project": team_project})
+    by_name = json.loads(by_name) if isinstance(by_name, str) else by_name
+    assert by_name.get("assignee") == "rev-alpha"
+
+    unassigned = _call_tool(handler, {"title": "t", "project": team_project})
+    unassigned = json.loads(unassigned) if isinstance(unassigned, str) else unassigned
+    assert "error" not in unassigned, "an omitted assignee is not an invalid one"

@@ -685,6 +685,10 @@ def start_project(
         "heartbeat_cron_id": None,
         "last_heartbeat_at": None,
         "last_heartbeat_pid": None,
+        # Leader PIDs still running for this project. The heartbeat gate reads
+        # this so a cron fire cannot stack a second leader on a running one;
+        # see project_planner.live_heartbeat_pids.
+        "live_heartbeat_pids": [],
         "complete_count": 0,
         "completion_check_pos": 0,
         "chat_root_id": None,  # 2.0 team channel task id (set below)
@@ -1058,14 +1062,68 @@ def trigger_heartbeat(project_name: str) -> dict:
     return heartbeat(project=project_name)
 
 
+def _pid_alive(pid: int) -> bool:
+    """True when ``pid`` names a live process we are allowed to signal."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, just not ours
+    except OSError:
+        return False
+    return True
+
+
+def live_heartbeat_pids(project_name: str) -> list[int]:
+    """This project's leader PIDs that are still running, pruning dead ones.
+
+    The heartbeat cron fires on a fixed interval while a leader's own run can
+    outlast it (model contention pushes a heartbeat past 20 minutes), so a fire
+    that does not consult this list stacks another leader onto the same
+    inference endpoint. Recording is append+prune rather than a single slot: two
+    leaders can legitimately overlap momentarily, and dropping a still-running
+    PID early is what produced the pileup.
+    """
+    pf = _project_file(project_name)
+    if not pf.exists():
+        return []
+    try:
+        data = json.loads(pf.read_text())
+    except (OSError, ValueError):
+        return []
+    recorded = data.get("live_heartbeat_pids") or []
+    live = [p for p in recorded if isinstance(p, int) and _pid_alive(p)]
+    if live != recorded:
+        data["live_heartbeat_pids"] = live
+        try:
+            pf.write_text(json.dumps(data, indent=2))
+        except OSError:
+            pass  # pruning is best-effort; the caller only needs the live list
+    return live
+
+
 def update_heartbeat_status(project_name: str, pid: int | None = None) -> None:
-    """Update the last heartbeat timestamp for a project."""
+    """Update the last heartbeat timestamp for a project.
+
+    ``pid`` is also recorded among the project's live leader PIDs, after
+    dropping the ones that have exited. ``live_heartbeat_pids`` is what the
+    heartbeat gate consults so a second leader is not spawned on top of a
+    running one.
+    """
     pf = _project_file(project_name)
     if not pf.exists():
         return
     data = json.loads(pf.read_text())
     data["last_heartbeat_at"] = now_iso()
     data["last_heartbeat_pid"] = pid
+    if pid is not None:
+        recorded = [
+            p for p in (data.get("live_heartbeat_pids") or [])
+            if isinstance(p, int) and _pid_alive(p)
+        ]
+        recorded.append(pid)
+        data["live_heartbeat_pids"] = sorted(set(recorded))
     pf.write_text(json.dumps(data, indent=2))
 
 
