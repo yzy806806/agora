@@ -219,6 +219,8 @@ def update_project_agents_md(project_name: str) -> dict:
     # task it creates, so anything without one belongs to another producer.
     try:
         from .agora.kanban_compat import kanban_db as _kdb
+        from .agora.utils import PENDING_TASK_STATUSES, STATUS_LABELS
+
         board = proj.get("board") or agora_board_for(project_name)
         _conn = _kdb.connect()
         try:
@@ -234,42 +236,34 @@ def update_project_agents_md(project_name: str) -> dict:
                 ).fetchall()
                 return [_kdb.Task.from_row(r) for r in rows]
 
-            _running = _list_project_tasks(_conn, "running")
-            _ready = _list_project_tasks(_conn, "ready")
-            _blocked = _list_project_tasks(_conn, "blocked")
-            _review = _list_project_tasks(_conn, "review")
-            _done = _list_project_tasks(_conn, "done")
+            _buckets: dict = {}
+            for _status in (*PENDING_TASK_STATUSES, "done"):
+                _buckets[_status] = _list_project_tasks(_conn, _status)
         finally:
             _conn.close()
         lines.append("## Kanban Summary")
         lines.append("")
-        lines.append(f"- Running: {len(_running)} | Ready: {len(_ready)} | Review: {len(_review)} | Blocked: {len(_blocked)} | Done: {len(_done)}")
-        if _running:
+        # Every pending status must appear: the leader reads this to decide
+        # whether the board is clean. Motions and any child of a non-done parent
+        # sit in `todo`, so omitting it hides in-flight discussion from the
+        # leader entirely.
+        lines.append(
+            "- "
+            + " | ".join(
+                f"{STATUS_LABELS[_s]}: {len(_buckets[_s])}"
+                for _s in (*PENDING_TASK_STATUSES, "done")
+            )
+        )
+        for _status in PENDING_TASK_STATUSES:
+            _tasks = _buckets[_status]
+            if not _tasks:
+                continue
             lines.append("")
-            lines.append("**Running tasks:**")
-            for t in _running[:5]:
+            lines.append(f"**{STATUS_LABELS[_status]} tasks:**")
+            for t in _tasks[:5]:
                 lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
-            if len(_running) > 5:
-                lines.append(f"- ... +{len(_running)-5} more")
-        if _review:
-            lines.append("")
-            lines.append("**In review:**")
-            for t in _review[:5]:
-                lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
-        if _ready:
-            lines.append("")
-            lines.append("**Ready (queued):**")
-            for t in _ready[:5]:
-                lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
-            if len(_ready) > 5:
-                lines.append(f"- ... +{len(_ready)-5} more")
-        if _blocked:
-            lines.append("")
-            lines.append("**Blocked tasks:**")
-            for t in _blocked[:5]:
-                lines.append(f"- `{t.id}` assignee={t.assignee or '?'} — {t.title[:60]}")
-            if len(_blocked) > 5:
-                lines.append(f"- ... +{len(_blocked)-5} more")
+            if len(_tasks) > 5:
+                lines.append(f"- ... +{len(_tasks)-5} more")
         lines.append("")
     except Exception:
         pass
@@ -1248,17 +1242,21 @@ def _has_pending_tasks(project_name: str | None = None) -> bool:
     """
     try:
         from .agora.kanban_compat import kanban_db
+        from .agora.utils import PENDING_TASK_STATUSES
+
+        placeholders = ", ".join("?" * len(PENDING_TASK_STATUSES))
         conn = kanban_db.connect()
         try:
             if project_name:
                 tenant = agora_board_for(project_name)
                 rows = conn.execute(
-                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running', 'blocked') AND tenant = ?",
-                    (tenant,),
+                    f"SELECT COUNT(*) as n FROM tasks WHERE status IN ({placeholders}) AND tenant = ?",
+                    (*PENDING_TASK_STATUSES, tenant),
                 ).fetchone()
             else:
                 rows = conn.execute(
-                    "SELECT COUNT(*) as n FROM tasks WHERE status IN ('todo', 'ready', 'running', 'blocked')"
+                    f"SELECT COUNT(*) as n FROM tasks WHERE status IN ({placeholders})",
+                    PENDING_TASK_STATUSES,
                 ).fetchone()
             return rows["n"] > 0
         finally:

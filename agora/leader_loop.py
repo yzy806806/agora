@@ -506,40 +506,38 @@ def check_project_complete(project_name: str) -> bool:
         # the task belongs to someone else — counting it here would let an
         # unrelated board's work block this project's completion.
         board_name = agora_board_for(project_name)
-        _pending: list = []
-        _ready: list = []
-        _blocked: list = []
+        _counts: dict = {}
         try:
             from .kanban_compat import kanban_db as _kdb
+            from .utils import PENDING_TASK_STATUSES
+
             _conn = _kdb.connect()
             try:
-                def _count_project_tasks(conn, status):
-                    rows = conn.execute(
-                        "SELECT * FROM tasks WHERE status = ? AND tenant = ?",
-                        (status, board_name),
-                    ).fetchall()
-                    return [_kdb.Task.from_row(r) for r in rows]
-
-                _pending = _count_project_tasks(_conn, "running")
-                _ready = _count_project_tasks(_conn, "ready")
-                _blocked = _count_project_tasks(_conn, "blocked")
+                for _status in PENDING_TASK_STATUSES:
+                    _rows = _conn.execute(
+                        "SELECT COUNT(*) AS n FROM tasks WHERE status = ? AND tenant = ?",
+                        (_status, board_name),
+                    ).fetchone()
+                    if _rows and _rows["n"]:
+                        _counts[_status] = _rows["n"]
             finally:
                 _conn.close()
         except Exception as exc:
             logger.warning("check_project_complete: failed to query kanban for %s: %s", project_name, exc)
 
-        _pending_count = len(_pending) + len(_ready) + len(_blocked)
+        _pending_count = sum(_counts.values())
         if _pending_count > 0:
+            _breakdown = ", ".join(f"{s}={n}" for s, n in sorted(_counts.items()))
             logger.info(
-                "Project '%s': PROJECT_COMPLETE ignored — %d pending tasks (running=%d, ready=%d, blocked=%d)",
-                project_name, _pending_count, len(_pending), len(_ready), len(_blocked),
+                "Project '%s': PROJECT_COMPLETE ignored — %d pending tasks (%s)",
+                project_name, _pending_count, _breakdown,
             )
             # Append to heartbeat log so leader sees the rejection on next heartbeat
             try:
                 with open(log_path, "a") as _lf:
                     _lf.write(
                         f"\n[SYSTEM] PROJECT_COMPLETE rejected: {_pending_count} pending kanban tasks "
-                        f"(running={len(_pending)}, ready={len(_ready)}, blocked={len(_blocked)}). "
+                        f"({_breakdown}). "
                         f"Complete or cancel these tasks before declaring project complete.\n"
                     )
             except Exception:

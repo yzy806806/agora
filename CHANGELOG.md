@@ -2,6 +2,39 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [2.0.9] — 2026-10-06
+
+### The completion gate skipped pending work, so a project could stop mid-discussion
+
+Reported in #5 by @Tanju42. `check_project_complete` asked the board for three
+statuses (`running`, `ready`, `blocked`) and ignored the rest — `todo`,
+`triage`, `review` were all invisible. An in-progress motion lives in `todo`
+(Hermes' `initial_task_state` resolves a child of a non-`done` parent to `todo`,
+and motions hang off the chat root), so a leader could see a "clean" board and
+declare the project complete while discussion was still running.
+
+Three sites were affected, all now derived from one constant
+(`agora.utils.PENDING_TASK_STATUSES`):
+
+- `agora/leader_loop.py::check_project_complete` — the gate that rejects
+  `PROJECT_COMPLETE` while work remains;
+- `project_planner.py::_has_pending_tasks` — the same question for the leader's
+  task list (it had `todo` but not `triage`/`review`);
+- `project_planner.py::update_project_agents_md` — the **Kanban Summary the
+  leader actually reads**. It listed running/ready/review/blocked/done, so
+  in-flight motions never appeared in its own view of the board.
+
+The pending set is every non-terminal status **except `scheduled`**: Agora parks
+its per-project chat-root anchor there permanently, and counting it would have
+pinned every project at "not complete" forever. The issue's suggested fix
+(`running, ready, todo, triage, review, blocked`) is right about which statuses
+carry work, but its terminal list named `cancelled`, which is not a Hermes
+status — the terminal statuses are `done` and `archived`. Four regression tests
+cover both directions: pending work must block the gate, and the parked anchor
+must not.
+
+**Tests:** 71 passing.
+
 ## [2.0.8] — 2026-10-05
 
 ### Dashboard shim: drop sys.path mutation, reuse package registration pattern

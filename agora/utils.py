@@ -239,3 +239,36 @@ def parse_json_response(text: str) -> dict | None:
         return json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+#: Kanban statuses that represent unfinished *work* — anything here means the
+#: project is not done. Derived from Hermes' ``VALID_STATUSES`` minus:
+#:
+#: * ``scheduled`` — Agora parks its own chat-root anchor task here permanently
+#:   (see ``agora/chat.py``), so counting it would block completion forever;
+#: * ``done`` / ``archived`` — terminal.
+#:
+#: Do not hardcode a subset at the call sites: an earlier partial list
+#: (``running``/``ready``/``blocked``) missed ``todo``, and Hermes'
+#: ``initial_task_state`` resolves a motion to ``todo`` whenever its parent chat
+#: root is not ``done`` — so in-progress motions were invisible to the
+#: completion gate and a leader could declare the project complete mid-discussion.
+PENDING_TASK_STATUSES: tuple[str, ...] = (
+    "triage",
+    "todo",
+    "ready",
+    "running",
+    "blocked",
+    "review",
+)
+
+#: Human labels for the statuses above (heartbeat summaries render these).
+STATUS_LABELS: dict[str, str] = {
+    "triage": "Triage",
+    "todo": "Todo",
+    "ready": "Ready (queued)",
+    "running": "Running",
+    "blocked": "Blocked",
+    "review": "In review",
+    "done": "Done",
+}

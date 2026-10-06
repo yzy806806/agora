@@ -512,3 +512,183 @@ def test_dashboard_plugin_api_works_without_package_context(tmp_path, monkeypatc
     result = mod.list_teams()
     assert "teams" in result
 
+
+# --------------------------------------------------------------------------- #
+# Completion gate: every non-terminal work status must block PROJECT_COMPLETE  #
+# --------------------------------------------------------------------------- #
+
+
+def test_pending_statuses_exclude_the_parked_chat_root_status():
+    """``scheduled`` must never count as pending work.
+
+    Agora parks its per-project chat-root anchor task in ``scheduled`` forever
+    (``agora/chat.py``). If the completion gate counted it, no project could
+    ever complete — the anchor is always on the board.
+    """
+    from hermes_plugins.agora.agora.utils import PENDING_TASK_STATUSES
+
+    assert "scheduled" not in PENDING_TASK_STATUSES
+
+
+def test_pending_statuses_cover_every_non_terminal_work_status():
+    """Every non-terminal status except the parked anchor must be counted.
+
+    The gate used to query only ``running``/``ready``/``blocked``. Hermes'
+    ``initial_task_state`` resolves a child task to ``todo`` when its parent is
+    not ``done`` — which is the case for every motion, since motions hang off
+    the (permanently ``scheduled``) chat root. So in-progress motions were
+    invisible and a leader could declare the project complete mid-discussion.
+    """
+    from hermes_plugins.agora.agora.utils import PENDING_TASK_STATUSES
+
+    terminal = {"done", "archived"}
+    parked = {"scheduled"}  # the chat-root anchor
+    expected = {"triage", "todo", "ready", "running", "blocked", "review"}
+
+    assert expected <= set(PENDING_TASK_STATUSES), (
+        "the completion gate would miss pending work in "
+        f"{sorted(expected - set(PENDING_TASK_STATUSES))}"
+    )
+    assert not (terminal & set(PENDING_TASK_STATUSES))
+    assert not (parked & set(PENDING_TASK_STATUSES))
+
+
+def test_every_pending_status_has_a_summary_label():
+    """The heartbeat summary renders a label per status — none may be missing.
+
+    ``KeyError`` inside the summary builder is swallowed by its outer ``except``,
+    which would silently drop the whole Kanban Summary section from AGENTS.md.
+    """
+    from hermes_plugins.agora.agora.utils import PENDING_TASK_STATUSES, STATUS_LABELS
+
+    missing = [s for s in (*PENDING_TASK_STATUSES, "done") if s not in STATUS_LABELS]
+    assert not missing, f"no summary label for {missing}"
+
+
+def test_agents_md_summary_shows_todo_tasks(tmp_path, monkeypatch):
+    """The leader's Kanban Summary must surface ``todo`` work.
+
+    The summary listed only running/ready/review/blocked/done, so a motion —
+    which lands in ``todo`` — was invisible to the leader reading AGENTS.md. The
+    leader would then see a clean board and emit PROJECT_COMPLETE mid-discussion.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(tmp_path / "hermes-home" / "kanban.db"))
+    workdir = tmp_path / "work"
+
+    project_planner.start_project(
+        project_name="summary-check", workdir=str(workdir), goal="dummy",
+    )
+    board = project_planner.agora_board_for("summary-check")
+
+    conn = kb.connect()
+    try:
+        root = chat.ensure_chat_root(conn, project_name="summary-check", tenant=board)
+        kb.create_task(
+            conn, title="in-flight motion", tenant=board,
+            initial_status="running", parents=[root],
+        )
+    finally:
+        conn.close()
+
+    project_planner.update_project_agents_md("summary-check")
+    md = (workdir / "AGENTS.md").read_text()
+
+    assert "## Kanban Summary" in md, "the summary section was dropped entirely"
+    summary = md.split("## Kanban Summary", 1)[1].split("\n##", 1)[0]
+    assert "Todo: 1" in summary, (
+        f"in-flight todo work missing from the leader's board summary:\n{summary}"
+    )
+
+
+@pytest.fixture()
+def completion_project(tmp_path, monkeypatch):
+    """A registered, active project whose heartbeat log holds PROJECT_COMPLETE."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(tmp_path / "hermes-home" / "kanban.db"))
+
+    name = f"gate-{tmp_path.name}"
+    registry = project_planner.get_registry_dir("projects")
+    (registry / f"{project_planner.safe_name(name)}.json").write_text(
+        json.dumps({"name": name, "status": "active", "complete_check_pos": 0})
+    )
+    (registry / f"heartbeat_{project_planner.safe_name(name)}.log").write_text(
+        "leader says PROJECT_COMPLETE\n"
+    )
+    return name
+
+
+def test_check_project_complete_blocks_on_a_todo_task(completion_project):
+    """The reported bug: a ``todo`` task must reject PROJECT_COMPLETE.
+
+    ``todo`` is where Hermes puts motions and any child task whose parent is not
+    done, so this is the status that actually carries in-flight work. Built the
+    same way the plugin builds a motion: a child of the chat root, created with
+    ``initial_status="running"``, which ``initial_task_state`` resolves to
+    ``todo`` because the parent is not ``done``.
+    """
+    from hermes_plugins.agora.agora import chat, leader_loop
+
+    board = project_planner.agora_board_for(completion_project)
+    conn = kb.connect()
+    try:
+        root = chat.ensure_chat_root(conn, project_name=completion_project, tenant=board)
+        child = kb.create_task(
+            conn, title="post-deploy sign-off", tenant=board,
+            initial_status="running", parents=[root],
+        )
+        status = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (child,)
+        ).fetchone()["status"]
+    finally:
+        conn.close()
+
+    assert status == "todo", "a child of a non-done parent should resolve to todo"
+    assert leader_loop.check_project_complete(completion_project) is False
+
+    # ``False`` alone proves nothing: with the old (running/ready/blocked) query
+    # the gate also returns False — it merely admits the FIRST of the two signals
+    # it needs. What distinguishes a rejection is the counter: pending work keeps
+    # it at 0, while a clean board increments it toward the stop.
+    state = json.loads(
+        (project_planner.get_registry_dir("projects")
+         / f"{project_planner.safe_name(completion_project)}.json").read_text()
+    )
+    assert state.get("complete_count", 0) == 0, (
+        "a todo task was not counted as pending work — the gate accepted the "
+        "first PROJECT_COMPLETE signal while work was still on the board"
+    )
+
+
+def test_check_project_complete_ignores_the_parked_chat_root(completion_project):
+    """The chat root alone must not block completion.
+
+    Regression guard for the naive fix: counting *all* non-terminal statuses
+    would include the permanently-``scheduled`` anchor and pin every project at
+    "not complete" forever.
+    """
+    from hermes_plugins.agora.agora import chat, leader_loop
+
+    board = project_planner.agora_board_for(completion_project)
+    conn = kb.connect()
+    try:
+        root = chat.ensure_chat_root(conn, project_name=completion_project, tenant=board)
+        status = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (root,)
+        ).fetchone()["status"]
+    finally:
+        conn.close()
+
+    assert status == "scheduled", "the chat root should be parked in scheduled"
+    # No pending work — the gate must let the first signal through (counter
+    # increments; the second consecutive signal is what stops the project).
+    assert leader_loop.check_project_complete(completion_project) is False
+    state = json.loads(
+        (project_planner.get_registry_dir("projects")
+         / f"{project_planner.safe_name(completion_project)}.json").read_text()
+    )
+    assert state.get("complete_count", 0) == 1, (
+        "the parked chat root was counted as pending work — a project could "
+        "never complete"
+    )
+
