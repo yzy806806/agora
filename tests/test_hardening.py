@@ -512,6 +512,16 @@ def test_dashboard_plugin_api_works_without_package_context(tmp_path, monkeypatc
     result = mod.list_teams()
     assert "teams" in result
 
+    # The shim must align the spec with __package__: Python 3.14+ emits
+    # ``DeprecationWarning: __package__ != __spec__.parent`` on every relative
+    # import otherwise, and that becomes an error on a later Python. The
+    # spec's ``parent`` is read-only and derives from ``name``.
+    assert mod.__spec__ is not None
+    assert mod.__spec__.parent == mod.__package__, (
+        "the spec still disagrees with __package__ — relative imports will warn "
+        "on 3.14+ and fail on a later interpreter"
+    )
+
 
 # --------------------------------------------------------------------------- #
 # Completion gate: every non-terminal work status must block PROJECT_COMPLETE  #
@@ -657,6 +667,36 @@ def test_check_project_complete_blocks_on_a_todo_task(completion_project):
     assert state.get("complete_count", 0) == 0, (
         "a todo task was not counted as pending work — the gate accepted the "
         "first PROJECT_COMPLETE signal while work was still on the board"
+    )
+
+
+def test_check_project_complete_fails_closed_when_the_board_is_unreadable(
+    completion_project, monkeypatch,
+):
+    """A board read failure must not be mistaken for a clean board.
+
+    ``check_project_complete`` treats "no pending tasks" as grounds to advance
+    the stop counter. If the query raises — SQLite lock contention is routine —
+    an empty result means "couldn't read", not "nothing there". Advancing anyway
+    would stop the project with work still on the board, the same failure mode
+    as querying too few statuses.
+    """
+    from hermes_plugins.agora.agora import kanban_compat, leader_loop
+
+    class _UnreadableBoard:
+        def connect(self, *args, **kwargs):
+            raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(kanban_compat, "kanban_db", _UnreadableBoard())
+
+    assert leader_loop.check_project_complete(completion_project) is False
+    state = json.loads(
+        (project_planner.get_registry_dir("projects")
+         / f"{project_planner.safe_name(completion_project)}.json").read_text()
+    )
+    assert state.get("complete_count", 0) == 0, (
+        "an unreadable board advanced the stop counter — a transient DB error "
+        "could stop the project with work still pending"
     )
 
 

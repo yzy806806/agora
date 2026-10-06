@@ -84,13 +84,15 @@ def _patch_editable_finder():
         return
 
     # Patch the in-memory MAPPING dict so the current process is fixed.
-    # The finder module may already be imported; walk sys.modules to find it.
-    for mod_name, mod_obj in list(sys.modules.items()):
-        mapping = getattr(mod_obj, "MAPPING", None)
-        if isinstance(mapping, dict):
-            for mod in missing:
-                mapping[mod] = str(hermes_root / mod)
-            break
+    # Look the finder up by its own module name (the file stem) rather than
+    # scanning for "some module with a MAPPING dict": any other module that
+    # happens to expose one would be patched instead, silently doing nothing.
+    finder_mod = sys.modules.get(finder_path.stem)
+    mapping = getattr(finder_mod, "MAPPING", None) if finder_mod is not None else None
+    if not isinstance(mapping, dict):
+        return
+    for mod in missing:
+        mapping[mod] = str(hermes_root / mod)
 
 
 try:

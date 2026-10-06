@@ -265,8 +265,14 @@ def update_project_agents_md(project_name: str) -> dict:
             if len(_tasks) > 5:
                 lines.append(f"- ... +{len(_tasks)-5} more")
         lines.append("")
-    except Exception:
-        pass
+    except Exception as exc:
+        # Don't let a board read break the heartbeat — but don't drop the
+        # leader's only view of pending work silently either. Without this
+        # line a failed summary renders exactly like a clean board, which is
+        # how an in-flight motion stayed invisible in the first place.
+        logger.warning(
+            "update_project_agents_md: kanban summary for '%s' failed: %s", project_name, exc,
+        )
 
     # Last heartbeat info — tells leader when the last cycle ran
     last_hb = proj.get("last_heartbeat_at")

@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -48,9 +47,25 @@ else:
     router = None  # type: ignore
 
 def _restore_package_context():
+    """Set up the package context the dashboard loader withholds.
+
+    Sets ``__package__`` and brings ``__spec__`` in line with it. ``parent`` is
+    a read-only property derived from ``name``, so the spec's ``name`` is what
+    has to be updated — Python 3.14+ warns while the two disagree
+    (``__package__ != __spec__.parent``), and the warning becomes an error on a
+    later Python. ``__name__`` and the ``sys.modules`` key are deliberately left
+    alone: pydantic/FastAPI resolve the module's string annotations through
+    ``__name__``, and the dashboard registered it under that key.
+    """
     if __package__:
         return
-    globals()["__package__"] = "hermes_plugins.agora.dashboard"
+    _pkg = "hermes_plugins.agora.dashboard"
+    globals()["__package__"] = _pkg
+    _spec = globals().get("__spec__")
+    if _spec is not None:
+        # ``parent`` is a read-only property derived from ``name``, so aligning
+        # the spec means renaming it.
+        _spec.name = f"{_pkg}.{Path(__file__).stem}"
 
 _restore_package_context()
 

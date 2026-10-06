@@ -507,23 +507,40 @@ def check_project_complete(project_name: str) -> bool:
         # unrelated board's work block this project's completion.
         board_name = agora_board_for(project_name)
         _counts: dict = {}
+        _board_read = False
         try:
             from .kanban_compat import kanban_db as _kdb
             from .utils import PENDING_TASK_STATUSES
 
+            _placeholders = ", ".join("?" * len(PENDING_TASK_STATUSES))
             _conn = _kdb.connect()
             try:
-                for _status in PENDING_TASK_STATUSES:
-                    _rows = _conn.execute(
-                        "SELECT COUNT(*) AS n FROM tasks WHERE status = ? AND tenant = ?",
-                        (_status, board_name),
-                    ).fetchone()
-                    if _rows and _rows["n"]:
-                        _counts[_status] = _rows["n"]
+                _rows = _conn.execute(
+                    "SELECT status, COUNT(*) AS n FROM tasks "
+                    f"WHERE status IN ({_placeholders}) AND tenant = ? "
+                    "GROUP BY status",
+                    (*PENDING_TASK_STATUSES, board_name),
+                ).fetchall()
+                _counts = {r["status"]: r["n"] for r in _rows}
+                _board_read = True
             finally:
                 _conn.close()
         except Exception as exc:
             logger.warning("check_project_complete: failed to query kanban for %s: %s", project_name, exc)
+
+        if not _board_read:
+            # Fail closed. An unreadable board is not a clean board: if a
+            # transient failure (SQLite lock contention, missing board) left
+            # this as "no pending tasks", the counter would advance toward
+            # stopping the project with work still on it — the same failure
+            # mode as querying too few statuses. Defer and make the leader
+            # produce two fresh consecutive signals once the board is readable.
+            logger.warning(
+                "Project '%s': PROJECT_COMPLETE deferred — could not read the board", project_name,
+            )
+            if proj.get("complete_count", 0) > 0:
+                _update_complete_count(project_name, 0)
+            return False
 
         _pending_count = sum(_counts.values())
         if _pending_count > 0:
