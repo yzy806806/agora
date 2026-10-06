@@ -39,6 +39,13 @@ prune rather than a single slot, since two leaders can overlap momentarily and
 dropping a live PID early is what caused the pileup). All three heartbeat paths
 gate on it and return `skipped_in_flight`.
 
+An entry counts only while the PID is **both alive and within a two-hour maximum
+leader runtime**. Liveness alone is not enough: the OS recycles PIDs, and a PID
+inherited by an unrelated long-lived process would keep the gate shut forever —
+leaving the project with no leader at all, which is worse than the pileup the
+gate exists to prevent. For the same reason an entry with no recorded age is
+dropped rather than trusted: an age that cannot be checked can never expire.
+
 The gate fails **open**: a redundant leader wastes a slot, while a gate that
 wrongly reports "in flight" leaves the project with no leader at all. The
 script-level `flock` is not a substitute — it only guards the `Popen` call,

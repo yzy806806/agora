@@ -744,11 +744,23 @@ def _handle_create_task(ctx: Any, args: dict) -> dict:
                     # anything else with the roles the team actually has.
                     workers = team.get("workers") or []
                     worker_names = {w.get("name") for w in workers if w.get("name")}
+                    valid_roles = sorted(
+                        set(team.get("role_map") or {})
+                        | {w.get("role") for w in workers if w.get("role")}
+                    )
                     if assignee not in worker_names:
-                        valid_roles = sorted(
-                            set(team.get("role_map") or {})
-                            | {w.get("role") for w in workers if w.get("role")}
-                        )
+                        if assignee in valid_roles:
+                            # The role exists but has no worker behind it: the
+                            # task would crash-loop exactly like an unknown
+                            # role, so say which case this is rather than
+                            # claiming the role is invalid.
+                            return {
+                                "error": (
+                                    f"Role '{assignee}' has no worker on team "
+                                    f"'{team.get('name', '?')}'"
+                                ),
+                                "hint": f"Valid roles: {', '.join(valid_roles)}",
+                            }
                         return {
                             "error": (
                                 f"Invalid assignee '{assignee}' — not a role or "

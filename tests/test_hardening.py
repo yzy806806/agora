@@ -879,3 +879,123 @@ def test_create_task_accepts_a_real_role_and_a_real_worker(team_project):
     unassigned = _call_tool(handler, {"title": "t", "project": team_project})
     unassigned = json.loads(unassigned) if isinstance(unassigned, str) else unassigned
     assert "error" not in unassigned, "an omitted assignee is not an invalid one"
+
+
+def test_heartbeat_gate_reopens_for_a_recycled_pid(active_project, monkeypatch):
+    """A recycled PID must not pin the gate shut (#6 follow-up).
+
+    Liveness alone is not enough: the OS reuses PIDs, so an unrelated
+    long-lived process can inherit the leader's PID and make ``os.kill(pid, 0)``
+    succeed forever — leaving the project with no leader at all, which is worse
+    than the pileup the gate exists to prevent.
+
+    This uses the bare-int shape v2.0.10 wrote, precisely because it carries no
+    age: an entry whose age cannot be checked can never expire, so it must be
+    dropped rather than trusted.
+    """
+    from hermes_plugins.agora.agora import leader_loop
+
+    name = active_project
+    project_file = (
+        project_planner.get_registry_dir("projects")
+        / f"{project_planner.safe_name(name)}.json"
+    )
+    state = json.loads(project_file.read_text())
+
+    # PID 1 is always alive — stand in for a recycled PID a dead leader left.
+    state["live_heartbeat_pids"] = [1]
+    project_file.write_text(json.dumps(state))
+
+    assert project_planner.live_heartbeat_pids(name) == [], (
+        "an entry with no checkable age still counts as in-flight — a recycled "
+        "PID would block every future heartbeat"
+    )
+
+    spawned: dict = {}
+    monkeypatch.setattr(
+        leader_loop, "_spawn_leader_agent",
+        lambda proj: spawned.update(proj) or {"status": "spawned"},
+    )
+    result = leader_loop.heartbeat(project=name)
+    assert result.get("status") == "spawned", f"gate stayed shut: {result}"
+
+
+def test_heartbeat_gate_reopens_for_an_aged_out_entry(active_project, monkeypatch):
+    """A timestamped entry older than the ceiling must release the gate.
+
+    This is the recycled-PID case for entries that *do* carry an age: the PID is
+    still alive (some unrelated process has it), but the leader that owned it is
+    long gone, so the entry must stop counting.
+    """
+    import time
+
+    from hermes_plugins.agora.agora import leader_loop
+
+    name = active_project
+    project_file = (
+        project_planner.get_registry_dir("projects")
+        / f"{project_planner.safe_name(name)}.json"
+    )
+    state = json.loads(project_file.read_text())
+    state["live_heartbeat_pids"] = [
+        {"pid": 1, "at": time.time() - 3 * 3600},
+    ]
+    project_file.write_text(json.dumps(state))
+
+    assert project_planner.live_heartbeat_pids(name) == [], (
+        "an entry past the maximum runtime still counts as in-flight"
+    )
+    monkeypatch.setattr(
+        leader_loop, "_spawn_leader_agent",
+        lambda proj: {"status": "spawned"},
+    )
+    assert leader_loop.heartbeat(project=name).get("status") == "spawned"
+
+
+def test_heartbeat_gate_keeps_a_fresh_live_entry(active_project):
+    """The ceiling must not defeat the gate for a genuinely running leader."""
+    import time as _time
+
+    name = active_project
+    project_file = (
+        project_planner.get_registry_dir("projects")
+        / f"{project_planner.safe_name(name)}.json"
+    )
+    state = json.loads(project_file.read_text())
+    state["live_heartbeat_pids"] = [{"pid": os.getpid(), "at": _time.time()}]
+    project_file.write_text(json.dumps(state))
+
+    assert os.getpid() in project_planner.live_heartbeat_pids(name)
+
+
+def test_heartbeat_pids_drop_the_legacy_bare_int_shape(active_project):
+    """v2.0.10 briefly stored bare ints; those must be dropped, not trusted.
+
+    They carry no age, and an age we cannot check can never expire. Trusting
+    them would let a recycled PID pin the gate forever. Dropping them costs at
+    most one redundant leader on the first heartbeat after upgrading.
+    """
+    name = active_project
+    project_file = (
+        project_planner.get_registry_dir("projects")
+        / f"{project_planner.safe_name(name)}.json"
+    )
+    state = json.loads(project_file.read_text())
+    state["live_heartbeat_pids"] = [os.getpid()]  # alive, but ageless
+    project_file.write_text(json.dumps(state))
+
+    assert project_planner.live_heartbeat_pids(name) == []
+
+
+def test_heartbeat_pids_round_trip_a_fresh_entry(active_project):
+    """A PID recorded now must survive a read, and be stored with its age."""
+    name = active_project
+    project_planner.update_heartbeat_status(name, pid=os.getpid())
+
+    assert os.getpid() in project_planner.live_heartbeat_pids(name)
+    stored = json.loads(
+        (project_planner.get_registry_dir("projects")
+         / f"{project_planner.safe_name(name)}.json").read_text()
+    )["live_heartbeat_pids"]
+    assert stored == [{"pid": os.getpid(), "at": stored[0]["at"]}], stored
+    assert isinstance(stored[0]["at"], float), "the entry must record its age"

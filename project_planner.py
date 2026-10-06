@@ -21,6 +21,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1075,8 +1076,40 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+#: How long a leader run may last before its entry stops counting as in-flight.
+#: Liveness alone is not enough: PIDs are recycled, and a PID reused by an
+#: unrelated long-lived process would keep the gate shut forever — the project
+#: would never get another leader, which is worse than the pileup this gate
+#: exists to prevent. Generous enough for a slow leader under model contention
+#: (reported at 20+ minutes), bounded enough that a recycled PID cannot pin the
+#: gate permanently.
+_HEARTBEAT_MAX_RUNTIME_SECONDS = 2 * 60 * 60
+
+
+def _heartbeat_entry(entry: Any) -> tuple[int, float] | None:
+    """Normalise one recorded entry to ``(pid, started_at)``; None if unusable.
+
+    Entries are dicts (``{"pid": …, "at": …}``). A bare int — the shape v2.0.10
+    wrote for a few hours — carries no age, and an age we cannot check can never
+    expire: treating such an entry as fresh would let a recycled PID pin the
+    gate shut forever, which is the failure this whole mechanism exists to
+    avoid. So an unverifiable entry is dropped instead. The cost is at most one
+    redundant leader on the first heartbeat after upgrading; the next spawn
+    writes a timestamped entry.
+    """
+    if not isinstance(entry, dict):
+        return None
+    pid = entry.get("pid")
+    if not isinstance(pid, int):
+        return None
+    at = entry.get("at")
+    if not isinstance(at, (int, float)):
+        return None
+    return pid, float(at)
+
+
 def live_heartbeat_pids(project_name: str) -> list[int]:
-    """This project's leader PIDs that are still running, pruning dead ones.
+    """This project's leader PIDs that are plausibly still running.
 
     The heartbeat cron fires on a fixed interval while a leader's own run can
     outlast it (model contention pushes a heartbeat past 20 minutes), so a fire
@@ -1084,6 +1117,11 @@ def live_heartbeat_pids(project_name: str) -> list[int]:
     inference endpoint. Recording is append+prune rather than a single slot: two
     leaders can legitimately overlap momentarily, and dropping a still-running
     PID early is what produced the pileup.
+
+    An entry counts only while it is both alive *and* within
+    ``_HEARTBEAT_MAX_RUNTIME_SECONDS`` — see that constant for why liveness
+    alone is not sufficient. Dead and expired entries are pruned from the
+    registry as a side effect, so a stale entry cannot accumulate.
     """
     pf = _project_file(project_name)
     if not pf.exists():
@@ -1093,9 +1131,22 @@ def live_heartbeat_pids(project_name: str) -> list[int]:
     except (OSError, ValueError):
         return []
     recorded = data.get("live_heartbeat_pids") or []
-    live = [p for p in recorded if isinstance(p, int) and _pid_alive(p)]
-    if live != recorded:
-        data["live_heartbeat_pids"] = live
+    now = time.time()
+
+    live: list[int] = []
+    kept: list[dict] = []
+    for entry in recorded:
+        parsed = _heartbeat_entry(entry)
+        if parsed is None:
+            continue
+        pid, started = parsed
+        if not _pid_alive(pid) or (now - started) > _HEARTBEAT_MAX_RUNTIME_SECONDS:
+            continue
+        live.append(pid)
+        kept.append({"pid": pid, "at": started})
+
+    if kept != recorded:
+        data["live_heartbeat_pids"] = kept
         try:
             pf.write_text(json.dumps(data, indent=2))
         except OSError:
@@ -1118,12 +1169,22 @@ def update_heartbeat_status(project_name: str, pid: int | None = None) -> None:
     data["last_heartbeat_at"] = now_iso()
     data["last_heartbeat_pid"] = pid
     if pid is not None:
-        recorded = [
-            p for p in (data.get("live_heartbeat_pids") or [])
-            if isinstance(p, int) and _pid_alive(p)
+        now = time.time()
+        recorded = []
+        for entry in (data.get("live_heartbeat_pids") or []):
+            parsed = _heartbeat_entry(entry)
+            if parsed is None:
+                continue
+            old_pid, started = parsed
+            if _pid_alive(old_pid) and (now - started) <= _HEARTBEAT_MAX_RUNTIME_SECONDS:
+                recorded.append({"pid": old_pid, "at": started})
+        recorded.append({"pid": pid, "at": now})
+        seen: dict[int, float] = {}
+        for item in recorded:
+            seen[item["pid"]] = max(seen.get(item["pid"], 0.0), item["at"])
+        data["live_heartbeat_pids"] = [
+            {"pid": p, "at": t} for p, t in sorted(seen.items())
         ]
-        recorded.append(pid)
-        data["live_heartbeat_pids"] = sorted(set(recorded))
     pf.write_text(json.dumps(data, indent=2))
 
 
