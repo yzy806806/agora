@@ -2,6 +2,66 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [2.0.10] — 2026-10-06
+
+Two reports from a live downstream install, plus fixes from a review pass over
+the v2.0.7..v2.0.9 delta.
+
+### The completion gate failed open on an unreadable board
+
+`check_project_complete` asked the board for pending work and treated a *failed
+query* as an empty answer. SQLite lock contention is routine, and when the read
+raised, the stop counter advanced toward `PROJECT_COMPLETE` with work still on
+the board — the same failure mode as querying too few statuses. It now tracks
+whether the board was actually read and defers otherwise, resetting any partial
+progress. Also collapses six `COUNT` queries into one `GROUP BY`.
+
+### The dashboard shim left the module spec behind (#3 follow-up)
+
+v2.0.8's shim set `__package__` but not the matching `__spec__`, so every
+relative import emitted `DeprecationWarning: __package__ != __spec__.parent` on
+Python 3.14+ — which becomes an error on a later interpreter. `parent` is a
+read-only property derived from `name`, so the spec is renamed to match;
+`__name__` and the `sys.modules` key are untouched because pydantic/FastAPI
+resolve the module's string annotations through `__name__`.
+
+### Heartbeats stacked duplicate leaders (#6)
+
+`heartbeat()` spawned unconditionally, so a leader whose run outlasted the cron
+interval (20+ minutes under model contention) got another leader on top of it —
+reported as ten concurrent leaders for one project, all holding connections to
+the same endpoint. The project JSON stored `last_heartbeat_pid` but nothing read
+it.
+
+Now `live_heartbeat_pids()` prunes exited PIDs and returns the running ones, and
+`update_heartbeat_status()` records each spawned PID into that list (append +
+prune rather than a single slot, since two leaders can overlap momentarily and
+dropping a live PID early is what caused the pileup). All three heartbeat paths
+gate on it and return `skipped_in_flight`.
+
+The gate fails **open**: a redundant leader wastes a slot, while a gate that
+wrongly reports "in flight" leaves the project with no leader at all. The
+script-level `flock` is not a substitute — it only guards the `Popen` call,
+which returns immediately while the leader runs detached.
+
+### Tasks could be assigned to roles that do not exist (#4)
+
+`agora_create_task` wrote an unknown role string to the task verbatim
+(`get_assignee_for_role` returns `None` and the original value was kept), so the
+dispatcher spawned a profile that does not exist: the worker crashed, re-spawned,
+and the task stayed `running` forever. An assignee that is neither a role nor a
+worker on the team is now refused with the valid roles in the hint. A concrete
+worker name and an omitted assignee still pass.
+
+### Smaller
+
+- `update_project_agents_md` no longer discards a failed Kanban Summary
+  silently — a dropped summary renders identically to a clean board.
+- The test suite's editable-finder patch looks the finder up by module name
+  instead of "the first module exposing a MAPPING dict".
+
+**Tests:** 77 passing. Three of the new ones fail on v2.0.9.
+
 ## [2.0.9] — 2026-10-06
 
 ### The completion gate skipped pending work, so a project could stop mid-discussion
