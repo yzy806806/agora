@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from ..utils import find_hermes_binary, get_global_root
+from ..utils import find_hermes_binary, get_global_root, capture_hermes_import_env
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +316,8 @@ def spawn_discussion_driver(
 
         # Build the runner script content
         # Use repr() for safe string embedding
+        _runner_core_roots, _runner_deps_dirs = capture_hermes_import_env()
+        _import_paths = _runner_core_roots + _runner_deps_dirs
         runner_script = f'''\
 #!/usr/bin/env python3
 """Auto-generated discussion runner for motion {motion_id}."""
@@ -357,6 +359,21 @@ print(f"Discussion result: {{result.decision}} ({{result.steps_completed}} steps
         runner_path.write_text(runner_script)
 
         # Spawn it in the background
+        #
+        # Hermes' own process runs with the core tree AND the selected
+        # environment's site-packages on sys.path — the launcher inserts the
+        # first, hermes_bootstrap -> pm.environments.activate_dependencies the
+        # second. A child inherits neither, and sys.executable is Hermes'
+        # bundled tool Python, so without them the runner cannot import
+        # hermes_cli (or any third-party dependency) and the driver dies on
+        # import. Both paths were discovered from sys.path when this file was
+        # written — never guessed.
+        runner_env = dict(os.environ)
+        if _import_paths:
+            inherited = runner_env.get("PYTHONPATH", "")
+            runner_env["PYTHONPATH"] = os.pathsep.join(
+                _import_paths + ([inherited] if inherited else [])
+            )
         with open(log_path, "a") as log_fd:
             _proc = subprocess.Popen(
                 # Same interpreter as this process — a bare "python3" from PATH
@@ -364,6 +381,7 @@ print(f"Discussion result: {{result.decision}} ({{result.steps_completed}} steps
                 [sys.executable, str(runner_path)],
                 stdout=log_fd,
                 stderr=log_fd,
+                env=runner_env,
                 start_new_session=True,
                 cwd=workdir if workdir and os.path.isabs(workdir) and os.path.isdir(workdir) else None,
             )

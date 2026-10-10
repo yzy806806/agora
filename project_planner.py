@@ -31,6 +31,7 @@ from .agora.utils import (
     safe_name,
     find_hermes_binary,
     now_iso,
+    capture_hermes_import_env,
 )
 
 logger = logging.getLogger(__name__)
@@ -436,6 +437,31 @@ if [ -z "$PYTHON" ]; then
 fi
 [ -z "$PYTHON" ] && PYTHON=python3
 
+# Hermes never runs on a correctly-chosen interpreter alone: its launcher puts
+# the core tree on sys.path, and hermes_bootstrap ->
+# pm.environments.activate_dependencies puts the selected environment's
+# site-packages there too. A process spawned by cron inherits neither, so
+# "$PYTHON" (Hermes' bundled tool Python) can import neither hermes_cli nor any
+# third-party dependency on its own. Both paths were discovered from sys.path
+# when this script was written — never guessed, so a layout that keeps core
+# outside $HERMES_HOME/hermes-agent still resolves.
+AGORA_CORE_ROOT="__AGORA_CORE_ROOT__"
+AGORA_DEPS_DIRS="__AGORA_DEPS_DIRS__"
+if [ -f "$AGORA_CORE_ROOT/hermes_cli/__init__.py" ]; then
+    _agora_paths="$AGORA_CORE_ROOT"
+    [ -n "$AGORA_DEPS_DIRS" ] && _agora_paths="$_agora_paths:$AGORA_DEPS_DIRS"
+    export PYTHONPATH="${_agora_paths}${PYTHONPATH:+:$PYTHONPATH}"
+elif ! "$PYTHON" -c "import hermes_cli" >/dev/null 2>&1; then
+    # The baked path is gone and this interpreter cannot import core either, so
+    # no heartbeat this script runs can read the kanban board. Say so and stop:
+    # the completion gate would otherwise defer forever, which is
+    # indistinguishable from a project that is still working. Only unreachable
+    # when both routes fail, so an install that merely moved keeps running.
+    echo "agora heartbeat: cannot import hermes_cli (baked core root: '$AGORA_CORE_ROOT')." >&2
+    echo "This script is regenerated when a project starts; start one to pick up the new path." >&2
+    exit 1
+fi
+
 # Locate the agora plugin directory — it must contain the agora/ submodule.
 PLUGIN="${AGORA_PLUGIN_PATH:-}"
 if [ -z "$PLUGIN" ]; then
@@ -479,7 +505,12 @@ print(json.dumps(heartbeat(), indent=2))
 PY
 } 2>&1 | tail -10
 """
+        _core_roots, _deps_dirs = capture_hermes_import_env()
         script_content = script_content.replace("__AGORA_GEN_PYTHON__", sys.executable)
+        script_content = script_content.replace(
+            "__AGORA_CORE_ROOT__", _core_roots[0] if _core_roots else ""
+        )
+        script_content = script_content.replace("__AGORA_DEPS_DIRS__", ":".join(_deps_dirs))
         if script_path.exists():
             try:
                 if script_path.read_text() == script_content:

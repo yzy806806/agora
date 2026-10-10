@@ -73,6 +73,42 @@ def get_profiles_root() -> Path:
         return Path.home() / ".hermes" / "profiles"
 
 
+def capture_hermes_import_env() -> tuple[list[str], list[str]]:
+    """Paths a spawned process needs before it can import Hermes core.
+
+    Returns ``(core_roots, deps_dirs)``.
+
+    Hermes does not run on a correctly-configured interpreter alone: its
+    launcher puts the core tree on ``sys.path``, and ``hermes_bootstrap`` ->
+    ``pm.environments.activate_dependencies`` puts the *selected* environment's
+    ``site-packages`` there too. Neither reaches a process we spawn, so a bare
+    interpreter cannot import ``hermes_cli`` — and even with the core tree the
+    third-party dependencies (``ruamel``, ``fastapi``, ``pydantic``, ...) are
+    missing. ``sys.executable`` is Hermes' bundled tool Python, which holds
+    neither.
+
+    Both are *discovered* from the live ``sys.path`` at generation time, where
+    the working configuration is visible — never guessed. An install layout
+    that keeps core somewhere other than ``<hermes_home>/hermes-agent`` still
+    resolves, and a still-valid path list simply has no effect when the child
+    already inherits a good environment.
+
+    Returns empty lists outside a Hermes process; callers keep their previous
+    behaviour in that case.
+    """
+    core_roots: list[str] = []
+    deps_dirs: list[str] = []
+    for entry in sys.path:
+        if not entry:
+            continue
+        candidate = Path(entry)
+        if (candidate / "hermes_cli" / "__init__.py").is_file():
+            core_roots.append(str(candidate))
+        elif candidate.name in ("site-packages", "dist-packages") and candidate.is_dir():
+            deps_dirs.append(str(candidate))
+    return core_roots, deps_dirs
+
+
 def find_hermes_binary() -> str:
     """Locate the ``hermes`` executable without hardcoding install layouts.
 

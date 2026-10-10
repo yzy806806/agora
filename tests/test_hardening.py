@@ -23,6 +23,7 @@ from hermes_plugins.agora.agora.discussion import agent_spawn
 from hermes_plugins.agora.agora.kanban_compat import kanban_db as kb
 from hermes_plugins.agora.agora import motion as motion_mod
 from hermes_plugins.agora.agora import chat
+from hermes_plugins.agora.agora import utils
 from hermes_plugins.agora import project_planner
 from hermes_plugins.agora.agora.worker_manager import _copy_global_env
 
@@ -308,6 +309,95 @@ def test_discussion_runner_is_valid_python(tmp_path, monkeypatch):
     body = runner.read_text()
     assert "from hermes_plugins.agora.agora.discussion.driver import DiscussionDriver" in body
     assert "sys.path.insert" not in body
+
+
+def test_capture_hermes_import_env_finds_the_core_tree_and_the_deps_dir(tmp_path, monkeypatch):
+    """A spawned process needs *both* paths, not just an interpreter.
+
+    Hermes' launcher puts the core tree on ``sys.path`` and ``hermes_bootstrap``
+    -> ``pm.environments.activate_dependencies`` puts the selected environment's
+    ``site-packages`` there. Neither reaches a child we spawn, so both have to
+    be discoverable at generation time — and discovered, never guessed, so an
+    install that keeps core outside ``$HERMES_HOME/hermes-agent`` still resolves.
+    """
+    core = tmp_path / "core"
+    (core / "hermes_cli").mkdir(parents=True)
+    (core / "hermes_cli" / "__init__.py").write_text("")
+    deps = tmp_path / "site-packages"
+    deps.mkdir()
+    unrelated = tmp_path / "elsewhere"
+    unrelated.mkdir()
+
+    monkeypatch.setattr(sys, "path", [str(core), str(deps), str(unrelated)] + sys.path)
+    core_roots, deps_dirs = utils.capture_hermes_import_env()
+
+    assert str(core) in core_roots
+    assert str(deps) in deps_dirs
+    # A plain directory is neither: only the two defined shapes qualify.
+    assert str(unrelated) not in core_roots
+    assert str(unrelated) not in deps_dirs
+
+
+def test_heartbeat_script_bakes_the_hermes_import_paths(tmp_path, monkeypatch):
+    """The heartbeat runs under a tool Python that has neither path.
+
+    ``sys.executable`` is Hermes' bundled tool Python, so the interpreter that
+    generated the script is not sufficient on its own, and cron adds nothing.
+    A board read that fails on every heartbeat makes the completion gate defer
+    forever, which looks exactly like a project that is still working.
+    """
+    core = tmp_path / "core"
+    (core / "hermes_cli").mkdir(parents=True)
+    (core / "hermes_cli" / "__init__.py").write_text("")
+    deps = tmp_path / "site-packages"
+    deps.mkdir()
+
+    monkeypatch.setattr(sys, "path", [str(core), str(deps)] + sys.path)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_KANBAN_DB", raising=False)
+    project_planner._ensure_heartbeat_script()
+
+    body = (tmp_path / "scripts" / "leader_heartbeat.sh").read_text()
+    assert f'AGORA_CORE_ROOT="{core}"' in body
+    assert str(deps) in body
+    assert "export PYTHONPATH=" in body
+    # When the baked path stops resolving it must say so and stop, not run a
+    # heartbeat that silently cannot read the board.
+    assert "hermes_cli/__init__.py" in body
+    assert "exit 1" in body
+
+
+def test_discussion_runner_env_carries_the_hermes_import_paths(tmp_path, monkeypatch):
+    """The runner is spawned by a tool-Python interpreter with no path setup."""
+    core = tmp_path / "core"
+    (core / "hermes_cli").mkdir(parents=True)
+    (core / "hermes_cli" / "__init__.py").write_text("")
+    deps = tmp_path / "site-packages"
+    deps.mkdir()
+
+    monkeypatch.setattr(sys, "path", [str(core), str(deps)] + sys.path)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_KANBAN_DB", raising=False)
+
+    captured: dict = {}
+
+    class _FakePopen:
+        def __init__(self, *a, **k):
+            self.pid = 1
+            captured.update(k)
+
+    monkeypatch.setattr(agent_spawn.subprocess, "Popen", _FakePopen)
+    res = agent_spawn.spawn_discussion_driver(
+        motion_id="m-paths", chair="leader", participants=["dev"],
+        workdir=str(tmp_path), project_name="demo", max_steps=1,
+    )
+    assert res["status"] == "spawned"
+
+    entries = captured["env"]["PYTHONPATH"].split(os.pathsep)
+    assert entries[0] == str(core)
+    assert str(deps) in entries
+    # Carried in the environment, not by putting the plugin root on sys.path.
+    assert "sys.path.insert" not in Path(res["runner"]).read_text()
 
 
 # --------------------------------------------------------------------------- #

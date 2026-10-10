@@ -581,9 +581,23 @@ def check_project_complete(project_name: str) -> bool:
             # stopping the project with work still on it — the same failure
             # mode as querying too few statuses. Defer and make the leader
             # produce two fresh consecutive signals once the board is readable.
-            logger.warning(
+            logger.error(
                 "Project '%s': PROJECT_COMPLETE deferred — could not read the board", project_name,
             )
+            # Surface it to the leader too, not just the server log. The
+            # transient causes above clear themselves; an environmental one (a
+            # heartbeat process that cannot import hermes_cli, a moved install)
+            # fails on every heartbeat, and a defer that repeats forever is a
+            # silently disabled completion gate rather than a retry.
+            try:
+                with open(log_path, "a") as _lf:
+                    _lf.write(
+                        "\n[SYSTEM] PROJECT_COMPLETE deferred: the kanban board could not be "
+                        "read on this heartbeat. If this repeats, the heartbeat process "
+                        "cannot import hermes_cli — look for ModuleNotFoundError in its log.\n"
+                    )
+            except Exception:
+                pass
             if proj.get("complete_count", 0) > 0:
                 _update_complete_count(project_name, 0)
             return False
