@@ -120,7 +120,7 @@ if PKG not in sys.modules:
 
 @pytest.fixture(autouse=True)
 def _hermetic_kanban_db(tmp_path, monkeypatch):
-    """Pin the kanban DB inside the test's tmp dir.
+    """Pin the whole kanban home inside the test's tmp dir.
 
     The board fixtures call ``kanban_db.connect(board=...)``, which resolves its
     path from ``HERMES_KANBAN_DB`` / the Hermes home. Without this the suite
@@ -128,8 +128,16 @@ def _hermetic_kanban_db(tmp_path, monkeypatch):
     machine where it is not, every board fixture errors with "unable to open
     database file" and the failures look like real ones. Isolating per test also
     means a test can never touch a real board.
+
+    ``HERMES_KANBAN_DB`` covers only the *default* database. Named boards live
+    under ``kanban_home()/kanban/boards``, and ``kanban_home()`` reads
+    ``HERMES_KANBAN_HOME`` — not ``HERMES_HOME`` — before falling back to the
+    global root that is shared across profiles by design. Without pinning it, a
+    fixture that creates a named board writes into the operator's real
+    ``~/.hermes/kanban/boards/``.
     """
     monkeypatch.setenv("HERMES_KANBAN_DB", str(tmp_path / "kanban.db"))
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(tmp_path / "kanban-home"))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
     return tmp_path / "kanban.db"
 
