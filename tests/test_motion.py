@@ -16,9 +16,9 @@ from hermes_plugins.agora.agora import chat, motion  # noqa: E402
 
 
 @pytest.fixture()
-def conn(tmp_path):
+def conn(tmp_path, board_connection):
     board = f"agora2-test-{os.getpid()}-{tmp_path.name}"
-    c = kb.connect(board=board)
+    c = board_connection(board)
     yield c, board
     try:
         c.execute("DELETE FROM tasks WHERE tenant = ?", (board,))

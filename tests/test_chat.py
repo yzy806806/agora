@@ -24,10 +24,10 @@ from hermes_plugins.agora.agora import chat  # noqa: E402
 
 
 @pytest.fixture()
-def chat_conn(tmp_path):
+def chat_conn(tmp_path, board_connection):
     """A kanban connection on a unique board, with cleanup of its rows."""
     board = f"agora2-test-{os.getpid()}-{tmp_path.name}"
-    conn = kb.connect(board=board)
+    conn = board_connection(board)
     yield conn, board
     try:
         conn.execute("DELETE FROM tasks WHERE tenant = ?", (board,))

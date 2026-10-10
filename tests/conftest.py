@@ -135,6 +135,25 @@ def _hermetic_kanban_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
+def board_connection():
+    """Factory: connect to a named board, creating it first.
+
+    The board fixtures want a board of their own so a test can never reach a
+    real one. Core refuses to open a board that was never created
+    (``ValueError: kanban board '<slug>' does not exist; create it with ...``),
+    which is not what any of these tests are about, so create it. ``create_board``
+    is idempotent (``mkdir -p`` semantics), so reuse across tests is free.
+    """
+    def _connect(name: str):
+        from hermes_plugins.agora.agora.kanban_compat import kanban_db as kb
+
+        kb.create_board(name)
+        return kb.connect(board=name)
+
+    return _connect
+
+
+@pytest.fixture()
 def temp_db(tmp_path, monkeypatch):
     """Monkeypatch motions._agora_db_path to return a path in a temp directory.
 

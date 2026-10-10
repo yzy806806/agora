@@ -202,9 +202,9 @@ def test_is_agora_owned_task():
 
 
 @pytest.fixture()
-def board_conn(tmp_path):
+def board_conn(tmp_path, board_connection):
     board = f"agora-hardening-{os.getpid()}-{tmp_path.name}"
-    c = kb.connect(board=board)
+    c = board_connection(board)
     yield c, board
     try:
         c.execute("DELETE FROM tasks WHERE tenant = ?", (board,))
