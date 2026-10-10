@@ -2,6 +2,39 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [2.0.11] — 2026-10-10
+
+Reported from a live install: the leader emitted `PROJECT_COMPLETE` 128 times
+in one project and `complete_count` stayed at 0, so the project never stopped.
+
+### Spawned processes were missing the half of Hermes' environment that makes core importable
+
+The heartbeat cron script and the discussion runner are both started with
+`sys.executable`, which is Hermes' bundled tool Python. That interpreter has
+neither the core tree nor the environment's `site-packages` on `sys.path` —
+Hermes supplies both itself (the launcher inserts the core tree, and
+`hermes_bootstrap` → `pm.environments.activate_dependencies` inserts the
+selected environment's `site-packages`). So `hermes_cli.kanban_db`, which
+`agora/kanban_compat.py` builds its bridge from at import time, could not be
+imported at all. Choosing a good interpreter — which both scripts already did —
+was not sufficient.
+
+`check_project_complete` fails closed on an unreadable board, so the completion
+gate deferred on every heartbeat and a project sat `active` indefinitely, with a
+warning as the only trace. Both paths are now captured from the live `sys.path`
+at generation time and handed to the child: the heartbeat script exports them as
+`PYTHONPATH`, the runner passes them in its spawn environment. Discovered, never
+guessed, so an install that keeps core outside `$HERMES_HOME/hermes-agent`
+resolves as well.
+
+### The heartbeat reports it rather than deferring silently
+
+If neither the baked path nor the interpreter can supply core, the script now
+says so and exits non-zero instead of running a heartbeat that cannot read the
+board. `check_project_complete` also logs an unreadable board at error level and
+writes a line into the heartbeat log the leader reads, so a permanent
+environmental failure is no longer indistinguishable from a transient lock.
+
 ## [2.0.10] — 2026-10-06
 
 Two reports from a live downstream install, plus fixes from a review pass over
