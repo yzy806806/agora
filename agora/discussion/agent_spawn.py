@@ -30,6 +30,20 @@ REPLY_MARKER = "DISCUSSION_REPLY:"
 # Stderr pattern for session_id (Hermes writes "session_id: <id>" on exit).
 SESSION_ID_PATTERN = re.compile(r"session_id:\s*(\S+)")
 
+# Toolsets every discussion speaker and chair is spawned with.
+#
+# This used to be the composite ``hermes-cli``. On current Hermes that bundle expands to
+# toolsets the gateway refuses for a ``-q`` session ("invalid_params (toolsets: not available
+# on this surface: kanban_attach, kanban_attach_url, ...)"), so every speaker and chair spawn
+# died before reaching the model and the motion closed as ``error`` with 0 steps. The explicit
+# list is the same working set without kanban. Set AGORA_SPEAKER_TOOLSETS (comma separated)
+# to widen or narrow it.
+DEFAULT_SPEAKER_TOOLSETS = "terminal,file,web,skills,todo,session_search,code_execution"
+
+
+def _speaker_toolsets() -> str:
+    return os.environ.get("AGORA_SPEAKER_TOOLSETS", "").strip() or DEFAULT_SPEAKER_TOOLSETS
+
 
 def spawn_agent_speak(
     profile_name: str,
@@ -124,7 +138,7 @@ def _run_agent_subprocess(
     ]
     if allow_unattended:
         cmd.extend(["--yolo", "--accept-hooks"])
-    cmd.extend(["--toolsets", "hermes-cli"])
+    cmd.extend(["--toolsets", _speaker_toolsets()])
     if session_id:
         cmd.extend(["--resume", session_id])
     cmd.extend(["chat", "-Q", "-q", prompt])

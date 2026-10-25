@@ -2,6 +2,24 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [Unreleased]
+
+### Discussion speakers were refused by the gateway on recent Hermes
+
+`spawn_agent_speak` launched every speaker and chair with `--toolsets hermes-cli`. That
+composite includes kanban toolsets which the Hermes gateway now refuses for a `-q` session
+(`invalid_params (toolsets: not available on this surface: kanban_attach, ...)`). The spawn died
+before the model was reached, the chair "failed to open", and the motion closed as `error`
+with 0 steps — with nothing but a line in `discussion_<id>.log` to say why.
+
+Speakers now get an explicit list, `terminal,file,web,skills,todo,session_search,code_execution`
+(`DEFAULT_SPEAKER_TOOLSETS`), i.e. the old working set minus kanban. `AGORA_SPEAKER_TOOLSETS`
+(comma separated) overrides it. Approval flags are untouched. Verified on Hermes v0.22.5: a
+3-participant motion across three providers ran to `adopted`.
+
+README troubleshooting: the "Unknown toolsets: agora" row no longer says the message is always
+cosmetic.
+
 ## [2.0.12] — 2026-10-12
 
 ### Reactivating a project left it without a chat channel

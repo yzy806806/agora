@@ -121,7 +121,7 @@ Resolved by `find_hermes_binary()` in `agora/utils.py`: `HERMES_BIN` override â†
 
 | Command | Used in | Purpose |
 |---------|---------|---------|
-| `hermes -p <profile> [--yolo --accept-hooks] --toolsets hermes-cli chat -Q -q <prompt>` | `agora/discussion/agent_spawn.py` | spawn a discussion speaker. The bypass flags appear **only** when the project set `allow_unattended` |
+| `hermes -p <profile> [--yolo --accept-hooks] --toolsets terminal,file,web,skills,todo,session_search,code_execution chat -Q -q <prompt>` (`AGORA_SPEAKER_TOOLSETS` overrides the list) | `agora/discussion/agent_spawn.py` | spawn a discussion speaker. The bypass flags appear **only** when the project set `allow_unattended` |
 | `hermes -p <profile> [--yolo --accept-hooks] --toolsets file,web,skills,todo,session_search,agora chat -Q -q <prompt>` | `agora/leader_loop.py` | spawn the leader for a heartbeat (restricted toolset, no terminal). Same gate |
 | `hermes cron create <schedule> --name <name> --no-agent --script leader_heartbeat.sh --deliver local` | `project_planner.py` | create the heartbeat job |
 | `hermes cron list --json` | `project_planner.py` | verify a job still exists |
