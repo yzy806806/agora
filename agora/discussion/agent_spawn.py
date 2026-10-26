@@ -38,7 +38,22 @@ SESSION_ID_PATTERN = re.compile(r"session_id:\s*(\S+)")
 # died before reaching the model and the motion closed as ``error`` with 0 steps. The explicit
 # list is the same working set without kanban. Set AGORA_SPEAKER_TOOLSETS (comma separated)
 # to widen or narrow it.
-DEFAULT_SPEAKER_TOOLSETS = "terminal,file,web,skills,todo,session_search,code_execution"
+#
+# Explicit rather than another ``hermes-*`` bundle on purpose: a bundle is Hermes's to redefine,
+# and the failure mode here was silent, so a future core toolset refused on this surface would
+# break every discussion again with one log line as the only clue.
+#
+# ``memory`` is in the list deliberately. A worker's MEMORY.md accumulating across projects is
+# what makes it a team member rather than a role prompt, and dropping the bundle wholesale would
+# have taken it away without anyone noticing. ``vision`` (screenshots, diagrams) and
+# ``delegation`` (handing off a sub-question) are kept for the same reason. Absent on purpose:
+# ``kanban`` (refused on this surface), ``clarify`` (nobody is present to answer), and
+# ``cronjob``/``image_gen``/``tts``/``computer_use``, which are not what an unattended
+# discussion turn is for.
+DEFAULT_SPEAKER_TOOLSETS = (
+    "terminal,file,web,vision,skills,todo,memory,session_search,"
+    "code_execution,delegation"
+)
 
 
 def _speaker_toolsets() -> str:

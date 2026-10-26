@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v2.0.12**
+> Multi-role self-driving team plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) — **v2.0.13**
 
 [中文](./README.CN.md) | **English**
 
@@ -174,8 +174,7 @@ Natural completion (the leader emitting `PROJECT_COMPLETE` twice in a row) perfo
 | No Agora tab in the dashboard | You restarted only the gateway → `hermes dashboard restart` |
 | Worker says "No inference provider configured" | The global model config is missing, or the profile was provisioned without it. Check `~/.hermes/.env` and `~/.hermes/profiles/<name>/.env` (the plugin provisions the profile via `hermes profile create --clone`, which is what copies it; re-create the worker to refresh) |
 | Workers keep crashing with 429/503 in the log | API rate limiting. Add `api_max_retries` (e.g. 50) to the worker profile, or globally `hermes config set agent.api_max_retries 50` |
-| "Unknown toolsets: agora" in the heartbeat log | A cosmetic ordering warning (CLI validation runs before plugin discovery finishes). Tools work fine — ignore it |
-| Heartbeat or motion dies at once with `invalid_params (toolsets: unknown or invalid toolset name: 'agora')` | On recent Hermes the gateway validates `--toolsets` and **refuses** the session, so this is no longer cosmetic. Seen when the worker profiles were created *after* the gateway started: restarting the gateway (`hermes gateway restart`) fixed it. Check with `hermes -p <leader> chat -Q --toolsets file,agora -q ok` |
+| "Unknown toolsets: agora" / `invalid_params (toolsets: unknown or invalid toolset name: 'agora')` | Toolset names come from a registry built at gateway start, so a worker profile created *after* the gateway started is not in it yet. On older Hermes this was a cosmetic ordering warning; on current Hermes the gateway **refuses** the session, so it is not cosmetic — `hermes gateway restart` fixes it |
 | Motion closes as `error` with 0 steps; discussion log says `toolsets: not available on this surface: kanban_...` | Speakers used to be spawned with the `hermes-cli` bundle, which includes kanban toolsets that recent Hermes refuses for `-q` sessions. Speakers now get an explicit list (`DEFAULT_SPEAKER_TOOLSETS` in `agent_spawn.py`); override it with `AGORA_SPEAKER_TOOLSETS=file,web,...` |
 
 More detail in the `agora-setup` skill's Troubleshooting section.

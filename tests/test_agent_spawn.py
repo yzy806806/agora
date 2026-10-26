@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 from hermes_plugins.agora.agora.discussion import agent_spawn
 from hermes_plugins.agora.agora.discussion.agent_spawn import _extract_reply
@@ -72,3 +73,38 @@ def test_spawn_unattended_flags_unchanged(monkeypatch):
     """The toolset change must not touch the approval gate."""
     assert "--yolo" not in _capture_cmd(monkeypatch)
     assert "--yolo" in _capture_cmd(monkeypatch, allow_unattended=True)
+
+
+def test_default_speaker_toolsets_keep_memory():
+    """Memory is why a worker is a team member rather than a role prompt.
+
+    Dropping the ``hermes-cli`` bundle to avoid the kanban refusal must not quietly
+    take worker memory with it: a speaker that cannot write MEMORY.md accumulates
+    nothing across projects.
+    """
+    names = {t.strip() for t in agent_spawn.DEFAULT_SPEAKER_TOOLSETS.split(",")}
+    assert "memory" in names
+    assert {"terminal", "file", "web", "skills"} <= names
+
+
+def test_no_source_line_spawns_with_the_hermes_cli_bundle():
+    """Invariant: nothing outside tests may spawn with ``--toolsets hermes-cli``.
+
+    That bundle carries ``kanban_*``, which a ``-q`` session refuses before the model
+    is reached while still exiting 0 — the failure mode that closed every motion with
+    ``error (0 steps)``. This guards the class, not just the one call site.
+    """
+    root = Path(__file__).resolve().parent.parent
+    offenders: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root)
+        if "__pycache__" in rel.parts or rel.parts[0] == "tests":
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("#", 1)[0]
+            if "--toolsets" in code and "hermes-cli" in code:
+                offenders.append(f"{rel}:{lineno}")
+    assert offenders == [], (
+        "spawned processes must not ask for the hermes-cli bundle (it carries "
+        f"kanban_* toolsets, refused in a -q session): {offenders}"
+    )

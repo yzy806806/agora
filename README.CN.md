@@ -1,6 +1,6 @@
 # Agora 🏛️
 
-> 让 Hermes Agent 变成一支自驱团队的多角色插件 — **v2.0.12**
+> 让 Hermes Agent 变成一支自驱团队的多角色插件 — **v2.0.13**
 
 **中文** | [English](./README.md)
 
@@ -168,10 +168,11 @@ agora_stop_project(name="myapp")
 | 启动后长时间无动作 | 心跳还没到（默认 15 分钟）。查 `hermes cron list` 确认 `heartbeat-<项目名>` 存在；或手动 Trigger |
 | Worker 不领取任务 | gateway 没在跑 → `hermes gateway status`。dispatcher 属于 gateway，不在跑就没人 spawn worker |
 | 讨论不启动 | `agora_list_motions(status="active")` 看是否卡在 0 步；leader 心跳会自动救援卡住的 motion |
+| motion 立刻以 `error` 0 步结束；讨论日志说 `toolsets: not available on this surface: kanban_...` | 发言者（speaker/chair）以前用 `hermes-cli` bundle 启动，其中包含 `kanban_*`，新版 Hermes 对 `-q` 会话直接拒绝。现在改为显式列表（`agent_spawn.py` 里的 `DEFAULT_SPEAKER_TOOLSETS`），可用 `AGORA_SPEAKER_TOOLSETS=file,web,...` 覆盖 |
 | Dashboard 里没有 Agora 标签 | 只重启了 gateway，没重启 dashboard → `hermes dashboard restart` |
 | Worker 报 "No inference provider configured" | 全局模型配置缺失，或该 profile 没带上它。检查 `~/.hermes/.env` 与 `~/.hermes/profiles/<名字>/.env`（插件是通过 `hermes profile create --clone` 创建 profile 的，复制由 Hermes 完成；重新创建该 worker 即可刷新） |
 | Worker 频繁崩溃、日志有 429/503 | API 限流。给 worker profile 加 `api_max_retries`（如 50），或全局 `hermes config set agent.api_max_retries 50` |
-| 心跳日志有 "Unknown toolsets: agora" | 装饰性时序警告（CLI 校验早于插件发现完成），工具实际正常，可忽略 |
+| 心跳日志有 "Unknown toolsets: agora" / `invalid_params (toolsets: unknown or invalid toolset name: 'agora')` | toolset 名来自 gateway 启动时构建的注册表，因此**在 gateway 启动之后**创建的 worker profile 还不在表里。旧版 Hermes 上这只是装饰性时序警告；当前版本 gateway 会**硬拒绝**该会话，不再是装饰性警告 —— `hermes gateway restart` 可解决 |
 
 更多排查细节见 `agora-setup` skill 的 Troubleshooting 章节。
 

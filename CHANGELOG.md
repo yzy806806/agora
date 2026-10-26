@@ -2,7 +2,7 @@
 
 All notable changes to the Agora plugin are documented here.
 
-## [Unreleased]
+## [2.0.13] — 2026-10-26
 
 ### Discussion speakers were refused by the gateway on recent Hermes
 
@@ -12,13 +12,31 @@ composite includes kanban toolsets which the Hermes gateway now refuses for a `-
 before the model was reached, the chair "failed to open", and the motion closed as `error`
 with 0 steps — with nothing but a line in `discussion_<id>.log` to say why.
 
-Speakers now get an explicit list, `terminal,file,web,skills,todo,session_search,code_execution`
-(`DEFAULT_SPEAKER_TOOLSETS`), i.e. the old working set minus kanban. `AGORA_SPEAKER_TOOLSETS`
-(comma separated) overrides it. Approval flags are untouched. Verified on Hermes v0.22.5: a
-3-participant motion across three providers ran to `adopted`.
+Speakers now get an explicit list, `DEFAULT_SPEAKER_TOOLSETS`:
 
-README troubleshooting: the "Unknown toolsets: agora" row no longer says the message is always
-cosmetic.
+```
+terminal,file,web,vision,skills,todo,memory,session_search,code_execution,delegation
+```
+
+— the old working set minus kanban, **plus `memory`, `vision` and `delegation`**, which the
+first cut of this fix dropped. `memory` in particular is why a worker is a team member rather
+than a role prompt: a speaker that cannot write `MEMORY.md` accumulates nothing across projects,
+and its absence would have been as silent as the original failure. Deliberately absent:
+`kanban` (refused here), `clarify` (nobody is present to answer), and
+`cronjob`/`image_gen`/`tts`/`computer_use`. `AGORA_SPEAKER_TOOLSETS` (comma separated) overrides
+the list; approval flags are untouched.
+
+An explicit list rather than another `hermes-*` bundle on purpose: a bundle is Hermes's to
+redefine, and this failure was silent, so a future core toolset refused on this surface would
+break every discussion again with one log line as the only clue.
+
+Evidence: verified on Hermes v0.22.5 — a 3-participant motion across three providers ran to
+`adopted`, and `hermes -p <profile> --toolsets <list> chat -Q -q ok` no longer returns
+`invalid_params`.
+
+README troubleshooting: the "Unknown toolsets: agora" row said the message was always cosmetic.
+On current Hermes the gateway **refuses** the session, so the row now says so (and
+`hermes gateway restart` is the fix). Chinese README synced.
 
 ## [2.0.12] — 2026-10-12
 
