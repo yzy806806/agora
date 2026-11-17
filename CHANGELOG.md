@@ -2,6 +2,44 @@
 
 All notable changes to the Agora plugin are documented here.
 
+## [2.0.14] — 2026-11-17
+
+### `agora_create_worker` was unusable from v2.0.12 — it never created a profile
+
+Reported in #12 by @estovisioncontact-bit. The worker was provisioned with
+`hermes profile create <name> --clone --no-skills`, and core refuses that pair:
+
+```
+Error: --no-skills is mutually exclusive with --clone / --clone-from /
+--clone-all (cloning explicitly copies skills from the source profile).
+```
+
+(`hermes_cli/profiles.py`, `finish_profile_layout`.) The profile was never
+created, so every worker-dependent flow — teams, projects, discussions — was
+dead for anyone on v2.0.12 or v2.0.13. The refusal only ever surfaced in the
+`agora_create_worker` tool result.
+
+**Fixed** by cloning explicitly and undoing the skills copy afterwards:
+
+- `--clone-from default` (the profile holding the operator's config and keys —
+  what a bare `--clone` resolved to) with an explicit source still honoured.
+- New Step 1a empties the cloned `skills/` tree and writes core's
+  `.no-bundled-skills` marker, which is the state `--no-skills` would have
+  produced. Both halves matter: an empty tree alone is re-seeded by the next
+  `hermes update`, and the marker alone leaves the inherited tree in place.
+- Clone timeout raised 30s → 90s; the copy stage routinely ran past 30s.
+
+**Why eight weeks of green CI missed it.** The test that covered this asserted
+the *broken* shape (`--clone` and `--no-skills` both present, `--clone-from`
+absent) while stubbing out `profile create`, so the suite never executed the
+command it was asserting. It now asserts the supported shape, three tests cover
+the new helper, and a source-wide invariant refuses the pairing anywhere in the
+plugin.
+
+Verified end to end on a real profile: created, `config.yaml` cloned, the
+inherited skills tree removed, only `agora-awareness` left, marker present,
+`skills.external_dirs` injected, `SOUL.md` written by the role template.
+
 ## [2.0.13] — 2026-10-26
 
 ### Discussion speakers were refused by the gateway on recent Hermes
