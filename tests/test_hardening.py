@@ -180,8 +180,16 @@ def test_worker_provisioning_goes_through_core(tmp_path, monkeypatch):
     cmd = calls[0]["cmd"]
     assert cmd[:3] == ["hermes", "profile", "create"], cmd
     # Delegated, not hand-rolled: core does the cloning.
-    assert "--clone" in cmd and "--no-skills" in cmd, cmd
-    assert "--clone-from" not in cmd, cmd
+    #
+    # `--no-skills` must NOT ride along: core refuses it with any clone option
+    # ("--no-skills is mutually exclusive with --clone / --clone-from /
+    # --clone-all"), and this test previously asserted the pairing, which is how
+    # `agora_create_worker` stayed broken from v2.0.12 to v2.0.13 while the suite
+    # stayed green. The skills the clone copies are dropped afterwards instead.
+    assert "--clone-from" in cmd, cmd
+    assert cmd[cmd.index("--clone-from") + 1] == "default", cmd
+    assert "--no-skills" not in cmd, cmd
+    assert "--clone" not in cmd, "--clone-from already implies the clone"
     # The global root is the clone source, so the worker inherits the keys.
     assert calls[0]["env"]["HERMES_HOME"] == str(hermes_home)
     # And the plugin copied no credential file itself.
@@ -1340,3 +1348,76 @@ def test_heartbeat_pids_round_trip_a_fresh_entry(active_project):
     )["live_heartbeat_pids"]
     assert stored == [{"pid": os.getpid(), "at": stored[0]["at"]}], stored
     assert isinstance(stored[0]["at"], float), "the entry must record its age"
+
+
+# --------------------------------------------------------------------------- #
+# Worker provisioning, second half: undo what the clone copies                  #
+#                                                                             #
+# `--no-skills` cannot accompany any clone option, so the clone brings the      #
+# source profile's whole skills tree (43 entries on a stock install) and it has  #
+# to be undone afterwards — empty skills/ plus core's opt-out marker, which is  #
+# the state `--no-skills` would have produced.                                  #
+# --------------------------------------------------------------------------- #
+
+def test_profile_create_command_never_pairs_no_skills_with_a_clone():
+    from hermes_plugins.agora.agora import worker_manager as wm
+
+    cmd = wm._profile_create_command("hermes", "dev", "desc", None)
+
+    assert "--no-skills" not in cmd
+    assert "--clone" not in cmd, "--clone-from already implies the clone"
+    assert "--clone-from" in cmd
+    assert cmd[cmd.index("--clone-from") + 1] == "default"
+
+
+def test_profile_create_command_honours_an_explicit_source():
+    from hermes_plugins.agora.agora import worker_manager as wm
+
+    cmd = wm._profile_create_command("hermes", "dev", "desc", "research")
+
+    assert cmd[cmd.index("--clone-from") + 1] == "research"
+    assert "--no-skills" not in cmd
+
+
+def test_drop_cloned_skills_empties_the_tree_and_writes_the_marker(tmp_path):
+    from hermes_plugins.agora.agora import worker_manager as wm
+
+    skills = tmp_path / "skills"
+    (skills / "one").mkdir(parents=True)
+    (skills / "one" / "SKILL.md").write_text("x")
+    (skills / "two").mkdir()
+    (skills / "loose.md").write_text("y")
+
+    wm._drop_cloned_skills(tmp_path)
+
+    assert sorted(child.name for child in skills.iterdir()) == []
+    marker = tmp_path / wm.NO_BUNDLED_SKILLS_MARKER
+    assert marker.is_file()
+    assert "opted out of bundled-skill seeding" in marker.read_text()
+
+
+def test_drop_cloned_skills_tolerates_a_missing_skills_dir(tmp_path):
+    from hermes_plugins.agora.agora import worker_manager as wm
+
+    wm._drop_cloned_skills(tmp_path)
+
+    assert (tmp_path / wm.NO_BUNDLED_SKILLS_MARKER).is_file()
+
+
+def test_no_source_line_pairs_no_skills_with_a_clone():
+    """Invariant for the whole class: core raises on that combination, so any
+    call site rebuilding it breaks worker creation again."""
+    root = Path(__file__).resolve().parent.parent
+    offenders: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root)
+        if "__pycache__" in rel.parts or rel.parts[0] == "tests":
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("#", 1)[0]
+            if '"--no-skills"' in code and '"--clone' in code:
+                offenders.append(f"{rel}:{lineno}")
+    assert offenders == [], (
+        "--no-skills is mutually exclusive with --clone/--clone-from/--clone-all; "
+        f"core raises on the pair: {offenders}"
+    )

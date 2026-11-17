@@ -125,22 +125,11 @@ def create_worker(
     # points at the global root, so `--clone` resolves to the profile that holds the
     # user's real configuration and keys.
     hermes = find_hermes_binary()
-    create_cmd = [
-        hermes, "profile", "create", name,
-        "--description", description,
-    ]
-    if clone_from:
-        create_cmd += ["--clone-from", clone_from]
-    else:
-        # --no-skills: the worker is seeded with the agora-awareness skill and
-        # reads the shared skills directory through skills.external_dirs (Step 1c),
-        # so inheriting the source profile's whole skills tree into every worker is
-        # neither wanted nor free.
-        create_cmd += ["--clone", "--no-skills"]
+    create_cmd = _profile_create_command(hermes, name, description, clone_from)
     try:
         result = subprocess.run(
             create_cmd,
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=90,
             env={**os.environ, "HERMES_HOME": str(profiles_root.parent)},
         )
         if result.returncode != 0:
@@ -150,6 +139,17 @@ def create_worker(
             }
     except Exception as exc:
         return {"error": f"Failed to create profile: {exc}"}
+
+    # Step 1a: Undo the skills copy that cloning implies.
+    #
+    # `--no-skills` writes core's opt-out marker and does nothing else, but it
+    # cannot be combined with a clone, so the clone brings the source profile's
+    # whole skills tree along and this puts the profile back to the opted-out
+    # shape. Both halves matter: an empty skills/ alone would be re-seeded by
+    # the next `hermes update`, and the marker alone would leave the inherited
+    # tree in place.
+    if not clone_from:
+        _drop_cloned_skills(profile_dir)
 
     # Step 1b: Ensure compression.in_place: true so session IDs don't change
     # on context compression — --resume <session_id> always works.
@@ -456,6 +456,72 @@ def _patch_config_toolsets(config_path: Path, toolsets: list[str]) -> None:
         logger.info("Wrote toolsets %s to %s", toolsets, config_path)
     except Exception as exc:
         logger.warning("Failed to patch toolsets in %s: %s", config_path, exc)
+
+
+NO_BUNDLED_SKILLS_MARKER = ".no-bundled-skills"
+_NO_BUNDLED_SKILLS_TEXT = (
+    "This profile opted out of bundled-skill seeding (`hermes profile create --no-skills`).\n"
+    "Delete this file to re-enable sync on the next `hermes update`.\n"
+)
+
+
+def _profile_create_command(
+    hermes: str, name: str, description: str, clone_from: str | None,
+) -> list[str]:
+    """The ``hermes profile create`` invocation for a worker.
+
+    Always clones — that is how core supplies ``config.yaml`` and ``.env`` under
+    catalog rule 11 — and the source defaults to the ``default`` profile, the one
+    holding the operator's config and keys (what a bare ``--clone`` resolved to).
+
+    ``--no-skills`` is deliberately absent: core refuses it alongside any clone
+    option (``cloning explicitly copies skills from the source profile``), and
+    pairing the two made ``agora_create_worker`` fail outright for every caller
+    between v2.0.12 and v2.0.13. The skills the clone brings along are undone
+    afterwards by :func:`_drop_cloned_skills`, which reaches the state core's
+    opt-out flag would have produced.
+    """
+    return [
+        hermes, "profile", "create", name,
+        "--description", description,
+        "--clone-from", clone_from or "default",
+    ]
+
+
+def _drop_cloned_skills(profile_dir: Path) -> None:
+    """Empty the cloned ``skills/`` tree and write core's opt-out marker.
+
+    Core's ``--no-skills`` and its clone options are mutually exclusive, so a
+    worker provisioned by cloning inherits the source profile's whole skills
+    tree (43 entries on a stock install). Agora wants the shape ``--no-skills``
+    would have left instead: an empty profile-local ``skills/`` directory plus
+    ``.no-bundled-skills``, which core's seeder and ``hermes update`` both read
+    as "leave this profile's skills alone".
+
+    Shared skills stay reachable through ``skills.external_dirs`` (Step 1c), and
+    the worker still writes new skills into its own ``skills/`` directory.
+    """
+    skills_dir = profile_dir / "skills"
+    if skills_dir.is_dir():
+        for child in skills_dir.iterdir():
+            try:
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink()
+            except OSError as exc:
+                # Not fatal — the worker runs fine with inherited skills — but
+                # say so rather than implying a clean profile-local tree.
+                logger.warning("Could not remove cloned skill %s: %s", child, exc)
+
+    try:
+        (profile_dir / NO_BUNDLED_SKILLS_MARKER).write_text(_NO_BUNDLED_SKILLS_TEXT)
+    except OSError as exc:
+        logger.warning(
+            "Could not write %s for %s: %s — the next `hermes update` may "
+            "re-seed bundled skills into this worker.",
+            NO_BUNDLED_SKILLS_MARKER, profile_dir.name, exc,
+        )
 
 
 def _inject_external_skills(config_path: Path, hermes_root: Path) -> None:
