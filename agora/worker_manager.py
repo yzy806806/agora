@@ -121,26 +121,22 @@ def create_worker(
     # Catalog rule 11: credentials come through Hermes, never from files. Core's
     # own provisioning copies config.yaml and .env for the new profile (tightening
     # the copy to owner-only), so the plugin asks for a profile instead of reading
-    # the user's credential file itself. With no explicit source, HERMES_HOME below
-    # points at the global root, so `--clone` resolves to the profile that holds the
-    # user's real configuration and keys.
+    # the user's credential file itself. We explicitly clone from the "default"
+    # profile (which holds the user's real configuration and keys). The CLI does
+    # not allow --no-skills with --clone-from, so we clone with skills and then
+    # replace the skills/ directory with our own (seeded with agora-awareness and
+    # external_dirs pointing to global skills).
     hermes = find_hermes_binary()
     create_cmd = [
         hermes, "profile", "create", name,
         "--description", description,
     ]
-    if clone_from:
-        create_cmd += ["--clone-from", clone_from]
-    else:
-        # --no-skills: the worker is seeded with the agora-awareness skill and
-        # reads the shared skills directory through skills.external_dirs (Step 1c),
-        # so inheriting the source profile's whole skills tree into every worker is
-        # neither wanted nor free.
-        create_cmd += ["--clone", "--no-skills"]
+    source_profile = clone_from or "default"
+    create_cmd += ["--clone-from", source_profile]
     try:
         result = subprocess.run(
             create_cmd,
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=90,
             env={**os.environ, "HERMES_HOME": str(profiles_root.parent)},
         )
         if result.returncode != 0:
@@ -168,6 +164,15 @@ def create_worker(
     # Without this, workers can't see plugins installed in the global
     # ~/.hermes/plugins/ (e.g. agora itself) and their tools are unavailable.
     _link_global_plugins(profile_dir, profiles_root.parent)
+
+    # Step 1e: Replace cloned skills/ with our own (agora-awareness + external_dirs).
+    # The CLI doesn't allow --no-skills with --clone-from, so we wipe the cloned
+    # skills tree and recreate a minimal one.
+    import shutil
+    skills_dir = profile_dir / "skills"
+    if skills_dir.exists():
+        shutil.rmtree(skills_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 2: Write SOUL.md
     if template is not None:

@@ -147,6 +147,14 @@ def _run_agent_subprocess(
     that was just installed. Projects opt in via ``allow_unattended`` on
     ``agora_start_project``.
     """
+    # Isolate this worker's state.db from the multiplex gateway by giving it
+    # its own HERMES_RUNTIME_DIR. This prevents DeletedWalGenerationError when
+    # the gateway holds the main state.db open for the same profile.
+    from ..utils import get_global_root
+    worker_runtime = get_global_root() / "cache" / "runtime" / profile_name
+    worker_runtime.mkdir(parents=True, exist_ok=True)
+    env["HERMES_RUNTIME_DIR"] = str(worker_runtime)
+
     cmd = [
         hermes_bin,
         "-p", profile_name,

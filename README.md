@@ -61,6 +61,21 @@ Enable it only for a working directory you are willing to let agents modify
 unattended. The flag lives in the project registry (`allow_unattended`) and can
 be turned on later by restarting the project with `allow_unattended=True`.
 
+### WAL isolation with multiplex gateway
+
+When Hermes' multiplex gateway runs, it holds `state.db` open for every profile.
+If a discussion driver spawns `hermes -p <profile> chat` as a subprocess, that
+subprocess opens the same `state.db` → `DeletedWalGenerationError` (SQLite WAL
+split-brain). Agora v2.0.14 isolates each worker by setting
+`HERMES_RUNTIME_DIR=~/.hermes/cache/runtime/<profile>/` before spawning, so each
+worker gets its own `state.db` and never contends with the gateway.
+
+No operator action required — the patch is applied automatically in
+`plugins/agora/agora/discussion/agent_spawn.py` (`_run_agent_subprocess`).
+If you see `DeletedWalGenerationError` for a worker profile after upgrading,
+ensure you are running Agora v2.0.14+ and restart the gateway:
+`hermes gateway restart`.
+
 ---
 
 ## Quick Start
