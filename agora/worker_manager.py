@@ -121,9 +121,9 @@ def create_worker(
     # Catalog rule 11: credentials come through Hermes, never from files. Core's
     # own provisioning copies config.yaml and .env for the new profile (tightening
     # the copy to owner-only), so the plugin asks for a profile instead of reading
-    # the user's credential file itself. With no explicit source, HERMES_HOME below
-    # points at the global root, so `--clone` resolves to the profile that holds the
-    # user's real configuration and keys.
+    # the user's credential file itself. The clone source is always explicit
+    # (``--clone-from default`` unless the caller names one) so the worker
+    # inherits the profile that holds the user's real configuration and keys.
     hermes = find_hermes_binary()
     create_cmd = _profile_create_command(hermes, name, description, clone_from)
     try:
@@ -493,20 +493,26 @@ def _drop_cloned_skills(profile_dir: Path) -> None:
 
     Core's ``--no-skills`` and its clone options are mutually exclusive, so a
     worker provisioned by cloning inherits the source profile's whole skills
-    tree (43 entries on a stock install). Agora wants the shape ``--no-skills``
+    tree. Agora wants the shape ``--no-skills``
     would have left instead: an empty profile-local ``skills/`` directory plus
     ``.no-bundled-skills``, which core's seeder and ``hermes update`` both read
     as "leave this profile's skills alone".
 
     Shared skills stay reachable through ``skills.external_dirs`` (Step 1c), and
     the worker still writes new skills into its own ``skills/`` directory.
+
+    Only the default clone is undone: an explicit ``clone_from`` is a request for
+    that profile as it is, skills included, so its tree is left untouched.
     """
     skills_dir = profile_dir / "skills"
     if skills_dir.is_dir():
         for child in skills_dir.iterdir():
             try:
                 if child.is_dir() and not child.is_symlink():
-                    shutil.rmtree(child, ignore_errors=True)
+                    # Not ignore_errors: a half-removed tree would otherwise pass
+                    # for a clean one, and this profile is supposed to see only
+                    # its own skills plus the shared external dirs.
+                    shutil.rmtree(child)
                 else:
                     child.unlink()
             except OSError as exc:
